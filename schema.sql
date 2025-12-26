@@ -219,7 +219,7 @@ CREATE TRIGGER update_inventory_items_timestamp
 
 -- Admin user (password: admin123)
 INSERT INTO admin_config (id, password_hash, name, bio)
-VALUES (1, '$2a$10$rGvX4hLQjHYKJFQxKJHvT.yX5pZqN0H6tKJQZXJxKJQxKJHvT', 'Admin', 'Restaurant Manager')
+VALUES (1, '$2b$10$GSWSH5yjfZw9guVGyoiVcOx4/X1UEJH4TWTmZV0Y/1irbDtUx98l6', 'Admin', 'Restaurant Manager')
     ON CONFLICT (id) DO NOTHING;
 
 -- Sample categories
