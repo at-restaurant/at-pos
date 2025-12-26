@@ -1,0 +1,38 @@
+{
+  "name": "rt-restaurant-pos",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "sync": "browser-sync start --proxy \"localhost:3000\" --files \"app/**/*.{js,ts,tsx,css}\",\"components/**/*.{js,ts,tsx,css}\"",
+    "build": "next build",
+    "start": "next start",
+    "lint": "biome check",
+    "format": "biome format --write"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.87.1",
+    "cloudinary": "^2.8.0",
+    "html2canvas": "^1.4.1",
+    "lucide-react": "^0.561.0",
+    "next": "16.0.10",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "recharts": "^3.6.0",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.0",
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/bcryptjs": "^3.0.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "babel-plugin-react-compiler": "1.0.0",
+    "bcryptjs": "^3.0.3",
+    "browser-sync": "^3.0.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5"
+  }
+}
