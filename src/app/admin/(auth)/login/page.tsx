@@ -68,7 +68,7 @@ export default function AdminLoginPage() {
                         </div>
                     </div>
                     <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Panel</h1>
-                    <p className="text-sm text-gray-600">RT Restaurant Management System</p>
+                    <p className="text-sm text-gray-600">AT Restaurant Management System</p>
                     <div className={`inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full text-xs font-medium border ${isOnline ? 'bg-green-50 border-green-200 text-green-700' : 'bg-yellow-50 border-yellow-200 text-yellow-700'}`}>
                         {isOnline ? <><div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />Online Mode</> : <><div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />Offline Mode</>}
                     </div>
@@ -138,7 +138,7 @@ export default function AdminLoginPage() {
                 </div>
 
                 <div className="mt-6 text-center">
-                    <p className="text-xs text-gray-500">© 2025 RT Restaurant. All rights reserved.</p>
+                    <p className="text-xs text-gray-500">© 2025 AT Restaurant. All rights reserved.</p>
                 </div>
             </div>
         </div>

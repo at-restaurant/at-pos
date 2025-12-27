@@ -17,12 +17,12 @@ import '@/lib/db/realtimeSync'
 const geist = Geist({ variable: "--font-geist", subsets: ["latin"] })
 
 export const metadata: Metadata = {
-    title: "RT Restaurant - Management System",
+    title: "AT Restaurant - Management System",
     description: "Professional restaurant management with offline support",
     appleWebApp: {
         capable: true,
         statusBarStyle: 'default',
-        title: 'RT Restaurant'
+        title: 'AT Restaurant'
     }
 }
 

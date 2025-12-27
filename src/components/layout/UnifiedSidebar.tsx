@@ -17,7 +17,8 @@ const NAV = {
         { label: "Menu", icon: UtensilsCrossed, href: "/" },
         { label: "Tables", icon: LayoutGrid, href: "/tables" },
         { label: "Orders", icon: ShoppingBag, href: "/orders" },
-        { label: "Attendance", icon: Timer, href: "/attendance" }
+        { label: "Attendance", icon: Timer, href: "/attendance" },
+
     ],
     admin: [
         { label: "Dashboard", icon: Home, href: "/admin" },
@@ -25,7 +26,6 @@ const NAV = {
         { label: "Menu", icon: ChefHat, href: "/admin/menu" },
         { label: "Waiters", icon: Users, href: "/admin/waiters" },
         { label: "Tables", icon: LayoutGrid, href: "/admin/tables" },
-        { label: "Attendance", icon: Timer, href: "/admin/attendance" },
         { label: "History", icon: History, href: "/admin/history" },
         { label: "Settings", icon: Settings, href: "/admin/settings" }
     ]

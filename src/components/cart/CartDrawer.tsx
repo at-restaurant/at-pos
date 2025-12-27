@@ -1,4 +1,4 @@
-// src/components/cart/CartDrawer.tsx - CUSTOM QUANTITY INPUT
+// src/components/cart/CartDrawer.tsx - FIXED WITH CATEGORIES & DETAILS
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -23,19 +23,40 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('cash')
     const [showDetails, setShowDetails] = useState(false)
     const [details, setDetails] = useState({ customer_name: '', customer_phone: '', delivery_address: '', delivery_charges: 0 })
-
-    // Table occupancy detection
     const [tableWarning, setTableWarning] = useState<{ show: boolean; tableNumber: number; currentOrder?: any } | null>(null)
     const [confirmAddMore, setConfirmAddMore] = useState(false)
-
-    // ✅ Track quantity editing state
     const [editingQuantity, setEditingQuantity] = useState<{ [key: string]: string }>({})
-
-    // ✅ NEW: Custom tax percentage
-    const [customTaxPercent, setCustomTaxPercent] = useState<string>('0')
+    const [customTaxPercent, setCustomTaxPercent] = useState<string>('5')
     const [editingTax, setEditingTax] = useState(false)
 
+    // ✅ NEW: Category data for cart items
+    const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
+
     const supabase = createClient()
+
+    // ✅ Load menu categories for cart items
+    useEffect(() => {
+        loadMenuCategories()
+    }, [])
+
+    const loadMenuCategories = async () => {
+        const { data } = await supabase
+            .from('menu_items')
+            .select('id, menu_categories(name, icon)')
+
+        if (data) {
+            const categoryMap: { [key: string]: { name: string; icon: string } } = {}
+            data.forEach((item: any) => {
+                if (item.menu_categories) {
+                    categoryMap[item.id] = {
+                        name: item.menu_categories.name,
+                        icon: item.menu_categories.icon || '📋'
+                    }
+                }
+            })
+            setMenuCategories(categoryMap)
+        }
+    }
 
     useEffect(() => {
         if (cart.tableId && orderType === 'dine-in') {
@@ -74,14 +95,12 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         setTableWarning(null)
     }
 
-    // ✅ Handle quantity input change (only allow numbers)
     const handleQuantityChange = (itemId: string, value: string) => {
         if (value === '' || /^\d+$/.test(value)) {
             setEditingQuantity({ ...editingQuantity, [itemId]: value })
         }
     }
 
-    // ✅ Handle quantity input blur (apply changes)
     const handleQuantityBlur = (itemId: string) => {
         const value = editingQuantity[itemId]
         if (value && value !== '') {
@@ -94,26 +113,22 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 cart.updateQuantity(itemId, 1)
             }
         }
-        // Clear editing state
         const newState = { ...editingQuantity }
         delete newState[itemId]
         setEditingQuantity(newState)
     }
 
-    // ✅ Handle Enter key in quantity input
     const handleQuantityKeyDown = (e: React.KeyboardEvent, itemId: string) => {
         if (e.key === 'Enter') {
             (e.target as HTMLInputElement).blur()
         }
     }
 
-    // ✅ Handle focus - select all text for easy editing
     const handleQuantityFocus = (e: React.FocusEvent<HTMLInputElement>, itemId: string, currentQty: number) => {
         e.target.select()
         setEditingQuantity({ ...editingQuantity, [itemId]: currentQty.toString() })
     }
 
-    // ✅ NEW: Handle tax input
     const handleTaxChange = (value: string) => {
         if (value === '' || /^\d*\.?\d*$/.test(value)) {
             const num = parseFloat(value)
@@ -199,6 +214,17 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         }
     }
 
+    // ✅ Group items by category
+    const groupedItems = cart.items.reduce((acc: { [key: string]: typeof cart.items }, item) => {
+        const category = menuCategories[item.id]
+        const categoryKey = category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
+        if (!acc[categoryKey]) {
+            acc[categoryKey] = []
+        }
+        acc[categoryKey].push(item)
+        return acc
+    }, {})
+
     if (!isOpen) return null
 
     return (
@@ -208,7 +234,10 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-[var(--border)] bg-[var(--card)]">
-                    <h2 className="text-xl font-bold text-[var(--fg)]">Your Order</h2>
+                    <div>
+                        <h2 className="text-xl font-bold text-[var(--fg)]">Your Order</h2>
+                        <p className="text-xs text-[var(--muted)] mt-1">{cart.items.length} items • {Object.keys(groupedItems).length} categories</p>
+                    </div>
                     <button onClick={onClose} className="p-2 hover:bg-[var(--bg)] rounded-lg transition-colors">
                         <X className="w-5 h-5 text-[var(--muted)]" />
                     </button>
@@ -297,6 +326,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                     value={cart.tableId}
                                     onChange={e => cart.setTable(e.target.value)}
                                     className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                    style={{ colorScheme: 'dark' }}
                                 >
                                     <option value="">Select table</option>
                                     {tables.filter(t => t.status === 'available' || t.status === 'occupied').map(t => (
@@ -307,7 +337,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                 </select>
                             </div>
 
-                            {/* TABLE OCCUPANCY WARNING */}
                             {tableWarning?.show && (
                                 <div className="p-4 bg-yellow-500/10 border-2 border-yellow-600 rounded-lg">
                                     <div className="flex items-start gap-3">
@@ -355,6 +384,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                     value={cart.waiterId}
                                     onChange={e => cart.setWaiter(e.target.value)}
                                     className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                    style={{ colorScheme: 'dark' }}
                                 >
                                     <option value="">Select waiter</option>
                                     {waiters.map(w => (
@@ -418,70 +448,76 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         </>
                     )}
 
-                    {/* ✅ Cart Items with EDITABLE QUANTITY */}
+                    {/* ✅ Cart Items GROUPED BY CATEGORY */}
                     {cart.items.length > 0 && (
-                        <div className="space-y-2">
-                            <h3 className="text-sm font-semibold text-[var(--fg)] px-1">Order Items</h3>
-                            {cart.items.map(item => (
-                                <div key={item.id} className="p-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg hover:border-blue-400 transition-colors">
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div className="flex-1 min-w-0 pr-2">
-                                            <h4 className="font-semibold text-sm text-[var(--fg)] truncate">{item.name}</h4>
-                                            <p className="text-xs text-[var(--muted)] mt-0.5">PKR {item.price} each</p>
-                                        </div>
-                                        <span className="font-bold text-blue-600 text-sm whitespace-nowrap">
-                                            PKR {(item.price * item.quantity).toLocaleString()}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-semibold text-[var(--fg)] px-1">Order Items by Category</h3>
+
+                            {Object.entries(groupedItems).map(([category, items]) => (
+                                <div key={category} className="space-y-2">
+                                    <div className="flex items-center gap-2 px-2 py-1 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
+                                        <span className="text-sm font-bold text-[var(--fg)]">{category}</span>
+                                        <span className="ml-auto text-xs text-[var(--muted)] bg-blue-600/10 px-2 py-0.5 rounded-full">
+                                            {items.length} item{items.length > 1 ? 's' : ''}
                                         </span>
                                     </div>
 
-                                    {/* ✅ QUANTITY CONTROLS - NO HOVER */}
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => cart.updateQuantity(item.id, item.quantity - 1)}
-                                            disabled={item.quantity <= 1}
-                                            className="p-1.5 bg-red-600 text-white border-2 border-red-600 rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-[var(--bg)] disabled:text-[var(--muted)] disabled:border-[var(--border)]"
-                                            title="Decrease quantity"
-                                        >
-                                            <Minus className="w-4 h-4" />
-                                        </button>
+                                    {items.map(item => (
+                                        <div key={item.id} className="p-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg hover:border-blue-400 transition-colors ml-2">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div className="flex-1 min-w-0 pr-2">
+                                                    <h4 className="font-semibold text-sm text-[var(--fg)] truncate">{item.name}</h4>
+                                                    <p className="text-xs text-[var(--muted)] mt-0.5">PKR {item.price} each</p>
+                                                </div>
+                                                <span className="font-bold text-blue-600 text-sm whitespace-nowrap">
+                                                    PKR {(item.price * item.quantity).toLocaleString()}
+                                                </span>
+                                            </div>
 
-                                        {/* ✅ CUSTOM QUANTITY INPUT */}
-                                        <div className="relative flex-shrink-0">
-                                            <input
-                                                type="text"
-                                                inputMode="numeric"
-                                                value={editingQuantity[item.id] !== undefined ? editingQuantity[item.id] : item.quantity}
-                                                onChange={(e) => handleQuantityChange(item.id, e.target.value)}
-                                                onFocus={(e) => handleQuantityFocus(e, item.id, item.quantity)}
-                                                onBlur={() => handleQuantityBlur(item.id)}
-                                                onKeyDown={(e) => handleQuantityKeyDown(e, item.id)}
-                                                placeholder="Qty"
-                                                className="w-20 px-3 py-2 text-center font-bold text-sm text-[var(--fg)] bg-[var(--card)] border-2 border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all cursor-text"
-                                                maxLength={3}
-                                                title="Click to edit quantity (1-999)"
-                                            />
-                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] pointer-events-none text-[var(--muted)]">
-                                                ✏️
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => cart.updateQuantity(item.id, item.quantity - 1)}
+                                                    disabled={item.quantity <= 1}
+                                                    className="p-1.5 bg-red-600 text-white border-2 border-red-600 rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-[var(--bg)] disabled:text-[var(--muted)] disabled:border-[var(--border)]"
+                                                >
+                                                    <Minus className="w-4 h-4" />
+                                                </button>
+
+                                                <div className="relative flex-shrink-0">
+                                                    <input
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        value={editingQuantity[item.id] !== undefined ? editingQuantity[item.id] : item.quantity}
+                                                        onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                                                        onFocus={(e) => handleQuantityFocus(e, item.id, item.quantity)}
+                                                        onBlur={() => handleQuantityBlur(item.id)}
+                                                        onKeyDown={(e) => handleQuantityKeyDown(e, item.id)}
+                                                        placeholder="Qty"
+                                                        className="w-20 px-3 py-2 text-center font-bold text-sm text-[var(--fg)] bg-[var(--card)] border-2 border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all cursor-text"
+                                                        maxLength={3}
+                                                    />
+                                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] pointer-events-none text-[var(--muted)]">
+                                                        ✏️
+                                                    </span>
+                                                </div>
+
+                                                <button
+                                                    onClick={() => cart.updateQuantity(item.id, item.quantity + 1)}
+                                                    disabled={item.quantity >= 999}
+                                                    className="p-1.5 bg-green-600 text-white border-2 border-green-600 rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-[var(--bg)] disabled:text-[var(--muted)] disabled:border-[var(--border)]"
+                                                >
+                                                    <Plus className="w-4 h-4" />
+                                                </button>
+
+                                                <button
+                                                    onClick={() => cart.removeItem(item.id)}
+                                                    className="ml-auto px-3 py-1.5 text-xs bg-red-600 text-white font-medium border border-red-600 rounded-lg transition-all active:scale-95"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
                                         </div>
-
-                                        <button
-                                            onClick={() => cart.updateQuantity(item.id, item.quantity + 1)}
-                                            disabled={item.quantity >= 999}
-                                            className="p-1.5 bg-green-600 text-white border-2 border-green-600 rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-[var(--bg)] disabled:text-[var(--muted)] disabled:border-[var(--border)]"
-                                            title="Increase quantity"
-                                        >
-                                            <Plus className="w-4 h-4" />
-                                        </button>
-
-                                        <button
-                                            onClick={() => cart.removeItem(item.id)}
-                                            className="ml-auto px-3 py-1.5 text-xs bg-red-600 text-white font-medium border border-red-600 rounded-lg transition-all active:scale-95"
-                                            title="Remove item"
-                                        >
-                                            Remove
-                                        </button>
-                                    </div>
+                                    ))}
                                 </div>
                             ))}
                         </div>

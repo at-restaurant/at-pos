@@ -8,7 +8,7 @@ import IconPicker from '@/components/ui/IconPicker'
 import { useToast } from '@/components/ui/Toast'
 
 interface CategoryManagerProps {
-    type: 'menu' | 'inventory'
+    type: 'menu' | 'inventory' | 'table'
     onCategoryChange?: () => void
 }
 
