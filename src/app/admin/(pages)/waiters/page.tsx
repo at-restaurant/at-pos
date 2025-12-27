@@ -1,9 +1,10 @@
+// src/app/admin/(pages)/waiters/page.tsx - WITH PROPER THEME SUPPORT
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSupabase } from '@/lib/hooks/useSupabase'
-import { Plus, TrendingUp } from 'lucide-react'
+import { Plus, TrendingUp, Wallet, DollarSign, X } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
@@ -32,10 +33,14 @@ export default function WaitersPage() {
     })
     const [statusFilter, setStatusFilter] = useState('all')
     const [modal, setModal] = useState<any>(null)
+    const [salaryModal, setSalaryModal] = useState<any>(null)
+    const [advanceModal, setAdvanceModal] = useState<any>(null)
     const [form, setForm] = useState({
-        name: '', phone: '', cnic: '', employee_type: 'waiter', profile_pic: ''
+        name: '', phone: '', cnic: '', employee_type: 'waiter', profile_pic: '', monthly_salary: ''
     })
+    const [advanceForm, setAdvanceForm] = useState({ amount: '', reason: '' })
     const [saving, setSaving] = useState(false)
+    const [advances, setAdvances] = useState<any[]>([])
     const toast = useToast()
     const supabase = createClient()
 
@@ -46,55 +51,145 @@ export default function WaitersPage() {
         return true
     })
 
+    const loadAdvances = async (waiterId: string) => {
+        const { data } = await supabase
+            .from('salary_advances')
+            .select('*')
+            .eq('waiter_id', waiterId)
+            .order('advance_date', { ascending: false })
+        setAdvances(data || [])
+    }
+
     const stats = [
         { label: 'Total', value: waiters.length, color: '#3b82f6', onClick: () => setStatusFilter('all'), active: statusFilter === 'all' },
         { label: 'Active', value: waiters.filter(w => w.is_active).length, color: '#10b981', onClick: () => setStatusFilter('active'), active: statusFilter === 'active' },
-        { label: 'On Duty', value: waiters.filter(w => w.is_on_duty).length, color: '#f59e0b', onClick: () => setStatusFilter('on-duty'), active: statusFilter === 'on-duty' },
-        { label: 'Inactive', value: waiters.filter(w => !w.is_active).length, color: '#ef4444', onClick: () => setStatusFilter('inactive'), active: statusFilter === 'inactive' }
+        { label: 'On Duty', value: waiters.filter(w => w.is_on_duty).length, color: '#f59e0b', onClick: () => setStatusFilter('on-duty'), active: statusFilter === 'on-duty' }
     ]
+
+    // Calculate advances for each waiter
+    const [waiterAdvances, setWaiterAdvances] = useState<Record<string, number>>({})
+
+    useEffect(() => {
+        if (waiters.length > 0) {
+            loadAllAdvances()
+        }
+    }, [waiters])
+
+    const loadAllAdvances = async () => {
+        const { data } = await supabase
+            .from('salary_advances')
+            .select('waiter_id, amount')
+
+        if (data) {
+            const advancesMap: Record<string, number> = {}
+            data.forEach((adv: any) => {
+                advancesMap[adv.waiter_id] = (advancesMap[adv.waiter_id] || 0) + parseFloat(adv.amount)
+            })
+            setWaiterAdvances(advancesMap)
+        }
+    }
+
+    const handlePaySalary = async (waiter: any) => {
+        const totalAdvances = waiterAdvances[waiter.id] || 0
+        const remaining = (waiter.monthly_salary || 0) - totalAdvances
+
+        if (remaining <= 0) {
+            toast.add('error', '❌ No remaining salary to pay!')
+            return
+        }
+
+        if (!confirm(`Pay PKR ${remaining.toLocaleString()} to ${waiter.name}?`)) return
+
+        try {
+            // Clear all advances for this waiter
+            const { error } = await supabase
+                .from('salary_advances')
+                .delete()
+                .eq('waiter_id', waiter.id)
+
+            if (error) throw error
+
+            toast.add('success', `✅ Paid PKR ${remaining.toLocaleString()} to ${waiter.name}`)
+            loadAllAdvances()
+        } catch (error: any) {
+            toast.add('error', `❌ ${error.message}`)
+        }
+    }
 
     const columns = [
         {
             key: 'staff',
             label: 'Staff',
             render: (row: any) => (
-                <div className="flex items-center gap-2 sm:gap-3">
+                <div className="flex items-center gap-3">
                     {row.profile_pic ? (
-                        <img src={row.profile_pic} alt={row.name} className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover border-2 border-blue-600" />
+                        <img src={row.profile_pic} alt={row.name} className="w-10 h-10 rounded-full object-cover border-2 border-blue-600" />
                     ) : (
-                        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold text-sm">
+                        <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
                             {row.name.charAt(0).toUpperCase()}
                         </div>
                     )}
                     <div className="min-w-0">
                         <p className="font-medium text-[var(--fg)] text-sm truncate">{row.name}</p>
-                        <p className="text-xs text-[var(--muted)] truncate">{row.cnic || row.phone}</p>
+                        <p className="text-xs text-[var(--muted)] truncate">{row.phone}</p>
                     </div>
                 </div>
             )
         },
-        { key: 'phone', label: 'Contact', mobileHidden: true, render: (row: any) => <span className="text-sm text-[var(--muted)]">{row.phone}</span> },
-        { key: 'type', label: 'Type', mobileHidden: true, render: (row: any) => <span className="inline-flex px-2 py-1 rounded-md text-xs font-medium bg-blue-600/10 text-blue-600 capitalize">{row.employee_type}</span> },
+        {
+            key: 'type',
+            label: 'Type',
+            mobileHidden: true,
+            render: (row: any) => <span className="px-2 py-1 rounded text-xs font-medium bg-blue-600/10 text-blue-600 capitalize">{row.employee_type}</span>
+        },
+        {
+            key: 'salary_info',
+            label: 'Salary Info',
+            render: (row: any) => {
+                const totalAdvances = waiterAdvances[row.id] || 0
+                const remaining = (row.monthly_salary || 0) - totalAdvances
+                return (
+                    <div className="text-right">
+                        <p className="text-sm font-bold text-green-600">PKR {(row.monthly_salary || 0).toLocaleString()}</p>
+                        <p className="text-xs text-orange-600">Advance: {totalAdvances.toLocaleString()}</p>
+                        <p className={`text-xs font-semibold ${remaining < 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                            Remaining: {Math.abs(remaining).toLocaleString()}
+                        </p>
+                    </div>
+                )
+            }
+        },
         {
             key: 'status',
             label: 'Status',
+            mobileHidden: true,
             render: (row: any) => (
                 <div className="flex items-center gap-1.5">
-                    <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${row.is_on_duty ? 'bg-green-500' : 'bg-gray-500'}`} />
-                    <span className="text-xs sm:text-sm text-[var(--fg)]">{row.is_on_duty ? 'On' : 'Off'}</span>
+                    <span className={`w-2 h-2 rounded-full ${row.is_on_duty ? 'bg-green-500' : 'bg-gray-500'}`} />
+                    <span className="text-sm text-[var(--fg)]">{row.is_on_duty ? 'On' : 'Off'}</span>
                 </div>
             )
         },
         {
-            key: 'performance',
-            label: 'Performance',
+            key: 'actions',
+            label: 'Actions',
             align: 'right' as const,
-            render: (row: any) => (
-                <div className="text-right">
-                    <p className="text-sm font-semibold text-[var(--fg)]">{row.total_orders || 0}</p>
-                    <p className="text-xs text-[var(--muted)]">PKR {(row.total_revenue || 0).toLocaleString()}</p>
-                </div>
-            )
+            render: (row: any) => {
+                const totalAdvances = waiterAdvances[row.id] || 0
+                const remaining = (row.monthly_salary || 0) - totalAdvances
+                return (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            handlePaySalary(row)
+                        }}
+                        disabled={remaining <= 0}
+                        className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 font-medium"
+                    >
+                        💰 Pay
+                    </button>
+                )
+            }
         }
     ]
 
@@ -104,13 +199,10 @@ export default function WaitersPage() {
             phone: waiter.phone || '',
             cnic: waiter.cnic || '',
             employee_type: waiter.employee_type || 'waiter',
-            profile_pic: waiter.profile_pic || ''
+            profile_pic: waiter.profile_pic || '',
+            monthly_salary: waiter.monthly_salary?.toString() || '0'
         } : {
-            name: '',
-            phone: '',
-            cnic: '',
-            employee_type: 'waiter',
-            profile_pic: ''
+            name: '', phone: '', cnic: '', employee_type: 'waiter', profile_pic: '', monthly_salary: '0'
         })
         setModal(waiter || {})
     }
@@ -133,6 +225,7 @@ export default function WaitersPage() {
                 cnic: form.cnic || null,
                 employee_type: form.employee_type,
                 profile_pic: form.profile_pic || null,
+                monthly_salary: parseFloat(form.monthly_salary) || 0,
                 is_active: true,
                 is_on_duty: modal?.id ? modal.is_on_duty : false,
                 total_orders: modal?.id ? modal.total_orders : 0,
@@ -150,12 +243,33 @@ export default function WaitersPage() {
             }
 
             setModal(null)
-            setForm({ name: '', phone: '', cnic: '', employee_type: 'waiter', profile_pic: '' })
+            setForm({ name: '', phone: '', cnic: '', employee_type: 'waiter', profile_pic: '', monthly_salary: '0' })
         } catch (error: any) {
-            console.error('Save error:', error)
             toast.add('error', `❌ ${error.message || 'Failed'}`)
         } finally {
             setSaving(false)
+        }
+    }
+
+    const handleAddAdvance = async () => {
+        const amount = parseFloat(advanceForm.amount)
+        if (!amount || amount <= 0) {
+            return toast.add('error', '❌ Enter valid amount')
+        }
+
+        try {
+            const { error } = await supabase.from('salary_advances').insert({
+                waiter_id: advanceModal.id,
+                amount,
+                reason: advanceForm.reason || 'Advance payment'
+            })
+
+            if (error) throw error
+            toast.add('success', `✅ PKR ${amount.toLocaleString()} advance added`)
+            setAdvanceForm({ amount: '', reason: '' })
+            loadAdvances(advanceModal.id)
+        } catch (error: any) {
+            toast.add('error', `❌ ${error.message}`)
         }
     }
 
@@ -166,7 +280,6 @@ export default function WaitersPage() {
             const { error } = await supabase.from('waiters').update({ is_active: false }).eq('id', id)
             if (error) throw error
 
-            // Delete image from Cloudinary if exists
             if (profilePic && profilePic.includes('cloudinary')) {
                 const publicId = profilePic.split('/').slice(-2).join('/').split('.')[0]
                 await fetch('/api/upload/cloudinary', {
@@ -183,71 +296,45 @@ export default function WaitersPage() {
         }
     }
 
-    const viewDetails = (row: any) => {
-        router.push(`/admin/waiters/${row.id}`)
-    }
-
     return (
         <ErrorBoundary>
             <>
                 <AutoSidebar items={useSidebarItems([
                     { id: 'all', label: 'All Staff', icon: '👥', count: waiters.length },
                     { id: 'active', label: 'Active', icon: '✅', count: stats[1].value },
-                    { id: 'on-duty', label: 'On Duty', icon: '🟢', count: stats[2].value },
-                    { id: 'inactive', label: 'Inactive', icon: '⭕', count: stats[3].value }
+                    { id: 'on-duty', label: 'On Duty', icon: '🟢', count: stats[2].value }
                 ], statusFilter, setStatusFilter)} title="Filters" />
 
                 <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
                     <header className="sticky top-0 z-20 bg-[var(--card)] border-b border-[var(--border)]">
-                        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-3 sm:py-4">
-                            <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0 flex-1">
-                                    <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-[var(--fg)] truncate">Staff</h1>
-                                    <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">{filtered.length} employees</p>
+                        <div className="max-w-7xl mx-auto px-4 py-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h1 className="text-2xl font-bold text-[var(--fg)]">Staff Management</h1>
+                                    <p className="text-sm text-[var(--muted)] mt-1">{filtered.length} employees</p>
                                 </div>
-                                <button onClick={() => openModal()} className="px-3 py-2 sm:px-4 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium text-sm active:scale-95">
+                                <button onClick={() => openModal()} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 active:scale-95">
                                     <Plus className="w-4 h-4" />
-                                    <span className="hidden sm:inline">Add</span>
+                                    Add Staff
                                 </button>
                             </div>
                         </div>
                     </header>
 
-                    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
+                    <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
                         <ResponsiveStatsGrid stats={stats} />
                         <UniversalDataTable
                             columns={columns}
                             data={filtered}
                             loading={loading}
                             searchable
-                            searchPlaceholder="Search..."
+                            searchPlaceholder="Search staff..."
                             onRowClick={openModal}
-                            renderMobileCard={(row) => (
-                                <div className="space-y-2">
-                                    <div className="flex items-center gap-2 sm:gap-3">
-                                        {row.profile_pic ? (
-                                            <img src={row.profile_pic} alt={row.name} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover" />
-                                        ) : (
-                                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">
-                                                {row.name.charAt(0)}
-                                            </div>
-                                        )}
-                                        <div className="flex-1 min-w-0">
-                                            <p className="font-semibold text-[var(--fg)] text-sm truncate">{row.name}</p>
-                                            <p className="text-xs text-[var(--muted)]">{row.phone}</p>
-                                        </div>
-                                        <span className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full ${row.is_on_duty ? 'bg-green-500' : 'bg-gray-500'}`} />
-                                    </div>
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-[var(--muted)]">{row.total_orders || 0} orders</span>
-                                        <span className="font-semibold">PKR {(row.total_revenue || 0).toLocaleString()}</span>
-                                    </div>
-                                </div>
-                            )}
                         />
                     </div>
                 </div>
 
+                {/* Staff Modal */}
                 <FormModal
                     open={!!modal}
                     onClose={() => setModal(null)}
@@ -256,10 +343,11 @@ export default function WaitersPage() {
                     submitLabel={saving ? 'Saving...' : (modal?.id ? 'Update' : 'Add')}
                 >
                     <FormGrid>
-                        <ResponsiveInput label="Name" value={form.name} onChange={(e: any) => setForm({ ...form, name: e.target.value })} placeholder="John Doe" required />
-                        <ResponsiveInput label="Phone" type="tel" value={form.phone} onChange={(e: any) => setForm({ ...form, phone: e.target.value })} placeholder="+92 300 1234567" required />
-                        <ResponsiveInput label="CNIC" value={form.cnic} onChange={(e: any) => setForm({ ...form, cnic: e.target.value })} placeholder="12345-1234567-1" hint="Optional" />
+                        <ResponsiveInput label="Name" value={form.name} onChange={(e: any) => setForm({ ...form, name: e.target.value })} required />
+                        <ResponsiveInput label="Phone" type="tel" value={form.phone} onChange={(e: any) => setForm({ ...form, phone: e.target.value })} required />
+                        <ResponsiveInput label="CNIC" value={form.cnic} onChange={(e: any) => setForm({ ...form, cnic: e.target.value })} hint="Optional" />
                         <ResponsiveInput label="Type" type="select" value={form.employee_type} onChange={(e: any) => setForm({ ...form, employee_type: e.target.value })} options={EMPLOYEE_TYPES} />
+                        <ResponsiveInput label="Monthly Salary (PKR)" type="number" value={form.monthly_salary} onChange={(e: any) => setForm({ ...form, monthly_salary: e.target.value })} placeholder="30000" />
                     </FormGrid>
 
                     <div className="mt-4">
@@ -283,18 +371,163 @@ export default function WaitersPage() {
                                 </div>
                             </div>
 
-                            <div className="flex gap-2">
-                                <button onClick={() => viewDetails(modal)} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm active:scale-95 flex items-center justify-center gap-2">
-                                    <TrendingUp className="w-4 h-4" />
-                                    View Stats
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    onClick={() => {
+                                        setSalaryModal(modal)
+                                        loadAdvances(modal.id)
+                                        setModal(null)
+                                    }}
+                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm active:scale-95 flex items-center justify-center gap-2"
+                                >
+                                    <Wallet className="w-4 h-4" />
+                                    Salary
                                 </button>
-                                <button onClick={() => del(modal.id, modal.profile_pic)} className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm active:scale-95">
-                                    Deactivate
+                                <button
+                                    onClick={() => router.push(`/admin/waiters/${modal.id}`)}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm active:scale-95 flex items-center justify-center gap-2"
+                                >
+                                    <TrendingUp className="w-4 h-4" />
+                                    Stats
                                 </button>
                             </div>
+
+                            <button onClick={() => del(modal.id, modal.profile_pic)} className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm active:scale-95">
+                                Deactivate Staff
+                            </button>
                         </div>
                     )}
                 </FormModal>
+
+                {/* Salary Management Modal */}
+                {salaryModal && (
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                        <div className="bg-[var(--card)] rounded-xl w-full max-w-2xl border border-[var(--border)] max-h-[90vh] overflow-y-auto">
+                            <div className="p-6 border-b border-[var(--border)] flex items-center justify-between sticky top-0 bg-[var(--card)] z-10">
+                                <div>
+                                    <h3 className="text-xl font-bold text-[var(--fg)]">Salary Management</h3>
+                                    <p className="text-sm text-[var(--muted)]">{salaryModal.name}</p>
+                                </div>
+                                <button onClick={() => setSalaryModal(null)} className="p-2 hover:bg-[var(--bg)] rounded-lg transition-colors">
+                                    <X className="w-5 h-5 text-[var(--muted)]" />
+                                </button>
+                            </div>
+
+                            <div className="p-6 space-y-6">
+                                {/* Salary Overview */}
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div className="p-4 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl text-white">
+                                        <p className="text-sm opacity-90 mb-2">Monthly Salary</p>
+                                        <p className="text-2xl font-bold">PKR {(salaryModal.monthly_salary || 0).toLocaleString()}</p>
+                                    </div>
+                                    <div className="p-4 bg-gradient-to-br from-orange-600 to-orange-700 rounded-xl text-white">
+                                        <p className="text-sm opacity-90 mb-2">Total Advances</p>
+                                        <p className="text-2xl font-bold">
+                                            PKR {advances.reduce((s, a) => s + parseFloat(a.amount), 0).toLocaleString()}
+                                        </p>
+                                        <p className="text-xs opacity-75 mt-1">{advances.length} payments</p>
+                                    </div>
+                                    <div className="p-4 bg-gradient-to-br from-green-600 to-green-700 rounded-xl text-white">
+                                        <p className="text-sm opacity-90 mb-2">Remaining</p>
+                                        <p className="text-2xl font-bold">
+                                            PKR {Math.max(0, (salaryModal.monthly_salary || 0) - advances.reduce((s, a) => s + parseFloat(a.amount), 0)).toLocaleString()}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Add Advance Button */}
+                                <button
+                                    onClick={() => setAdvanceModal(salaryModal)}
+                                    className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center justify-center gap-2 active:scale-95"
+                                >
+                                    <DollarSign className="w-5 h-5" />
+                                    Add Advance Payment
+                                </button>
+
+                                {/* Advance History */}
+                                <div>
+                                    <h4 className="font-bold text-[var(--fg)] mb-3 flex items-center gap-2">
+                                        📋 Advance History ({advances.length})
+                                    </h4>
+                                    {advances.length > 0 ? (
+                                        <div className="space-y-2">
+                                            {advances.map(adv => (
+                                                <div key={adv.id} className="p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <p className="font-bold text-orange-600">PKR {parseFloat(adv.amount).toLocaleString()}</p>
+                                                        <p className="text-xs text-[var(--muted)]">{new Date(adv.advance_date).toLocaleDateString()}</p>
+                                                    </div>
+                                                    <p className="text-sm text-[var(--muted)]">{adv.reason || 'Advance payment'}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-8 text-[var(--muted)] text-sm bg-[var(--bg)] rounded-lg border border-[var(--border)]">
+                                            No advance payments yet
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Add Advance Modal */}
+                {advanceModal && (
+                    <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4">
+                        <div className="bg-[var(--card)] rounded-xl w-full max-w-md border border-[var(--border)]">
+                            <div className="p-6 border-b border-[var(--border)] flex items-center justify-between">
+                                <h3 className="text-xl font-bold text-[var(--fg)]">Add Advance Payment</h3>
+                                <button onClick={() => setAdvanceModal(null)} className="p-2 hover:bg-[var(--bg)] rounded-lg transition-colors">
+                                    <X className="w-5 h-5 text-[var(--muted)]" />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-[var(--fg)] mb-2">
+                                        Amount (PKR) <span className="text-red-600">*</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        value={advanceForm.amount}
+                                        onChange={e => setAdvanceForm({ ...advanceForm, amount: e.target.value })}
+                                        placeholder="500, 1000, 2000..."
+                                        className="w-full px-4 py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] placeholder:text-[var(--muted)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-[var(--fg)] mb-2">Reason (Optional)</label>
+                                    <textarea
+                                        value={advanceForm.reason}
+                                        onChange={e => setAdvanceForm({ ...advanceForm, reason: e.target.value })}
+                                        placeholder="Emergency, personal need, etc."
+                                        rows={3}
+                                        className="w-full px-4 py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] placeholder:text-[var(--muted)] focus:ring-2 focus:ring-blue-600 focus:outline-none resize-none"
+                                    />
+                                </div>
+                            </div>
+                            <div className="p-6 border-t border-[var(--border)] flex gap-3">
+                                <button
+                                    onClick={() => {
+                                        setAdvanceModal(null)
+                                        setAdvanceForm({ amount: '', reason: '' })
+                                    }}
+                                    className="flex-1 px-4 py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg font-medium text-[var(--fg)] hover:bg-[var(--card)]"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleAddAdvance}
+                                    disabled={!advanceForm.amount}
+                                    className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    <DollarSign className="w-4 h-4" />
+                                    Add Advance
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </>
         </ErrorBoundary>
     )

@@ -94,7 +94,7 @@ export default function InstallPrompt() {
                         <h3 className="font-bold text-[var(--fg)] mb-1">
                             {downloading ? '📥 Downloading...' :
                                 downloaded ? '✅ Ready to Install!' :
-                                    isAdmin ? '🛡️ RT Admin Panel' : '🍽️ RT Restaurant Management'}
+                                    isAdmin ? '🛡️ AT Admin Panel' : '🍽️ AT Restaurant Management'}
                         </h3>
                         <p className="text-sm text-[var(--muted)] mb-3">
                             {downloading ? 'Caching data for offline use...' :

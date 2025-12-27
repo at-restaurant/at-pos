@@ -1,6 +1,6 @@
 {
-  "name": "RT Restaurant POS",
-  "short_name": "RT POS",
+  "name": "AT Restaurant POS",
+  "short_name": "AT POS",
   "description": "Restaurant point-of-sale system - Works offline",
   "start_url": "/",
   "scope": "/",

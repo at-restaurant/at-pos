@@ -1,6 +1,6 @@
 {
-"name": "RT Restaurant Admin",
-"short_name": "RT Admin",
+"name": "AT Restaurant Admin",
+"short_name": "AT Admin",
 "description": "Restaurant management dashboard - Works offline",
 "start_url": "/admin",
 "scope": "/",
