@@ -1,6 +1,6 @@
 {
   "name": "rt-restaurant-pos",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,7 +8,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "biome check",
-    "format": "biome format --write"
+    "format": "biome format --write",
+    "type-check": "tsc --noEmit",
+    "test:build": "npm run type-check && npm run build",
+    "clean": "rm -rf .next node_modules/.cache",
+    "postinstall": "echo '✅ Dependencies installed successfully'"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
@@ -34,5 +38,9 @@
     "browser-sync": "^3.0.4",
     "tailwindcss": "^4.0.0",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=18.17.0",
+    "npm": ">=9.0.0"
   }
 }

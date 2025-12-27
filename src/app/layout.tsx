@@ -1,4 +1,4 @@
-// src/app/layout.tsx - UPDATED WITH SYNC INTEGRATION
+// src/app/layout.tsx - UPDATED WITH THEME FIX
 import type { Metadata, Viewport } from "next"
 import { Geist } from "next/font/google"
 import "./globals.css"
@@ -11,7 +11,6 @@ import OfflineInitializer from '@/components/OfflineInitializer'
 import SyncProgressIndicator from '@/components/ui/SyncProgressIndicator'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
-// ✅ IMPORT REALTIME SYNC (Auto-starts background sync)
 import '@/lib/db/realtimeSync'
 
 const geist = Geist({ variable: "--font-geist", subsets: ["latin"] })
@@ -41,18 +40,42 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     return (
         <html lang="en" suppressHydrationWarning>
         <head>
+            {/* ✅ FIX: Theme initialization BEFORE any render */}
             <script dangerouslySetInnerHTML={{
                 __html: `
-            (function() {
-                const isAdmin = window.location.pathname.startsWith('/admin');
-                const manifest = isAdmin ? '/manifest-admin.json' : '/manifest-public.json';
-                const link = document.createElement('link');
-                link.rel = 'manifest';
-                link.href = manifest;
-                document.head.appendChild(link);
-                window.__APP_CONTEXT__ = isAdmin ? 'admin' : 'public';
-            })();
-        `
+                (function() {
+                    try {
+                        const stored = localStorage.getItem('theme-storage');
+                        if (stored) {
+                            const parsed = JSON.parse(stored);
+                            const theme = parsed.state?.theme || 'light';
+                            document.documentElement.classList.add(theme);
+                            document.documentElement.setAttribute('data-theme', theme);
+                        } else {
+                            document.documentElement.classList.add('light');
+                            document.documentElement.setAttribute('data-theme', 'light');
+                        }
+                    } catch (e) {
+                        document.documentElement.classList.add('light');
+                        document.documentElement.setAttribute('data-theme', 'light');
+                    }
+                })();
+                `
+            }} />
+
+            {/* Dynamic manifest based on route */}
+            <script dangerouslySetInnerHTML={{
+                __html: `
+                (function() {
+                    const isAdmin = window.location.pathname.startsWith('/admin');
+                    const manifest = isAdmin ? '/manifest-admin.json' : '/manifest-public.json';
+                    const link = document.createElement('link');
+                    link.rel = 'manifest';
+                    link.href = manifest;
+                    document.head.appendChild(link);
+                    window.__APP_CONTEXT__ = isAdmin ? 'admin' : 'public';
+                })();
+                `
             }} />
 
             <link rel="apple-touch-icon" href="/icons/icon-192.png" />
@@ -63,32 +86,45 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <meta name="mobile-web-app-capable" content="yes" />
             <meta name="apple-mobile-web-app-capable" content="yes" />
 
+            {/* ✅ FIXED: Service Worker with retry logic */}
             <script dangerouslySetInnerHTML={{
                 __html: `
-                    if('serviceWorker' in navigator) {
-                        window.addEventListener('load', async function() {
-                            try {
-                                const reg = await navigator.serviceWorker.register('/sw.js');
-                                console.log('✅ Service Worker registered');
-                                
-                                reg.addEventListener('updatefound', () => {
-                                    const newWorker = reg.installing;
-                                    if (newWorker) {
-                                        newWorker.addEventListener('statechange', () => {
-                                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                                if (confirm('🔄 New version available! Update now?')) {
-                                                    newWorker.postMessage({ type: 'SKIP_WAITING' });
-                                                    window.location.reload();
-                                                }
+                if('serviceWorker' in navigator) {
+                    let retries = 0;
+                    const maxRetries = 3;
+                    
+                    const registerWithRetry = async () => {
+                        try {
+                            const reg = await navigator.serviceWorker.register('/sw.js');
+                            console.log('✅ Service Worker registered:', reg.scope);
+                            
+                            // Handle updates
+                            reg.addEventListener('updatefound', () => {
+                                const newWorker = reg.installing;
+                                if (newWorker) {
+                                    newWorker.addEventListener('statechange', () => {
+                                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                            if (confirm('🔄 New version available! Update now?')) {
+                                                newWorker.postMessage({ type: 'SKIP_WAITING' });
+                                                window.location.reload();
                                             }
-                                        });
-                                    }
-                                });
-                            } catch (err) {
-                                console.error('❌ Service Worker failed:', err);
+                                        }
+                                    });
+                                }
+                            });
+                        } catch (err) {
+                            if (retries < maxRetries) {
+                                retries++;
+                                console.warn('⚠️ SW registration failed, retrying...', retries);
+                                setTimeout(registerWithRetry, 2000 * retries);
+                            } else {
+                                console.error('❌ Service Worker failed after retries:', err);
                             }
-                        });
-                    }
+                        }
+                    };
+                    
+                    window.addEventListener('load', registerWithRetry);
+                }
                 `
             }} />
         </head>

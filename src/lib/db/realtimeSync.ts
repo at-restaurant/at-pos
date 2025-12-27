@@ -1,4 +1,4 @@
-// src/lib/db/realtimeSync.ts - PRODUCTION CLEAN
+// src/lib/db/realtimeSync.ts - FIXED WITH PROPER CLEANUP
 import { createClient } from '@/lib/supabase/client'
 import { db } from './indexedDB'
 import { STORES } from './schema'
@@ -7,29 +7,64 @@ export class RealtimeSync {
     private syncQueue: Promise<any> | null = null
     private syncInterval: NodeJS.Timeout | null = null
     private pendingOperations: Map<string, 'processing' | 'failed'> = new Map()
+    private isDestroyed: boolean = false // ✅ FIX: Track destruction
 
     constructor() {
         if (typeof window !== 'undefined') {
             this.startAutoSync()
             this.setupOnlineListener()
+            this.setupUnloadListener() // ✅ FIX: Add cleanup on unload
         }
     }
 
     private startAutoSync() {
+        // ✅ FIX: Clear existing interval first
+        if (this.syncInterval) {
+            clearInterval(this.syncInterval)
+        }
+
         this.syncInterval = setInterval(() => {
-            if (navigator.onLine && !this.syncQueue) {
+            if (!this.isDestroyed && navigator.onLine && !this.syncQueue) {
                 this.syncAll()
             }
         }, 30000)
     }
 
     private setupOnlineListener() {
-        window.addEventListener('online', () => {
-            setTimeout(() => this.syncAll(), 1000)
-        })
+        const handleOnline = () => {
+            if (!this.isDestroyed) {
+                setTimeout(() => this.syncAll(), 1000)
+            }
+        }
+
+        window.addEventListener('online', handleOnline)
+
+        // ✅ FIX: Store reference for cleanup
+        if (!window.__realtimeSyncListeners) {
+            window.__realtimeSyncListeners = []
+        }
+        window.__realtimeSyncListeners.push({ event: 'online', handler: handleOnline })
+    }
+
+    // ✅ FIX: Add unload listener for cleanup
+    private setupUnloadListener() {
+        const handleUnload = () => {
+            this.destroy()
+        }
+
+        window.addEventListener('beforeunload', handleUnload)
+
+        if (!window.__realtimeSyncListeners) {
+            window.__realtimeSyncListeners = []
+        }
+        window.__realtimeSyncListeners.push({ event: 'beforeunload', handler: handleUnload })
     }
 
     async syncAll(): Promise<{ success: boolean; synced: number }> {
+        if (this.isDestroyed) {
+            return { success: false, synced: 0 }
+        }
+
         if (this.syncQueue) {
             return this.syncQueue
         }
@@ -66,6 +101,8 @@ export class RealtimeSync {
     }
 
     private async syncOrders(): Promise<{ success: boolean; synced: number }> {
+        if (this.isDestroyed) return { success: false, synced: 0 }
+
         const supabase = createClient()
         let synced = 0
 
@@ -80,6 +117,8 @@ export class RealtimeSync {
             }
 
             for (const order of pendingOrders) {
+                if (this.isDestroyed) break
+
                 if (this.pendingOperations.has(order.id)) continue
                 this.pendingOperations.set(order.id, 'processing')
 
@@ -106,8 +145,7 @@ export class RealtimeSync {
                         .select()
                         .single()
 
-                    if (orderError) throw order
-                    Error
+                    if (orderError) throw orderError
 
                     const orderItems = (await db.getAll(STORES.ORDER_ITEMS)) as any[]
                     const items = orderItems.filter(i => i.order_id === order.id)
@@ -163,6 +201,8 @@ export class RealtimeSync {
     }
 
     private async syncAttendance(): Promise<{ success: boolean; synced: number }> {
+        if (this.isDestroyed) return { success: false, synced: 0 }
+
         const supabase = createClient()
         let synced = 0
 
@@ -177,6 +217,8 @@ export class RealtimeSync {
             }
 
             for (const shift of pendingShifts) {
+                if (this.isDestroyed) break
+
                 if (this.pendingOperations.has(shift.id)) continue
                 this.pendingOperations.set(shift.id, 'processing')
 
@@ -208,6 +250,8 @@ export class RealtimeSync {
     }
 
     async getPendingCount(): Promise<number> {
+        if (this.isDestroyed) return 0
+
         try {
             const [orders, shifts] = await Promise.all([
                 db.getAll(STORES.ORDERS),
@@ -228,14 +272,50 @@ export class RealtimeSync {
     }
 
     private dispatchEvent(type: string, detail: any) {
-        if (typeof window === 'undefined') return
+        if (typeof window === 'undefined' || this.isDestroyed) return
         window.dispatchEvent(new CustomEvent(type, { detail }))
     }
 
+    // ✅ FIX: Proper cleanup method
     destroy() {
+        console.log('🔄 Destroying RealtimeSync...')
+
+        this.isDestroyed = true
+
         if (this.syncInterval) {
             clearInterval(this.syncInterval)
+            this.syncInterval = null
+        }
+
+        this.pendingOperations.clear()
+        this.syncQueue = null
+
+        // ✅ FIX: Remove all event listeners
+        if (typeof window !== 'undefined' && window.__realtimeSyncListeners) {
+            window.__realtimeSyncListeners.forEach(({ event, handler }) => {
+                window.removeEventListener(event, handler)
+            })
+            window.__realtimeSyncListeners = []
         }
     }
 }
+
+// ✅ FIX: Export singleton with proper initialization
 export const realtimeSync = new RealtimeSync()
+
+// ✅ FIX: Cleanup on window unload (backup)
+if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => {
+        realtimeSync.destroy()
+    })
+}
+
+// ✅ FIX: Type augmentation for cleanup listeners
+declare global {
+    interface Window {
+        __realtimeSyncListeners?: Array<{
+            event: string
+            handler: EventListener
+        }>
+    }
+}

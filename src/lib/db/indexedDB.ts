@@ -1,4 +1,4 @@
-// src/lib/db/indexedDB.ts - FIXED WITH WAITER_SHIFTS
+// src/lib/db/indexedDB.ts - FIXED WITH BATCHING
 import { DB_NAME, DB_VERSION, STORES } from './schema'
 
 class IndexedDBManager {
@@ -66,7 +66,7 @@ class IndexedDBManager {
                     store.createIndex('order_id', 'order_id')
                 }
 
-                // ✅ NEW: Waiter Shifts
+                // Waiter Shifts
                 if (!db.objectStoreNames.contains(STORES.WAITER_SHIFTS)) {
                     const store = db.createObjectStore(STORES.WAITER_SHIFTS, { keyPath: 'id' })
                     store.createIndex('waiter_id', 'waiter_id')
@@ -170,29 +170,105 @@ class IndexedDBManager {
         }
     }
 
+    // ✅ FIX: Batched bulk insert to prevent deadlocks
     async bulkPut(store: string, items: any[]) {
         if (!Array.isArray(items) || items.length === 0) return
 
         try {
             const db = await this.init()
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(store, 'readwrite')
-                const objectStore = tx.objectStore(store)
+            const BATCH_SIZE = 100 // ✅ Process 100 items at a time
 
-                items.forEach(item => {
-                    try {
-                        objectStore.put(item)
-                    } catch (err) {
-                        console.warn(`Failed to put item:`, err)
-                    }
+            for (let i = 0; i < items.length; i += BATCH_SIZE) {
+                const batch = items.slice(i, i + BATCH_SIZE)
+
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction(store, 'readwrite')
+                    const objectStore = tx.objectStore(store)
+
+                    batch.forEach(item => {
+                        try {
+                            objectStore.put(item)
+                        } catch (err) {
+                            console.warn(`Failed to put item:`, err)
+                        }
+                    })
+
+                    tx.oncomplete = () => resolve(true)
+                    tx.onerror = () => reject(tx.error)
                 })
 
-                tx.oncomplete = () => resolve(true)
-                tx.onerror = () => reject(tx.error)
-            })
+                // ✅ Small delay between batches to prevent blocking
+                if (i + BATCH_SIZE < items.length) {
+                    await new Promise(resolve => setTimeout(resolve, 10))
+                }
+            }
+
+            console.log(`✅ Bulk inserted ${items.length} items in ${Math.ceil(items.length / BATCH_SIZE)} batches`)
         } catch (error) {
             console.error(`BulkPut failed for ${store}:`, error)
             throw error
+        }
+    }
+
+    // ✅ NEW: Bulk delete with batching
+    async bulkDelete(store: string, keys: string[]) {
+        if (!Array.isArray(keys) || keys.length === 0) return
+
+        try {
+            const db = await this.init()
+            const BATCH_SIZE = 100
+
+            for (let i = 0; i < keys.length; i += BATCH_SIZE) {
+                const batch = keys.slice(i, i + BATCH_SIZE)
+
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction(store, 'readwrite')
+                    const objectStore = tx.objectStore(store)
+
+                    batch.forEach(key => {
+                        try {
+                            objectStore.delete(key)
+                        } catch (err) {
+                            console.warn(`Failed to delete key:`, err)
+                        }
+                    })
+
+                    tx.oncomplete = () => resolve(true)
+                    tx.onerror = () => reject(tx.error)
+                })
+
+                if (i + BATCH_SIZE < keys.length) {
+                    await new Promise(resolve => setTimeout(resolve, 10))
+                }
+            }
+
+            console.log(`✅ Bulk deleted ${keys.length} items`)
+        } catch (error) {
+            console.error(`BulkDelete failed for ${store}:`, error)
+            throw error
+        }
+    }
+
+    // ✅ NEW: Get database size estimate
+    async getStorageEstimate() {
+        if (!navigator.storage?.estimate) {
+            return { usage: 0, quota: 0, percentage: 0 }
+        }
+
+        try {
+            const estimate = await navigator.storage.estimate()
+            const usage = estimate.usage || 0
+            const quota = estimate.quota || 0
+            const percentage = quota > 0 ? Math.round((usage / quota) * 100) : 0
+
+            return {
+                usage: Math.round(usage / 1024 / 1024), // MB
+                quota: Math.round(quota / 1024 / 1024), // MB
+                percentage
+            }
+        } catch (error) {
+            console.error('Failed to get storage estimate:', error)
+            return { usage: 0, quota: 0, percentage: 0 }
         }
     }
 
@@ -207,8 +283,25 @@ class IndexedDBManager {
 
 export const db = new IndexedDBManager()
 
+// ✅ FIX: Proper cleanup on window unload
 if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', () => {
         db.close()
     })
+
+    // ✅ NEW: Periodic cleanup of old data
+    setInterval(async () => {
+        try {
+            const estimate = await db.getStorageEstimate()
+            if (estimate.percentage > 80) {
+                console.warn('⚠️ Storage usage high:', estimate.percentage + '%')
+                // Trigger cleanup if needed
+                window.dispatchEvent(new CustomEvent('storage-high', {
+                    detail: estimate
+                }))
+            }
+        } catch (error) {
+            // Silent fail
+        }
+    }, 5 * 60 * 1000) // Check every 5 minutes
 }

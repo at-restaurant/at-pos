@@ -1,4 +1,4 @@
-// src/lib/store/theme-store.ts
+// src/lib/store/theme-store.ts - FIXED VERSION
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
@@ -90,31 +90,48 @@ interface ThemeStore {
     getTokens: () => DesignTokens
 }
 
+// ✅ FIX: Read theme from localStorage immediately to prevent flash
+const getInitialTheme = (): Theme => {
+    if (typeof window === 'undefined') return 'light'
+
+    try {
+        const stored = localStorage.getItem('theme-storage')
+        if (stored) {
+            const parsed = JSON.parse(stored)
+            return parsed.state?.theme || 'light'
+        }
+    } catch (error) {
+        console.warn('Failed to read theme from storage:', error)
+    }
+
+    return 'light'
+}
+
+// ✅ FIX: Apply theme synchronously to DOM
+const applyThemeToDOM = (theme: Theme) => {
+    if (typeof document === 'undefined') return
+
+    document.documentElement.classList.remove('light', 'dark')
+    document.documentElement.classList.add(theme)
+    document.documentElement.setAttribute('data-theme', theme)
+}
+
 export const useTheme = create<ThemeStore>()(
     persist(
         (set, get) => ({
-            theme: 'light',
+            theme: getInitialTheme(), // ✅ Read immediately
 
             toggleTheme: () => set(state => {
                 const newTheme: Theme = state.theme === 'dark' ? 'light' : 'dark'
-
-                if (typeof document !== 'undefined') {
-                    document.documentElement.classList.remove('light', 'dark')
-                    document.documentElement.setAttribute('data-theme', newTheme)
-
-                    if (newTheme === 'light') {
-                        document.documentElement.classList.add('light')
-                    } else {
-                        document.documentElement.classList.add('dark')
-                    }
-                }
-
+                applyThemeToDOM(newTheme) // ✅ Apply synchronously
                 return { theme: newTheme }
             }),
 
-            setTheme: (theme: Theme) => set({ theme }),
+            setTheme: (theme: Theme) => {
+                applyThemeToDOM(theme) // ✅ Apply synchronously
+                set({ theme })
+            },
 
-            // ✅ FIXED: Explicit return type
             getTokens: (): DesignTokens => {
                 const { theme } = get()
                 return designTokens[theme]
@@ -122,16 +139,10 @@ export const useTheme = create<ThemeStore>()(
         }),
         {
             name: 'theme-storage',
+            // ✅ FIX: Apply theme immediately on hydration
             onRehydrateStorage: () => (state) => {
-                if (state && typeof document !== 'undefined') {
-                    document.documentElement.classList.remove('light', 'dark')
-                    document.documentElement.setAttribute('data-theme', state.theme)
-
-                    if (state.theme === 'light') {
-                        document.documentElement.classList.add('light')
-                    } else {
-                        document.documentElement.classList.add('dark')
-                    }
+                if (state) {
+                    applyThemeToDOM(state.theme)
                 }
             }
         }

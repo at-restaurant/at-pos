@@ -1,5 +1,7 @@
-// public/sw.js - COMPLETE OFFLINE SUPPORT
-const VERSION = 'v3'
+// public/sw.js - FIXED WITH AUTO-VERSIONING
+// ✅ FIX: Auto-versioning to prevent manual updates
+const BUILD_ID = new Date().getTime()
+const VERSION = `v${BUILD_ID}`
 const CACHE_NAME = `rt-restaurant-${VERSION}`
 const RUNTIME_CACHE = `rt-runtime-${VERSION}`
 const IMAGE_CACHE = `rt-images-${VERSION}`
@@ -20,7 +22,7 @@ const STATIC_ASSETS = [
 
 // ✅ Install - Cache static assets
 self.addEventListener('install', (event) => {
-    console.log('🔧 Installing Service Worker v3...')
+    console.log(`🔧 Installing Service Worker ${VERSION}...`)
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
             return cache.addAll(STATIC_ASSETS).catch(err => {
@@ -33,11 +35,12 @@ self.addEventListener('install', (event) => {
 
 // ✅ Activate - Clean old caches
 self.addEventListener('activate', (event) => {
-    console.log('✅ Activating Service Worker v3...')
+    console.log(`✅ Activating Service Worker ${VERSION}...`)
     event.waitUntil(
         caches.keys().then((cacheNames) => {
             return Promise.all(
                 cacheNames.map((cacheName) => {
+                    // ✅ FIX: Delete all caches that don't match current version
                     if (!cacheName.includes(VERSION)) {
                         console.log('🗑️ Deleting old cache:', cacheName)
                         return caches.delete(cacheName)
@@ -184,6 +187,17 @@ self.addEventListener('message', (event) => {
                 if (!name.includes(VERSION)) {
                     caches.delete(name)
                 }
+            })
+        })
+    }
+
+    // ✅ NEW: Get cache status
+    if (event.data?.type === 'GET_CACHE_STATUS') {
+        caches.keys().then(names => {
+            event.ports[0].postMessage({
+                version: VERSION,
+                caches: names,
+                currentVersion: VERSION
             })
         })
     }

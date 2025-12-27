@@ -1,3 +1,4 @@
+// src/app/api/upload/cloudinary/route.ts - OPTIMIZED
 import { NextResponse } from 'next/server'
 import { v2 as cloudinary } from 'cloudinary'
 
@@ -18,21 +19,45 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'No file provided' }, { status: 400 })
         }
 
+        // ✅ File validation
+        const maxSize = 10 * 1024 * 1024 // 10MB
+        if (file.size > maxSize) {
+            return NextResponse.json({
+                error: 'File too large. Maximum size is 10MB'
+            }, { status: 400 })
+        }
+
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+        if (!allowedTypes.includes(file.type)) {
+            return NextResponse.json({
+                error: 'Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed'
+            }, { status: 400 })
+        }
+
         // Convert file to buffer
         const bytes = await file.arrayBuffer()
         const buffer = Buffer.from(bytes)
 
-        // Upload to Cloudinary
+        // ✅ OPTIMIZED: Better transformation settings
         const result = await new Promise((resolve, reject) => {
             const uploadStream = cloudinary.uploader.upload_stream(
                 {
                     folder: `restaurant/${folder}`,
                     resource_type: 'image',
                     transformation: [
-                        { width: 800, height: 800, crop: 'limit' },
-                        { quality: 'auto' },
-                        { fetch_format: 'auto' }
-                    ]
+                        { width: 1200, height: 1200, crop: 'limit' }, // ✅ Higher quality
+                        { quality: 'auto:good' }, // ✅ Better quality
+                        { fetch_format: 'auto' }, // ✅ Auto WebP conversion
+                        { flags: 'progressive' } // ✅ Progressive loading
+                    ],
+                    // ✅ Generate responsive breakpoints
+                    responsive_breakpoints: {
+                        create_derived: true,
+                        bytes_step: 20000,
+                        min_width: 200,
+                        max_width: 1200,
+                        max_images: 5
+                    }
                 },
                 (error, result) => {
                     if (error) reject(error)
@@ -46,7 +71,12 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
             url: uploadResult.secure_url,
-            public_id: uploadResult.public_id
+            public_id: uploadResult.public_id,
+            width: uploadResult.width,
+            height: uploadResult.height,
+            format: uploadResult.format,
+            // ✅ Return responsive breakpoints
+            responsive: uploadResult.responsive_breakpoints?.[0]?.breakpoints || []
         })
 
     } catch (error: any) {
@@ -66,7 +96,10 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: 'No public_id provided' }, { status: 400 })
         }
 
-        await cloudinary.uploader.destroy(public_id)
+        // ✅ Delete with derived images
+        await cloudinary.uploader.destroy(public_id, {
+            invalidate: true // ✅ Invalidate CDN cache
+        })
 
         return NextResponse.json({ success: true })
 
