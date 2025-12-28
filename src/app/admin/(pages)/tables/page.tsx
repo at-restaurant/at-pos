@@ -1,8 +1,7 @@
-// src/app/admin/(pages)/tables/page.tsx - FULLY FIXED WITH PROPER CATEGORY HANDLING
 "use client"
 
 import { useState, useEffect } from 'react'
-import { Plus, X } from 'lucide-react'
+import { Plus, X, Menu } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { FormModal } from '@/components/ui/UniversalModal'
@@ -18,13 +17,13 @@ export default function AdminTablesPage() {
     const supabase = createClient()
     const toast = useToast()
 
-    // ✅ State management
     const [tables, setTables] = useState<any[]>([])
     const [categories, setCategories] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [loadingCategories, setLoadingCategories] = useState(true)
 
     const [sectionFilter, setSectionFilter] = useState('all')
+    const [sidebarOpen, setSidebarOpen] = useState(false)
     const [modal, setModal] = useState<any>(null)
     const [bulkModal, setBulkModal] = useState(false)
     const [form, setForm] = useState({ table_number: '', capacity: '', category_id: '' })
@@ -35,7 +34,6 @@ export default function AdminTablesPage() {
         category_id: ''
     })
 
-    // ✅ Load everything on mount
     useEffect(() => {
         loadData()
         setupRealtimeSubscriptions()
@@ -73,7 +71,6 @@ export default function AdminTablesPage() {
                 .order('name')
 
             if (error) throw error
-            console.log('📁 Loaded categories:', data) // Debug
             setCategories(data || [])
         } catch (error) {
             console.error('Failed to load categories:', error)
@@ -83,7 +80,6 @@ export default function AdminTablesPage() {
         }
     }
 
-    // ✅ Realtime subscriptions
     const setupRealtimeSubscriptions = () => {
         const tablesChannel = supabase
             .channel('tables_changes')
@@ -101,14 +97,12 @@ export default function AdminTablesPage() {
         }
     }
 
-    // ✅ Filter tables properly
     const filtered = tables.filter((t: any) => {
         if (sectionFilter === 'all') return true
         if (sectionFilter === 'uncategorized') return !t.category_id
         return t.category_id === sectionFilter
     })
 
-    // ✅ Stats with proper counts
     const uncategorizedCount = tables.filter((t: any) => !t.category_id).length
 
     const categoryStats = categories.map((cat: any) => ({
@@ -139,7 +133,6 @@ export default function AdminTablesPage() {
         }] : [])
     ]
 
-    // ✅ Sidebar items
     const sidebarItems = useSidebarItems([
         { id: 'all', label: 'All Tables', icon: '🏠', count: tables.length },
         ...categories.map((cat: any) => ({
@@ -156,7 +149,6 @@ export default function AdminTablesPage() {
         }] : [])
     ], sectionFilter, setSectionFilter)
 
-    // ✅ Modal handlers
     const openModal = (table?: any) => {
         if (table) {
             setForm({
@@ -181,7 +173,6 @@ export default function AdminTablesPage() {
             return
         }
 
-        // Check for duplicate table numbers
         if (!modal?.id) {
             if (tables.find((t: any) => t.table_number === parseInt(form.table_number))) {
                 return toast.add('error', `❌ Table ${form.table_number} already exists!`)
@@ -295,7 +286,6 @@ export default function AdminTablesPage() {
         }
     }
 
-    // ✅ Helper to get category name
     const getCategoryDisplay = (categoryId: string | null) => {
         if (!categoryId) return '❓ Uncategorized'
         const cat = categories.find(c => c.id === categoryId)
@@ -306,39 +296,136 @@ export default function AdminTablesPage() {
     return (
         <ErrorBoundary>
             <>
-                <AutoSidebar items={sidebarItems} title="Categories" />
+                {/* Desktop Sidebar */}
+                <div className="hidden lg:block">
+                    <AutoSidebar items={sidebarItems} title="Categories" />
+                </div>
 
-                <div className="min-h-screen bg-[var(--bg)] lg:ml-64 pb-20 lg:pb-0">
-                    <header className="sticky top-0 lg:top-0 z-20 bg-[var(--card)] border-b border-[var(--border)] mt-14 lg:mt-0">
-                        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-3 sm:py-4">
-                            <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0 flex-1">
-                                    <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-[var(--fg)] truncate">Tables Setup</h1>
-                                    <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">
-                                        {filtered.length} tables • {categories.length} categories
-                                    </p>
+                {/* Mobile Sidebar Overlay */}
+                {sidebarOpen && (
+                    <>
+                        <div
+                            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+                            onClick={() => setSidebarOpen(false)}
+                        />
+
+                        <div className="fixed top-0 left-0 h-full w-64 bg-[var(--card)] border-r border-[var(--border)] z-50 lg:hidden overflow-y-auto">
+                            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+                                <h2 className="text-lg font-bold text-[var(--fg)]">Categories</h2>
+                                <button
+                                    onClick={() => setSidebarOpen(false)}
+                                    className="p-2 hover:bg-[var(--bg)] rounded-lg transition-colors"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            <div className="p-2">
+                                {sidebarItems.map(item => (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => {
+                                            item.onClick()
+                                            setSidebarOpen(false)
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all mb-1 ${
+                                            item.active
+                                                ? 'bg-blue-600 text-white shadow-lg'
+                                                : 'hover:bg-[var(--bg)] text-[var(--fg)]'
+                                        }`}
+                                    >
+                                        <span className="text-xl">{item.icon}</span>
+                                        <span className="flex-1 text-left font-medium text-sm">
+                                            {item.label}
+                                        </span>
+                                        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                                            item.active
+                                                ? 'bg-white/20'
+                                                : 'bg-[var(--bg)] text-[var(--muted)]'
+                                        }`}>
+                                            {item.count}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
+                    {/* Fixed Header */}
+                    <header className="sticky top-0 z-40 bg-[var(--card)]/95 border-b border-[var(--border)] backdrop-blur-lg shadow-sm">
+                        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3.5">
+                            <div className="flex items-center justify-between gap-2 sm:gap-3">
+                                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                                    {/* Mobile Menu Button */}
+                                    <button
+                                        onClick={() => setSidebarOpen(true)}
+                                        className="lg:hidden p-2 hover:bg-[var(--bg)] rounded-lg transition-colors shrink-0"
+                                    >
+                                        <Menu className="w-5 h-5 text-[var(--fg)]" />
+                                    </button>
+
+                                    <div className="flex-1 min-w-0">
+                                        <h1 className="text-lg sm:text-2xl font-bold text-[var(--fg)] truncate">Tables Setup</h1>
+                                        <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">
+                                            {filtered.length} tables • {categories.length} categories
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="flex gap-2">
+
+                                <div className="flex gap-2 shrink-0">
                                     <button
                                         onClick={() => setBulkModal(true)}
-                                        className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 text-sm active:scale-95 shadow-lg"
+                                        className="px-2 sm:px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm active:scale-95 shadow-lg"
                                     >
-                                        <Plus className="w-4 h-4" />
-                                        <span className="hidden sm:inline">Bulk</span>
+                                        <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
+                                        <span className="hidden xs:inline">Bulk</span>
                                     </button>
                                     <button
                                         onClick={() => openModal()}
-                                        className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm active:scale-95 shadow-lg"
+                                        className="px-2 sm:px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm active:scale-95 shadow-lg"
                                     >
-                                        <Plus className="w-4 h-4" />
-                                        <span className="hidden sm:inline">Add</span>
+                                        <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
+                                        <span className="hidden xs:inline">Add</span>
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Horizontal Scrollable Categories - Mobile Only */}
+                        <div className="lg:hidden border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-lg">
+                            <div className="max-w-7xl mx-auto overflow-x-auto scrollbar-hide">
+                                <div className="flex gap-2 px-3 py-3 min-w-max">
+                                    {sidebarItems.map(item => (
+                                        <button
+                                            key={item.id}
+                                            onClick={item.onClick}
+                                            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all whitespace-nowrap shrink-0 ${
+                                                item.active
+                                                    ? 'bg-blue-600 text-white shadow-lg'
+                                                    : 'bg-[var(--bg)] text-[var(--fg)] hover:bg-[var(--bg)]/80'
+                                            }`}
+                                        >
+                                            <span className="text-base">{item.icon}</span>
+                                            <span className="text-xs font-medium">
+                                                {item.label}
+                                            </span>
+                                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                                item.active
+                                                    ? 'bg-white/20'
+                                                    : 'bg-[var(--card)] text-[var(--muted)]'
+                                            }`}>
+                                                {item.count}
+                                            </span>
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
                         </div>
                     </header>
 
-                    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
+                    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
                         {/* Category Manager */}
                         <CategoryManager
                             type="table"
@@ -470,7 +557,6 @@ export default function AdminTablesPage() {
                             />
                         </FormGrid>
 
-                        {/* Category Dropdown */}
                         {loadingCategories ? (
                             <div className="text-center py-4 text-[var(--muted)] text-sm">
                                 Loading categories...
@@ -497,20 +583,20 @@ export default function AdminTablesPage() {
                 {/* Bulk Add Modal */}
                 {bulkModal && (
                     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-                        <div className="bg-[var(--card)] rounded-xl w-full max-w-md border border-[var(--border)]">
-                            <div className="p-6 border-b border-[var(--border)] flex items-center justify-between">
+                        <div className="bg-[var(--card)] rounded-xl w-full max-w-md border border-[var(--border)] max-h-[90vh] overflow-y-auto">
+                            <div className="p-4 sm:p-6 border-b border-[var(--border)] flex items-center justify-between sticky top-0 bg-[var(--card)] z-10">
                                 <div>
-                                    <h3 className="text-xl font-bold text-[var(--fg)]">Bulk Add Tables</h3>
-                                    <p className="text-sm text-[var(--muted)] mt-1">Add multiple tables at once</p>
+                                    <h3 className="text-lg sm:text-xl font-bold text-[var(--fg)]">Bulk Add Tables</h3>
+                                    <p className="text-xs sm:text-sm text-[var(--muted)] mt-1">Add multiple tables at once</p>
                                 </div>
                                 <button onClick={() => setBulkModal(false)} className="p-2 hover:bg-[var(--bg)] rounded-lg">
                                     <X className="w-5 h-5 text-[var(--muted)]" />
                                 </button>
                             </div>
 
-                            <div className="p-6 space-y-4">
-                                <div className="p-4 bg-purple-600/10 border border-purple-600/30 rounded-lg">
-                                    <p className="text-sm text-purple-600">
+                            <div className="p-4 sm:p-6 space-y-4">
+                                <div className="p-3 sm:p-4 bg-purple-600/10 border border-purple-600/30 rounded-lg">
+                                    <p className="text-xs sm:text-sm text-purple-600">
                                         💡 <strong>Example:</strong> Start: 1, End: 10 creates tables 1-10
                                     </p>
                                 </div>
@@ -559,7 +645,7 @@ export default function AdminTablesPage() {
                                 />
 
                                 <div className="p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
-                                    <p className="text-sm text-[var(--muted)]">
+                                    <p className="text-xs sm:text-sm text-[var(--muted)]">
                                         Will create: <strong className="text-[var(--fg)]">
                                         {bulkForm.start_number && bulkForm.end_number && parseInt(bulkForm.end_number) >= parseInt(bulkForm.start_number)
                                             ? `${parseInt(bulkForm.end_number) - parseInt(bulkForm.start_number) + 1} tables`
@@ -570,16 +656,16 @@ export default function AdminTablesPage() {
                                 </div>
                             </div>
 
-                            <div className="p-6 border-t border-[var(--border)] flex gap-3">
+                            <div className="p-4 sm:p-6 border-t border-[var(--border)] flex gap-3">
                                 <button
                                     onClick={() => setBulkModal(false)}
-                                    className="flex-1 px-4 py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg font-medium text-[var(--fg)] hover:bg-[var(--card)] transition-colors"
+                                    className="flex-1 px-4 py-2.5 sm:py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg font-medium text-[var(--fg)] hover:bg-[var(--card)] transition-colors text-sm sm:text-base"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     onClick={bulkAdd}
-                                    className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors active:scale-95"
+                                    className="flex-1 px-4 py-2.5 sm:py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors active:scale-95 text-sm sm:text-base"
                                 >
                                     Add Tables
                                 </button>

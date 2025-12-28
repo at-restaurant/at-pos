@@ -1,4 +1,4 @@
-// src/components/ui/CategoryManager.tsx - COLLAPSIBLE FOR ALL SCREENS
+// src/components/ui/CategoryManager.tsx - FIXED NESTED BUTTON ERROR
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -19,7 +19,6 @@ export default function CategoryManager({ type, onCategoryChange }: CategoryMana
     const [form, setForm] = useState({ name: '', icon: '📋' })
     const [editingId, setEditingId] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
-    // ✅ Changed: Start collapsed on ALL screens
     const [isExpanded, setIsExpanded] = useState(false)
     const toast = useToast()
     const supabase = createClient()
@@ -55,7 +54,7 @@ export default function CategoryManager({ type, onCategoryChange }: CategoryMana
             setEditingId(null)
         }
         setShowModal(true)
-        setIsExpanded(true) // Auto-expand when adding category
+        setIsExpanded(true)
     }
 
     const save = async () => {
@@ -130,10 +129,10 @@ export default function CategoryManager({ type, onCategoryChange }: CategoryMana
 
     return (
         <div className="bg-[var(--card)] border-2 border-[var(--border)] rounded-xl overflow-hidden transition-all hover:border-green-600/30">
-            {/* ✅ Header - Collapsible for ALL screens */}
-            <button
+            {/* ✅ FIXED: Changed button to div to avoid nested button error */}
+            <div
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-[var(--bg)] transition-colors"
+                className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-[var(--bg)] transition-colors cursor-pointer"
             >
                 <div className="flex items-center gap-3 sm:gap-4">
                     <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-600/10 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -155,7 +154,7 @@ export default function CategoryManager({ type, onCategoryChange }: CategoryMana
                 </div>
 
                 <div className="flex items-center gap-2">
-                    {/* Add Button */}
+                    {/* ✅ FIXED: stopPropagation to prevent parent div click */}
                     <button
                         onClick={(e) => {
                             e.stopPropagation()
@@ -174,9 +173,9 @@ export default function CategoryManager({ type, onCategoryChange }: CategoryMana
                         <ChevronDown className="w-5 h-5 text-[var(--muted)] flex-shrink-0" />
                     )}
                 </div>
-            </button>
+            </div>
 
-            {/* ✅ Collapsible content - Hidden by default on ALL screens */}
+            {/* Collapsible content */}
             {isExpanded && (
                 <div className="p-4 sm:p-5 pt-0 border-t border-[var(--border)] animate-in slide-in-from-top-2">
                     {categories.length > 0 ? (
