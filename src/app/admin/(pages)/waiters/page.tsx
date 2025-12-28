@@ -1,10 +1,9 @@
-// src/app/admin/(pages)/waiters/page.tsx - WITH PROPER THEME SUPPORT
 "use client"
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSupabase } from '@/lib/hooks/useSupabase'
-import { Plus, TrendingUp, Wallet, DollarSign, X } from 'lucide-react'
+import { Plus, TrendingUp, Wallet, DollarSign, X, Menu } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
@@ -32,6 +31,7 @@ export default function WaitersPage() {
         realtime: true
     })
     const [statusFilter, setStatusFilter] = useState('all')
+    const [sidebarOpen, setSidebarOpen] = useState(false)
     const [modal, setModal] = useState<any>(null)
     const [salaryModal, setSalaryModal] = useState<any>(null)
     const [advanceModal, setAdvanceModal] = useState<any>(null)
@@ -66,7 +66,6 @@ export default function WaitersPage() {
         { label: 'On Duty', value: waiters.filter(w => w.is_on_duty).length, color: '#f59e0b', onClick: () => setStatusFilter('on-duty'), active: statusFilter === 'on-duty' }
     ]
 
-    // Calculate advances for each waiter
     const [waiterAdvances, setWaiterAdvances] = useState<Record<string, number>>({})
 
     useEffect(() => {
@@ -101,7 +100,6 @@ export default function WaitersPage() {
         if (!confirm(`Pay PKR ${remaining.toLocaleString()} to ${waiter.name}?`)) return
 
         try {
-            // Clear all advances for this waiter
             const { error } = await supabase
                 .from('salary_advances')
                 .delete()
@@ -296,32 +294,135 @@ export default function WaitersPage() {
         }
     }
 
+    const sidebarItems = useSidebarItems([
+        { id: 'all', label: 'All Staff', icon: '👥', count: waiters.length },
+        { id: 'active', label: 'Active', icon: '✅', count: stats[1].value },
+        { id: 'on-duty', label: 'On Duty', icon: '🟢', count: stats[2].value }
+    ], statusFilter, setStatusFilter)
+
     return (
         <ErrorBoundary>
             <>
-                <AutoSidebar items={useSidebarItems([
-                    { id: 'all', label: 'All Staff', icon: '👥', count: waiters.length },
-                    { id: 'active', label: 'Active', icon: '✅', count: stats[1].value },
-                    { id: 'on-duty', label: 'On Duty', icon: '🟢', count: stats[2].value }
-                ], statusFilter, setStatusFilter)} title="Filters" />
+                {/* Desktop Sidebar */}
+                <div className="hidden lg:block">
+                    <AutoSidebar items={sidebarItems} title="Filters" />
+                </div>
+
+                {/* Mobile Sidebar Overlay */}
+                {sidebarOpen && (
+                    <>
+                        <div
+                            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+                            onClick={() => setSidebarOpen(false)}
+                        />
+
+                        <div className="fixed top-0 left-0 h-full w-64 bg-[var(--card)] border-r border-[var(--border)] z-50 lg:hidden overflow-y-auto">
+                            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+                                <h2 className="text-lg font-bold text-[var(--fg)]">Filters</h2>
+                                <button
+                                    onClick={() => setSidebarOpen(false)}
+                                    className="p-2 hover:bg-[var(--bg)] rounded-lg transition-colors"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            <div className="p-2">
+                                {sidebarItems.map(item => (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => {
+                                            item.onClick()
+                                            setSidebarOpen(false)
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all mb-1 ${
+                                            item.active
+                                                ? 'bg-blue-600 text-white shadow-lg'
+                                                : 'hover:bg-[var(--bg)] text-[var(--fg)]'
+                                        }`}
+                                    >
+                                        <span className="text-xl">{item.icon}</span>
+                                        <span className="flex-1 text-left font-medium text-sm">
+                                            {item.label}
+                                        </span>
+                                        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                                            item.active
+                                                ? 'bg-white/20'
+                                                : 'bg-[var(--bg)] text-[var(--muted)]'
+                                        }`}>
+                                            {item.count}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </>
+                )}
 
                 <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
-                    <header className="sticky top-0 z-20 bg-[var(--card)] border-b border-[var(--border)]">
-                        <div className="max-w-7xl mx-auto px-4 py-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h1 className="text-2xl font-bold text-[var(--fg)]">Staff Management</h1>
-                                    <p className="text-sm text-[var(--muted)] mt-1">{filtered.length} employees</p>
+                    {/* Fixed Header */}
+                    <header className="sticky top-0 z-40 bg-[var(--card)]/95 border-b border-[var(--border)] backdrop-blur-lg shadow-sm">
+                        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3.5">
+                            <div className="flex items-center justify-between gap-2 sm:gap-3">
+                                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                                    {/* Mobile Menu Button */}
+                                    <button
+                                        onClick={() => setSidebarOpen(true)}
+                                        className="lg:hidden p-2 hover:bg-[var(--bg)] rounded-lg transition-colors shrink-0"
+                                    >
+                                        <Menu className="w-5 h-5 text-[var(--fg)]" />
+                                    </button>
+
+                                    <div className="flex-1 min-w-0">
+                                        <h1 className="text-lg sm:text-2xl font-bold text-[var(--fg)] truncate">Staff Management</h1>
+                                        <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">{filtered.length} employees</p>
+                                    </div>
                                 </div>
-                                <button onClick={() => openModal()} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 active:scale-95">
-                                    <Plus className="w-4 h-4" />
-                                    Add Staff
+
+                                <button
+                                    onClick={() => openModal()}
+                                    className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95 shrink-0 shadow-lg"
+                                >
+                                    <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
+                                    <span className="hidden xs:inline">Add Staff</span>
+                                    <span className="xs:hidden">Add</span>
                                 </button>
+                            </div>
+                        </div>
+
+                        {/* Horizontal Scrollable Filters - Mobile Only */}
+                        <div className="lg:hidden border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-lg">
+                            <div className="max-w-7xl mx-auto overflow-x-auto scrollbar-hide">
+                                <div className="flex gap-2 px-3 py-3 min-w-max">
+                                    {sidebarItems.map(item => (
+                                        <button
+                                            key={item.id}
+                                            onClick={item.onClick}
+                                            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all whitespace-nowrap shrink-0 ${
+                                                item.active
+                                                    ? 'bg-blue-600 text-white shadow-lg'
+                                                    : 'bg-[var(--bg)] text-[var(--fg)] hover:bg-[var(--bg)]/80'
+                                            }`}
+                                        >
+                                            <span className="text-base">{item.icon}</span>
+                                            <span className="text-xs font-medium">
+                                                {item.label}
+                                            </span>
+                                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                                                item.active
+                                                    ? 'bg-white/20'
+                                                    : 'bg-[var(--card)] text-[var(--muted)]'
+                                            }`}>
+                                                {item.count}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </header>
 
-                    <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+                    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
                         <ResponsiveStatsGrid stats={stats} />
                         <UniversalDataTable
                             columns={columns}

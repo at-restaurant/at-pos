@@ -1,4 +1,4 @@
-// src/app/admin/(auth)/login/page.tsx - FIXED LOGIN (NO THEME TOGGLE)
+// src/app/admin/(auth)/login/page.tsx - MOBILE OPTIMIZED LOGIN
 "use client"
 
 import { useState, useEffect } from 'react'
@@ -50,47 +50,50 @@ export default function AdminLoginPage() {
     }
 
     return (
-        <div className="min-h-screen w-full flex items-center justify-center bg-white p-4 relative overflow-hidden">
+        <div className="min-h-screen w-full flex items-center justify-center bg-white p-3 sm:p-4 relative overflow-hidden">
 
             {/* Back Button */}
-            <button onClick={() => router.push('/')} className="fixed top-4 left-4 z-50 flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl hover:border-blue-600 transition-all shadow-lg active:scale-95 text-sm font-medium text-gray-900">
-                <ArrowLeft className="w-4 h-4" />
-                <span className="hidden sm:inline">Back</span>
+            <button
+                onClick={() => router.push('/')}
+                className="fixed top-3 left-3 sm:top-4 sm:left-4 z-50 flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 bg-white border border-gray-200 rounded-xl hover:border-blue-600 transition-all shadow-lg active:scale-95 text-xs sm:text-sm font-medium text-gray-900"
+            >
+                <ArrowLeft className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden xs:inline">Back</span>
             </button>
 
             {/* Login Card */}
             <div className="relative z-10 w-full max-w-md">
-                <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl shadow-2xl mb-4 relative">
-                        <Shield className="w-10 h-10 text-white" />
-                        <div className="absolute -top-1 -right-1 w-6 h-6 bg-green-500 rounded-full border-4 border-white flex items-center justify-center">
-                            {isOnline ? <Wifi className="w-3 h-3 text-white" /> : <WifiOff className="w-3 h-3 text-white" />}
+                <div className="text-center mb-6 sm:mb-8">
+                    <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl shadow-2xl mb-3 sm:mb-4 relative">
+                        <Shield className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
+                        <div className="absolute -top-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 bg-green-500 rounded-full border-4 border-white flex items-center justify-center">
+                            {isOnline ? <Wifi className="w-2 h-2 sm:w-3 sm:h-3 text-white" /> : <WifiOff className="w-2 h-2 sm:w-3 sm:h-3 text-white" />}
                         </div>
                     </div>
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Panel</h1>
-                    <p className="text-sm text-gray-600">AT Restaurant Management System</p>
-                    <div className={`inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full text-xs font-medium border ${isOnline ? 'bg-green-50 border-green-200 text-green-700' : 'bg-yellow-50 border-yellow-200 text-yellow-700'}`}>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Admin Panel</h1>
+                    <p className="text-xs sm:text-sm text-gray-600">AT Restaurant Management System</p>
+                    <div className={`inline-flex items-center gap-2 mt-3 sm:mt-4 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs font-medium border ${isOnline ? 'bg-green-50 border-green-200 text-green-700' : 'bg-yellow-50 border-yellow-200 text-yellow-700'}`}>
                         {isOnline ? <><div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />Online Mode</> : <><div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />Offline Mode</>}
                     </div>
                 </div>
 
-                <div className="bg-white border-2 border-gray-200 rounded-2xl p-8 shadow-2xl backdrop-blur-xl">
-                    <div className="space-y-6">
+                <div className="bg-white border-2 border-gray-200 rounded-2xl p-5 sm:p-8 shadow-2xl backdrop-blur-xl">
+                    <div className="space-y-4 sm:space-y-6">
                         {error && (
-                            <div className="p-4 bg-red-50 border-2 border-red-200 rounded-xl flex items-start gap-3 animate-in slide-in-from-top-2">
-                                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                            <div className="p-3 sm:p-4 bg-red-50 border-2 border-red-200 rounded-xl flex items-start gap-3 animate-in slide-in-from-top-2">
+                                <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 flex-shrink-0 mt-0.5" />
                                 <div className="flex-1">
-                                    <p className="text-sm font-medium text-red-700">{error}</p>
+                                    <p className="text-xs sm:text-sm font-medium text-red-700">{error}</p>
                                     {!isOnline && <p className="text-xs text-red-600 mt-2">💡 Login online once to enable offline access</p>}
                                 </div>
                             </div>
                         )}
 
                         <div>
-                            <label className="block text-sm font-semibold text-gray-900 mb-3">Admin Password</label>
+                            <label className="block text-xs sm:text-sm font-semibold text-gray-900 mb-2 sm:mb-3">Admin Password</label>
                             <div className="relative">
-                                <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                                    <Lock className="w-5 h-5 text-gray-400" />
+                                <div className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                                    <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
                                 </div>
                                 <input
                                     type={showPassword ? 'text' : 'password'}
@@ -99,34 +102,41 @@ export default function AdminLoginPage() {
                                     onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
                                     placeholder="Enter your password"
                                     autoFocus
-                                    className="w-full pl-12 pr-12 py-4 text-base bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
+                                    className="w-full pl-10 pr-10 sm:pl-12 sm:pr-12 py-3 sm:py-4 text-sm sm:text-base bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
                                 />
-                                <button onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
-                                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                <button
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                                >
+                                    {showPassword ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
                                 </button>
                             </div>
                             <p className="text-xs text-gray-500 mt-2 ml-1">Enter your admin password to access the dashboard</p>
                         </div>
 
-                        <button onClick={handleSubmit} disabled={loading || !password} className="w-full py-4 text-base bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-600/30 active:scale-95 relative overflow-hidden group">
+                        <button
+                            onClick={handleSubmit}
+                            disabled={loading || !password}
+                            className="w-full py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-600/30 active:scale-95 relative overflow-hidden group"
+                        >
                             <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
                             {loading ? (
                                 <span className="flex items-center justify-center gap-2">
-                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                     Verifying...
                                 </span>
                             ) : (
                                 <span className="flex items-center justify-center gap-2">
-                                    <Shield className="w-5 h-5" />
+                                    <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
                                     Access Dashboard
                                 </span>
                             )}
                         </button>
 
-                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                        <div className="p-3 sm:p-4 bg-blue-50 border border-blue-200 rounded-xl">
                             <div className="flex items-start gap-3">
-                                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                    <Shield className="w-4 h-4 text-blue-600" />
+                                <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <Shield className="w-3 h-3 sm:w-4 sm:h-4 text-blue-600" />
                                 </div>
                                 <div>
                                     <p className="text-xs font-semibold text-gray-900 mb-1">Security Notice</p>
@@ -137,7 +147,7 @@ export default function AdminLoginPage() {
                     </div>
                 </div>
 
-                <div className="mt-6 text-center">
+                <div className="mt-4 sm:mt-6 text-center">
                     <p className="text-xs text-gray-500">© 2025 AT Restaurant. All rights reserved.</p>
                 </div>
             </div>
