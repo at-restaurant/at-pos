@@ -1,4 +1,4 @@
-// src/app/layout.tsx - UPDATED WITH THEME FIX
+// src/app/layout.tsx - UPDATED WITH SCROLL TO TOP + BOTTOM PADDING FIX
 import type { Metadata, Viewport } from "next"
 import { Geist } from "next/font/google"
 import "./globals.css"
@@ -9,6 +9,7 @@ import InstallPrompt from '@/components/InstallPrompt'
 import OfflineIndicator from '@/components/ui/OfflineIndicator'
 import OfflineInitializer from '@/components/OfflineInitializer'
 import SyncProgressIndicator from '@/components/ui/SyncProgressIndicator'
+import ScrollToTop from '@/components/ui/ScrollToTop'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 import '@/lib/db/realtimeSync'
@@ -40,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     return (
         <html lang="en" suppressHydrationWarning>
         <head>
-            {/* ✅ FIX: Theme initialization BEFORE any render */}
+            {/* Theme initialization BEFORE any render */}
             <script dangerouslySetInnerHTML={{
                 __html: `
                 (function() {
@@ -86,7 +87,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <meta name="mobile-web-app-capable" content="yes" />
             <meta name="apple-mobile-web-app-capable" content="yes" />
 
-            {/* ✅ FIXED: Service Worker with retry logic */}
+            {/* Service Worker with retry logic */}
             <script dangerouslySetInnerHTML={{
                 __html: `
                 if('serviceWorker' in navigator) {
@@ -98,7 +99,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                             const reg = await navigator.serviceWorker.register('/sw.js');
                             console.log('✅ Service Worker registered:', reg.scope);
                             
-                            // Handle updates
                             reg.addEventListener('updatefound', () => {
                                 const newWorker = reg.installing;
                                 if (newWorker) {
@@ -137,7 +137,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <SyncProgressIndicator />
             <CommandPaletteWrapper />
             <InstallPrompt />
-            <main className="lg:ml-16 min-h-screen">{children}</main>
+
+            {/* ✅ Main content with proper mobile padding */}
+            <main className="lg:ml-16 min-h-screen pb-20 lg:pb-0">
+                {children}
+            </main>
+
+            {/* ✅ Global Scroll to Top Button */}
+            <ScrollToTop />
         </ErrorBoundary>
         </body>
         </html>

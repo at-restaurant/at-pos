@@ -1,4 +1,4 @@
-// src/components/cart/CartDrawer.tsx - FIXED WITH CATEGORIES & DETAILS
+// src/components/cart/CartDrawer.tsx - AUTO COMPLETE DELIVERY ORDERS
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -28,13 +28,10 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
     const [editingQuantity, setEditingQuantity] = useState<{ [key: string]: string }>({})
     const [customTaxPercent, setCustomTaxPercent] = useState<string>('0')
     const [editingTax, setEditingTax] = useState(false)
-
-    // ✅ NEW: Category data for cart items
     const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
 
     const supabase = createClient()
 
-    // ✅ Load menu categories for cart items
     useEffect(() => {
         loadMenuCategories()
     }, [])
@@ -166,14 +163,16 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
         const orderData: any = {
             waiter_id: cart.waiterId || null,
-            status: 'pending',
+            // ✅ AUTO COMPLETE: Set status to 'completed' for delivery orders
+            status: orderType === 'delivery' ? 'completed' : 'pending',
             subtotal,
             tax,
             total_amount: total,
             notes: cart.notes || null,
             order_type: orderType,
             payment_method: orderType === 'delivery' ? paymentMethod : null,
-            receipt_printed: false
+            // ✅ AUTO PRINT: Mark receipt as printed for delivery orders
+            receipt_printed: orderType === 'delivery' ? true : false
         }
 
         if (orderType === 'dine-in') {
@@ -209,12 +208,11 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             setConfirmAddMore(false)
             setTableWarning(null)
             setEditingQuantity({})
-            setCustomTaxPercent('5')
+            setCustomTaxPercent('0')
             setEditingTax(false)
         }
     }
 
-    // ✅ Group items by category
     const groupedItems = cart.items.reduce((acc: { [key: string]: typeof cart.items }, item) => {
         const category = menuCategories[item.id]
         const categoryKey = category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
@@ -277,6 +275,15 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                             </span>
                         </button>
                     </div>
+
+                    {/* ✅ AUTO COMPLETE INFO for Delivery */}
+                    {orderType === 'delivery' && (
+                        <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                            <p className="text-xs text-green-600 font-medium">
+                                ✅ Delivery orders will be automatically marked as completed and printed
+                            </p>
+                        </div>
+                    )}
 
                     {/* Payment Method - Only for Delivery */}
                     {orderType === 'delivery' && (
@@ -438,7 +445,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                     />
                                     <input
                                         type="number"
-                                        value={details.delivery_charges}
+                                        value={details.delivery_charges || ''}
                                         onChange={e => setDetails({ ...details, delivery_charges: Number(e.target.value) || 0 })}
                                         placeholder="Delivery charges (PKR)"
                                         className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-lg text-sm text-[var(--fg)] placeholder:text-[var(--muted)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
@@ -448,7 +455,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         </>
                     )}
 
-                    {/* ✅ Cart Items GROUPED BY CATEGORY */}
+                    {/* Cart Items GROUPED BY CATEGORY */}
                     {cart.items.length > 0 && (
                         <div className="space-y-4">
                             <h3 className="text-sm font-semibold text-[var(--fg)] px-1">Order Items by Category</h3>
@@ -542,7 +549,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                 <span className="font-medium text-[var(--fg)]">PKR {cart.subtotal().toFixed(2)}</span>
                             </div>
 
-                            {/* ✅ CUSTOM TAX INPUT */}
                             <div className="flex justify-between items-center text-sm">
                                 <span className="text-[var(--muted)]">Tax</span>
                                 <div className="flex items-center gap-2">
@@ -599,12 +605,18 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                             ) : (
                                 <CheckCircle className="w-5 h-5" />
                             )}
-                            {loading ? 'Placing...' : 'Place Order'}
+                            {loading ? 'Placing...' : orderType === 'delivery' ? 'Place & Complete Order' : 'Place Order'}
                         </button>
 
                         {orderType === 'dine-in' && (
                             <p className="text-xs text-center text-[var(--muted)] mt-2">
                                 💡 Payment method will be selected when completing the order
+                            </p>
+                        )}
+
+                        {orderType === 'delivery' && (
+                            <p className="text-xs text-center text-green-600 mt-2">
+                                ✅ This order will be automatically completed after placement
                             </p>
                         )}
                     </div>
