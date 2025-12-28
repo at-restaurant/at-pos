@@ -1,4 +1,4 @@
-// src/components/layout/UnifiedSidebar.tsx - FIXED TOGGLE POSITION
+// src/components/layout/UnifiedSidebar.tsx - FULLY MOBILE RESPONSIVE
 "use client"
 
 import Link from "next/link"
@@ -18,7 +18,6 @@ const NAV = {
         { label: "Tables", icon: LayoutGrid, href: "/tables" },
         { label: "Orders", icon: ShoppingBag, href: "/orders" },
         { label: "Attendance", icon: Timer, href: "/attendance" },
-
     ],
     admin: [
         { label: "Dashboard", icon: Home, href: "/admin" },
@@ -69,34 +68,176 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
 
     return (
         <>
-            {/* ✅ FIXED: Mobile Toggle - Bottom Right (Not blocking POS) */}
-            <button
-                onClick={() => setOpen(true)}
-                className="lg:hidden fixed bottom-20 right-4 z-40 p-3 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-2xl active:scale-95 transition-all hover:shadow-blue-600/50"
-                aria-label="Open menu"
-            >
-                <Menu className="w-6 h-6" />
-            </button>
+            {/* ========================================= */}
+            {/* MOBILE: Bottom Navigation Bar */}
+            {/* ========================================= */}
+            <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[var(--card)]/95 backdrop-blur-lg border-t border-[var(--border)] shadow-2xl">
+                <div className="grid grid-cols-5 gap-1 px-2 py-2">
+                    {items.slice(0, 4).map(item => {
+                        const Icon = item.icon
+                        const active = pathname === item.href || (item.href !== "/" && item.href !== "/admin" && pathname.startsWith(item.href))
 
-            {/* Mobile Overlay */}
+                        return (
+                            <Link
+                                key={item.href}
+                                href={item.href}
+                                className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-all active:scale-95 ${
+                                    active
+                                        ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg'
+                                        : 'text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--bg)]'
+                                }`}
+                            >
+                                <Icon className="w-5 h-5 mb-1" />
+                                <span className="text-[9px] font-medium truncate w-full text-center">{item.label}</span>
+                            </Link>
+                        )
+                    })}
+
+                    {/* More Menu Button */}
+                    <button
+                        onClick={() => setOpen(true)}
+                        className="flex flex-col items-center justify-center py-2 px-1 rounded-xl text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--bg)] transition-all active:scale-95"
+                    >
+                        <Menu className="w-5 h-5 mb-1" />
+                        <span className="text-[9px] font-medium">More</span>
+                    </button>
+                </div>
+            </nav>
+
+            {/* Mobile Full Menu Overlay */}
             {open && (
-                <div
-                    className="lg:hidden fixed inset-0 bg-black/50 z-40"
-                    onClick={() => setOpen(false)}
-                />
+                <>
+                    <div className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50" onClick={() => setOpen(false)} />
+
+                    <div className="lg:hidden fixed inset-x-0 bottom-0 z-50 bg-[var(--card)] rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-300 max-h-[85vh] overflow-y-auto">
+                        {/* Header */}
+                        <div className="sticky top-0 bg-[var(--card)] border-b border-[var(--border)] px-6 py-4 flex items-center justify-between rounded-t-3xl">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-xl flex items-center justify-center font-bold text-lg shadow-lg">
+                                    AT
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-[var(--fg)]">Menu</h3>
+                                    <p className="text-xs text-[var(--muted)]">{isAdmin ? 'Admin Panel' : 'Restaurant'}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setOpen(false)} className="p-2 hover:bg-[var(--bg)] rounded-lg">
+                                <X className="w-6 h-6 text-[var(--muted)]" />
+                            </button>
+                        </div>
+
+                        <div className="p-4 space-y-2">
+                            {/* All Navigation Items */}
+                            <div className="mb-4">
+                                <p className="text-xs font-semibold text-[var(--muted)] uppercase mb-2 px-2">Navigation</p>
+                                {items.map(item => {
+                                    const Icon = item.icon
+                                    const active = pathname === item.href || (item.href !== "/" && item.href !== "/admin" && pathname.startsWith(item.href))
+
+                                    return (
+                                        <Link
+                                            key={item.href}
+                                            href={item.href}
+                                            onClick={() => setOpen(false)}
+                                            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all active:scale-95 ${
+                                                active
+                                                    ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg'
+                                                    : 'text-[var(--fg)] hover:bg-[var(--bg)]'
+                                            }`}
+                                        >
+                                            <Icon className="w-5 h-5" />
+                                            <span className="font-medium">{item.label}</span>
+                                        </Link>
+                                    )
+                                })}
+                            </div>
+
+                            {/* Quick Actions */}
+                            <div>
+                                <p className="text-xs font-semibold text-[var(--muted)] uppercase mb-2 px-2">Quick Actions</p>
+
+                                <button
+                                    onClick={() => {
+                                        onCommandOpen?.()
+                                        setOpen(false)
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--fg)] hover:bg-[var(--bg)] transition-all"
+                                >
+                                    <Command className="w-5 h-5" />
+                                    <span className="font-medium">Quick Actions</span>
+                                </button>
+
+                                <button
+                                    onClick={toggleTheme}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--fg)] hover:bg-[var(--bg)] transition-all"
+                                >
+                                    {theme === "dark" ? (
+                                        <>
+                                            <Sun className="w-5 h-5 text-yellow-500" />
+                                            <span className="font-medium">Light Mode</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Moon className="w-5 h-5 text-blue-600" />
+                                            <span className="font-medium">Dark Mode</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                <button
+                                    onClick={() => {
+                                        setShowStorage(true)
+                                        setOpen(false)
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--fg)] hover:bg-[var(--bg)] transition-all"
+                                >
+                                    <Database className="w-5 h-5 text-purple-600" />
+                                    <span className="font-medium">Storage Info</span>
+                                </button>
+
+                                <button
+                                    onClick={() => {
+                                        if (installPrompt) handleInstall()
+                                        else alert('App already installed')
+                                        setOpen(false)
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--fg)] hover:bg-[var(--bg)] transition-all"
+                                >
+                                    <Download className="w-5 h-5 text-green-600" />
+                                    <span className="font-medium">Install App</span>
+                                </button>
+
+                                <Link
+                                    href={isAdmin ? "/" : "/admin"}
+                                    onClick={() => setOpen(false)}
+                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--fg)] hover:bg-[var(--bg)] transition-all"
+                                >
+                                    {isAdmin ? (
+                                        <>
+                                            <UtensilsCrossed className="w-5 h-5 text-orange-600" />
+                                            <span className="font-medium">Restaurant View</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Shield className="w-5 h-5 text-blue-600" />
+                                            <span className="font-medium">Admin Panel</span>
+                                        </>
+                                    )}
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+                </>
             )}
 
-            {/* Main Sidebar */}
-            <aside
-                className={`fixed top-0 left-0 h-screen w-16 bg-[var(--card)] border-r border-[var(--border)] flex flex-col z-50 transition-transform duration-300 lg:transition-none lg:translate-x-0 ${
-                    open ? "translate-x-0" : "-translate-x-full"
-                }`}
-            >
+            {/* ========================================= */}
+            {/* DESKTOP: Left Sidebar */}
+            {/* ========================================= */}
+            <aside className="hidden lg:flex fixed top-0 left-0 h-screen w-16 bg-[var(--card)] border-r border-[var(--border)] flex-col z-50 transition-transform duration-300">
                 {/* Logo */}
                 <Link
                     href={isAdmin ? "/admin" : "/"}
                     className="h-16 flex items-center justify-center border-b border-[var(--border)] flex-shrink-0"
-                    onClick={() => setOpen(false)}
                 >
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-xl flex items-center justify-center font-bold text-lg shadow-lg">
                         AT
@@ -111,11 +252,7 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
 
                         return (
                             <div key={item.href} className="relative group">
-                                <Link
-                                    href={item.href}
-                                    onClick={() => setOpen(false)}
-                                    className="block"
-                                >
+                                <Link href={item.href} className="block">
                                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors active:scale-95 ${
                                         active
                                             ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg"
@@ -125,9 +262,6 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
                                     </div>
                                 </Link>
                                 <span className={TOOLTIP_CLASS}>{item.label}</span>
-                                <span className="lg:hidden block text-center text-[10px] font-medium mt-0.5 text-[var(--muted)] truncate px-1">
-                                    {item.label}
-                                </span>
                             </div>
                         )
                     })}
@@ -138,10 +272,7 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
                     {/* Command Palette */}
                     <div className="relative group">
                         <button
-                            onClick={() => {
-                                onCommandOpen?.()
-                                setOpen(false)
-                            }}
+                            onClick={() => onCommandOpen?.()}
                             className="w-12 h-12 rounded-xl flex items-center justify-center text-[var(--muted)] bg-[var(--bg)] hover:bg-[var(--border)] active:scale-95 transition-colors"
                         >
                             <Command className="w-5 h-5" />
@@ -183,11 +314,11 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
                 </div>
             </aside>
 
-            {/* More Menu Popup */}
+            {/* Desktop More Menu Popup */}
             {showMoreMenu && (
                 <>
                     <div className="fixed inset-0 z-[60]" onClick={() => setShowMoreMenu(false)} />
-                    <div className="fixed left-20 bottom-4 z-[70] w-64 bg-[var(--card)] border-2 border-blue-600/50 rounded-xl shadow-2xl">
+                    <div className="hidden lg:block fixed left-20 bottom-4 z-[70] w-64 bg-[var(--card)] border-2 border-blue-600/50 rounded-xl shadow-2xl">
                         <div className="flex items-center justify-between p-4 border-b border-[var(--border)]">
                             <h3 className="font-bold text-[var(--fg)]">More Options</h3>
                             <button onClick={() => setShowMoreMenu(false)} className="p-1 rounded-lg hover:bg-[var(--bg)]">
@@ -200,7 +331,6 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
                                 onClick={() => {
                                     setShowStorage(true)
                                     setShowMoreMenu(false)
-                                    setOpen(false)
                                 }}
                                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-[var(--bg)]"
                             >
@@ -215,13 +345,9 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
 
                             <button
                                 onClick={() => {
-                                    if (installPrompt) {
-                                        handleInstall()
-                                    } else {
-                                        alert('App is already installed or not available')
-                                    }
+                                    if (installPrompt) handleInstall()
+                                    else alert('App is already installed or not available')
                                     setShowMoreMenu(false)
-                                    setOpen(false)
                                 }}
                                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-[var(--bg)]"
                             >
@@ -238,10 +364,7 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
 
                             <Link
                                 href={isAdmin ? "/" : "/admin"}
-                                onClick={() => {
-                                    setShowMoreMenu(false)
-                                    setOpen(false)
-                                }}
+                                onClick={() => setShowMoreMenu(false)}
                                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-[var(--bg)]"
                             >
                                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
