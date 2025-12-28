@@ -1,9 +1,9 @@
 // src/app/admin/(pages)/history/page.tsx - COMPLETE PRODUCTION VERSION
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect , useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Calendar, TrendingUp, DollarSign, ShoppingCart, Download, Package, Users, Activity, BarChart3 } from 'lucide-react'
+import { Calendar, TrendingUp, DollarSign, ShoppingCart, Download, Package, Users, Activity, BarChart3, PieChart } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
@@ -330,159 +330,360 @@ export default function HistoryPage() {
 
     const columns: any = {
         overview: [
-            { key: 'metric', label: 'Business Overview', render: () => (
-                    <div className="space-y-6">
-                        {/* Orders & Revenue */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="p-4 bg-blue-600/10 rounded-lg border border-blue-600/30">
-                                <p className="text-sm text-[var(--muted)] mb-2">Total Orders</p>
-                                <p className="text-3xl font-bold text-blue-600">{overviewData?.totalOrders || 0}</p>
-                                <p className="text-xs text-[var(--muted)] mt-1">Avg: PKR {Math.round(overviewData?.avgOrderValue || 0)}</p>
+            {
+                key: 'metric',
+                label: 'Business Overview',
+                render: () => (
+                    <div className="space-y-3 w-full">
+                        {/* 📊 Orders & Revenue */}
+                        <div className="w-full space-y-3">
+                            {/* Total Orders */}
+                            <div className="w-full p-4 bg-blue-600/10 dark:bg-blue-600/20 rounded-xl border border-blue-600/30">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">
+                                            📊 Total Orders
+                                        </p>
+                                        <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+                                            {overviewData?.totalOrders || 0}
+                                        </p>
+                                    </div>
+                                    <div className="text-right flex-shrink-0 ml-4">
+                                        <p className="text-xs text-[var(--muted)] mb-1">Average</p>
+                                        <p className="text-sm font-semibold text-[var(--fg)]">
+                                            PKR {Math.round(overviewData?.avgOrderValue || 0)}
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="p-4 bg-green-600/10 rounded-lg border border-green-600/30">
-                                <p className="text-sm text-[var(--muted)] mb-2">Total Revenue</p>
-                                <p className="text-3xl font-bold text-green-600">PKR {(overviewData?.totalRevenue || 0).toLocaleString()}</p>
-                                <p className="text-xs text-[var(--muted)] mt-1">Tax: PKR {(overviewData?.totalTax || 0).toLocaleString()}</p>
+
+                            {/* Total Revenue */}
+                            <div className="w-full p-4 bg-green-600/10 dark:bg-green-600/20 rounded-xl border border-green-600/30">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-green-600 dark:text-green-400 mb-1">
+                                            💰 Total Revenue
+                                        </p>
+                                        <p className="text-3xl font-bold text-green-600 dark:text-green-400">
+                                            {(overviewData?.totalRevenue || 0).toLocaleString()}
+                                        </p>
+                                    </div>
+                                    <div className="text-right flex-shrink-0 ml-4">
+                                        <p className="text-xs text-[var(--muted)] mb-1">Tax</p>
+                                        <p className="text-sm font-semibold text-[var(--fg)]">
+                                            PKR {(overviewData?.totalTax || 0).toLocaleString()}
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Profit & Cost */}
-                        <div className="p-4 bg-purple-600/10 rounded-lg border border-purple-600/30">
-                            <p className="text-sm text-[var(--muted)] mb-3">Profit Analysis</p>
-                            <div className="grid grid-cols-3 gap-3">
-                                <div>
-                                    <p className="text-xs text-[var(--muted)]">Cost (Est.)</p>
-                                    <p className="text-lg font-bold text-red-600">PKR {Math.round(overviewData?.estimatedCost || 0).toLocaleString()}</p>
+                        {/* 📈 Profit Analysis */}
+                        <div className="w-full p-4 bg-purple-600/10 dark:bg-purple-600/20 rounded-xl border border-purple-600/30">
+                            <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 mb-3">
+                                📈 Profit Analysis
+                            </p>
+                            <div className="space-y-2">
+                                {/* Cost */}
+                                <div className="flex items-center justify-between p-3 bg-[var(--bg)] rounded-lg">
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></div>
+                                        <span className="text-xs text-[var(--muted)] truncate">Cost (Est.)</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-red-600 dark:text-red-400 ml-2 flex-shrink-0">
+                                    PKR {Math.round(overviewData?.estimatedCost || 0).toLocaleString()}
+                                </span>
                                 </div>
-                                <div>
-                                    <p className="text-xs text-[var(--muted)]">Gross Profit</p>
-                                    <p className="text-lg font-bold text-green-600">PKR {Math.round(overviewData?.grossProfit || 0).toLocaleString()}</p>
+
+                                {/* Profit */}
+                                <div className="flex items-center justify-between p-3 bg-[var(--bg)] rounded-lg">
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></div>
+                                        <span className="text-xs text-[var(--muted)] truncate">Gross Profit</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-green-600 dark:text-green-400 ml-2 flex-shrink-0">
+                                    PKR {Math.round(overviewData?.grossProfit || 0).toLocaleString()}
+                                </span>
                                 </div>
-                                <div>
-                                    <p className="text-xs text-[var(--muted)]">Margin</p>
-                                    <p className="text-lg font-bold text-blue-600">{overviewData?.profitMargin || 0}%</p>
+
+                                {/* Margin */}
+                                <div className="flex items-center justify-between p-3 bg-[var(--bg)] rounded-lg">
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
+                                        <span className="text-xs text-[var(--muted)] truncate">Profit Margin</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-blue-600 dark:text-blue-400 ml-2 flex-shrink-0">
+                                    {overviewData?.profitMargin || 0}%
+                                </span>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Inventory & Items */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="p-4 bg-orange-600/10 rounded-lg border border-orange-600/30">
-                                <p className="text-sm text-[var(--muted)] mb-2">Inventory Value</p>
-                                <p className="text-2xl font-bold text-orange-600">PKR {(overviewData?.totalInventoryValue || 0).toLocaleString()}</p>
-                                <p className="text-xs text-red-600 font-medium mt-1">{overviewData?.lowStockItems || 0} low stock</p>
+                        {/* 📦 Inventory & Sales */}
+                        <div className="w-full space-y-3">
+                            {/* Inventory Value */}
+                            <div className="w-full p-4 bg-orange-600/10 dark:bg-orange-600/20 rounded-xl border border-orange-600/30">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-orange-600 dark:text-orange-400 mb-1">
+                                            📦 Inventory Value
+                                        </p>
+                                        <p className="text-2xl font-bold text-orange-600 dark:text-orange-400 mb-2">
+                                            PKR {(overviewData?.totalInventoryValue || 0).toLocaleString()}
+                                        </p>
+                                        {overviewData?.lowStockItems > 0 && (
+                                            <div className="inline-flex items-center gap-1 px-2 py-1 bg-red-500/10 dark:bg-red-600/20 rounded-md">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
+                                                <span className="text-xs font-semibold text-red-600 dark:text-red-400">
+                                                {overviewData?.lowStockItems} low stock
+                                            </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                            <div className="p-4 bg-cyan-600/10 rounded-lg border border-cyan-600/30">
-                                <p className="text-sm text-[var(--muted)] mb-2">Items Sold</p>
-                                <p className="text-2xl font-bold text-cyan-600">{overviewData?.totalItemsSold || 0}</p>
-                                <p className="text-xs text-[var(--muted)] mt-1">Top: {overviewData?.topSellingItem || 'N/A'}</p>
+
+                            {/* Items Sold */}
+                            <div className="w-full p-4 bg-cyan-600/10 dark:bg-cyan-600/20 rounded-xl border border-cyan-600/30">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-cyan-600 dark:text-cyan-400 mb-1">
+                                            🛍️ Items Sold
+                                        </p>
+                                        <p className="text-2xl font-bold text-cyan-600 dark:text-cyan-400 mb-2">
+                                            {overviewData?.totalItemsSold || 0}
+                                        </p>
+                                        {overviewData?.topSellingItem && (
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                <span className="text-xs text-[var(--muted)] flex-shrink-0">Top:</span>
+                                                <span className="text-xs font-semibold text-[var(--fg)] truncate">
+                                                {overviewData?.topSellingItem}
+                                            </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Staff Hours */}
-                        <div className="p-4 bg-pink-600/10 rounded-lg border border-pink-600/30">
-                            <p className="text-sm text-[var(--muted)] mb-3">Staff Performance</p>
-                            <div className="flex justify-between">
-                                <div>
-                                    <p className="text-xs text-[var(--muted)]">Total Shifts</p>
-                                    <p className="text-2xl font-bold text-pink-600">{overviewData?.totalShifts || 0}</p>
+                        {/* 👥 Staff Performance */}
+                        <div className="w-full p-4 bg-pink-600/10 dark:bg-pink-600/20 rounded-xl border border-pink-600/30">
+                            <p className="text-xs font-semibold text-pink-600 dark:text-pink-400 mb-3">
+                                👥 Staff Performance
+                            </p>
+                            <div className="grid grid-cols-2 gap-3">
+                                {/* Total Shifts */}
+                                <div className="p-3 bg-[var(--bg)] rounded-lg text-center">
+                                    <p className="text-xs text-[var(--muted)] mb-1">Total Shifts</p>
+                                    <p className="text-2xl font-bold text-pink-600 dark:text-pink-400">
+                                        {overviewData?.totalShifts || 0}
+                                    </p>
                                 </div>
-                                <div className="text-right">
-                                    <p className="text-xs text-[var(--muted)]">Working Hours</p>
-                                    <p className="text-2xl font-bold text-pink-600">{overviewData?.totalWorkingHours || 0}h</p>
+
+                                {/* Working Hours */}
+                                <div className="p-3 bg-[var(--bg)] rounded-lg text-center">
+                                    <p className="text-xs text-[var(--muted)] mb-1">Working Hours</p>
+                                    <p className="text-2xl font-bold text-pink-600 dark:text-pink-400">
+                                        {overviewData?.totalWorkingHours || 0}h
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 💡 Quick Stats Summary */}
+                        <div className="w-full p-4 bg-[var(--card)] rounded-xl border border-[var(--border)]">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="text-center p-3 bg-[var(--bg)] rounded-lg">
+                                    <p className="text-xs text-[var(--muted)] mb-1">Avg Order</p>
+                                    <p className="text-lg font-bold text-[var(--fg)]">
+                                        PKR {Math.round(overviewData?.avgOrderValue || 0)}
+                                    </p>
+                                </div>
+                                <div className="text-center p-3 bg-[var(--bg)] rounded-lg">
+                                    <p className="text-xs text-[var(--muted)] mb-1">Profit %</p>
+                                    <p className="text-lg font-bold text-green-600 dark:text-green-400">
+                                        {overviewData?.profitMargin || 0}%
+                                    </p>
                                 </div>
                             </div>
                         </div>
                     </div>
-                )}
+                )
+            }
         ],
         waiters: [
-            { key: 'waiter', label: 'Waiter', render: (r: any) => (
-                    <div className="flex items-center gap-3">
-                        {r.profile_pic ?
-                            <img src={r.profile_pic} alt="" className="w-10 h-10 rounded-full" /> :
-                            <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold">
+            {
+                key: 'waiter',
+                label: 'Waiter',
+                render: (r: any) => (
+                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                        {r.profile_pic ? (
+                            <img
+                                src={r.profile_pic}
+                                alt={r.waiter_name}
+                                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover flex-shrink-0"
+                            />
+                        ) : (
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs sm:text-sm flex-shrink-0">
                                 {r.waiter_name?.[0] || '?'}
                             </div>
-                        }
-                        <div>
-                            <p className="font-medium text-[var(--fg)]">{r.waiter_name}</p>
-                            <p className="text-xs text-[var(--muted)]">{r.phone || 'No phone'}</p>
+                        )}
+                        <div className="min-w-0 flex-1">
+                            <p className="font-medium text-[var(--fg)] text-xs sm:text-sm truncate">
+                                {r.waiter_name}
+                            </p>
+                            <p className="text-xs text-[var(--muted)] truncate">
+                                {r.phone || 'No phone'}
+                            </p>
                         </div>
                     </div>
-                )},
-            { key: 'performance', label: 'Performance', render: (r: any) => {
+                )
+            },
+            {
+                key: 'performance',
+                label: 'Performance',
+                render: (r: any) => {
                     const score = r.performance_score || 0
                     const color = score >= 80 ? '#10b981' : score >= 60 ? '#f59e0b' : '#ef4444'
                     return (
-                        <div>
+                        <div className="w-full">
                             <div className="flex items-center gap-2 mb-1">
-                                <div className="flex-1 h-2 bg-[var(--bg)] rounded-full">
-                                    <div className="h-full rounded-full" style={{ width: `${score}%`, backgroundColor: color }} />
+                                <div className="flex-1 h-1.5 sm:h-2 bg-[var(--bg)] rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full rounded-full transition-all duration-300"
+                                        style={{ width: `${score}%`, backgroundColor: color }}
+                                    />
                                 </div>
-                                <span className="text-sm font-bold" style={{ color }}>{score}%</span>
+                                <span
+                                    className="text-xs sm:text-sm font-bold flex-shrink-0"
+                                    style={{ color }}
+                                >
+                        {score}%
+                    </span>
                             </div>
                         </div>
                     )
-                }},
-            { key: 'stats', label: 'Orders & Revenue', render: (r: any) => (
+                }
+            },
+            {
+                key: 'stats',
+                label: 'Orders & Revenue',
+                render: (r: any) => (
                     <div>
-                        <p className="font-bold text-[var(--fg)]">{r.completed_orders}/{r.total_orders} orders</p>
-                        <p className="text-xs text-green-600 font-medium">PKR {(r.total_revenue || 0).toLocaleString()}</p>
+                        <p className="font-bold text-[var(--fg)] text-xs sm:text-sm">
+                            {r.completed_orders}/{r.total_orders} orders
+                        </p>
+                        <p className="text-xs text-green-600 font-medium">
+                            PKR {(r.total_revenue || 0).toLocaleString()}
+                        </p>
                     </div>
-                )}
+                )
+            }
         ],
         menu: [
-            { key: 'item', label: 'Item', render: (r: any) => (
-                    <span className="font-medium text-[var(--fg)]">{r.item_name}</span>
-                )},
-            { key: 'sold', label: 'Sold', render: (r: any) => (
-                    <span className="font-bold text-[var(--fg)]">{r.total_quantity}</span>
-                )},
-            { key: 'revenue', label: 'Revenue', align: 'right' as const, render: (r: any) => (
-                    <span className="font-bold text-blue-600">PKR {(r.total_revenue || 0).toLocaleString()}</span>
-                )}
+            {
+                key: 'item',
+                label: 'Item',
+                render: (r: any) => (
+                    <span className="font-medium text-[var(--fg)] text-xs sm:text-sm truncate block">
+            {r.item_name}
+        </span>
+                )
+            },
+            {
+                key: 'sold',
+                label: 'Sold',
+                render: (r: any) => (
+                    <span className="font-bold text-[var(--fg)] text-sm sm:text-base">
+            {r.total_quantity}
+        </span>
+                )
+            },
+            {
+                key: 'revenue',
+                label: 'Revenue',
+                align: 'right' as const,
+                render: (r: any) => (
+                    <span className="font-bold text-blue-600 text-xs sm:text-sm whitespace-nowrap">
+            PKR {(r.total_revenue || 0).toLocaleString()}
+        </span>
+                )
+            }
         ],
         profit: [
-            { key: 'details', label: 'Financial Summary', render: (r: any) => (
+            {
+                key: 'details',
+                label: 'Financial Summary',
+                render: (r: any) => (
                     <div className="space-y-2">
-                        <div className="flex justify-between p-2 bg-[var(--bg)] rounded">
-                            <span className="text-[var(--muted)]">Total Revenue</span>
-                            <span className="font-bold text-green-600">PKR {(r.total_revenue || 0).toLocaleString()}</span>
+                        <div className="flex justify-between p-2 sm:p-3 bg-[var(--bg)] rounded-lg">
+                            <span className="text-[var(--muted)] text-xs sm:text-sm">Total Revenue</span>
+                            <span className="font-bold text-green-600 text-xs sm:text-sm whitespace-nowrap">
+                    PKR {(r.total_revenue || 0).toLocaleString()}
+                </span>
                         </div>
-                        <div className="flex justify-between p-2 bg-[var(--bg)] rounded">
-                            <span className="text-[var(--muted)]">Estimated Cost</span>
-                            <span className="font-bold text-red-600">PKR {Math.round(r.estimated_cost || 0).toLocaleString()}</span>
+                        <div className="flex justify-between p-2 sm:p-3 bg-[var(--bg)] rounded-lg">
+                            <span className="text-[var(--muted)] text-xs sm:text-sm">Estimated Cost</span>
+                            <span className="font-bold text-red-600 text-xs sm:text-sm whitespace-nowrap">
+                    PKR {Math.round(r.estimated_cost || 0).toLocaleString()}
+                </span>
                         </div>
-                        <div className="flex justify-between p-2 bg-[var(--bg)] rounded">
-                            <span className="text-[var(--muted)]">Gross Profit</span>
-                            <span className="font-bold text-blue-600">PKR {Math.round(r.gross_profit || 0).toLocaleString()}</span>
+                        <div className="flex justify-between p-2 sm:p-3 bg-[var(--bg)] rounded-lg">
+                            <span className="text-[var(--muted)] text-xs sm:text-sm">Gross Profit</span>
+                            <span className="font-bold text-blue-600 text-xs sm:text-sm whitespace-nowrap">
+                    PKR {Math.round(r.gross_profit || 0).toLocaleString()}
+                </span>
                         </div>
-                        <div className="flex justify-between p-2 bg-[var(--bg)] rounded">
-                            <span className="text-[var(--muted)]">Inventory Value</span>
-                            <span className="font-bold text-purple-600">PKR {(r.inventory_value || 0).toLocaleString()}</span>
+                        <div className="flex justify-between p-2 sm:p-3 bg-[var(--bg)] rounded-lg">
+                            <span className="text-[var(--muted)] text-xs sm:text-sm">Inventory Value</span>
+                            <span className="font-bold text-purple-600 text-xs sm:text-sm whitespace-nowrap">
+                    PKR {(r.inventory_value || 0).toLocaleString()}
+                </span>
                         </div>
                     </div>
-                )}
+                )
+            }
         ],
         inventory: [
-            { key: 'item', label: 'Item', render: (r: any) => (
-                    <span className="font-medium text-[var(--fg)]">{r.name}</span>
-                )},
-            { key: 'stock', label: 'Stock', render: (r: any) => {
+            {
+                key: 'item',
+                label: 'Item',
+                render: (r: any) => (
+                    <span className="font-medium text-[var(--fg)] text-xs sm:text-sm truncate block">
+            {r.name}
+        </span>
+                )
+            },
+            {
+                key: 'stock',
+                label: 'Stock',
+                render: (r: any) => {
                     const color = r.status === 'critical' ? '#ef4444' : r.status === 'low' ? '#f59e0b' : '#10b981'
                     return (
-                        <div>
-                            <span className="font-bold text-[var(--fg)]">{r.quantity}</span>
-                            <span className="ml-2 px-2 py-0.5 rounded text-xs" style={{ backgroundColor: `${color}20`, color }}>
-                            {r.status}
-                        </span>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                <span className="font-bold text-[var(--fg)] text-sm">
+                    {r.quantity}
+                </span>
+                            <span
+                                className="px-2 py-0.5 rounded text-xs font-medium inline-block"
+                                style={{ backgroundColor: `${color}20`, color }}
+                            >
+                    {r.status}
+                </span>
                         </div>
                     )
-                }},
-            { key: 'value', label: 'Value', align: 'right' as const, render: (r: any) => (
-                    <span className="font-bold text-blue-600">PKR {(r.total_value || 0).toLocaleString()}</span>
-                )}
+                }
+            },
+            {
+                key: 'value',
+                label: 'Value',
+                align: 'right' as const,
+                render: (r: any) => (
+                    <span className="font-bold text-blue-600 text-xs sm:text-sm whitespace-nowrap">
+            PKR {(r.total_value || 0).toLocaleString()}
+        </span>
+                )
+            }
         ]
     }
 
@@ -508,16 +709,24 @@ export default function HistoryPage() {
                                 <select
                                     value={dateRange}
                                     onChange={(e) => setDateRange(e.target.value as DateRange)}
-                                    className="px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-lg text-sm"
+                                    className="px-2 sm:px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-lg text-xs sm:text-sm text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                    style={{
+                                        colorScheme: typeof document !== 'undefined' &&
+                                        document.documentElement.classList.contains('dark')
+                                            ? 'dark' : 'light'
+                                    }}
                                 >
                                     <option value="week">Last Week</option>
                                     <option value="month">Last Month</option>
                                     <option value="year">Last Year</option>
                                     <option value="all">All Time</option>
                                 </select>
-                                <button onClick={exportCSV} className="px-4 py-2 bg-green-600 text-white rounded-lg flex items-center gap-2">
-                                    <Download className="w-4 h-4" />
-                                    Export
+                                <button
+                                    onClick={exportCSV}
+                                    className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95 transition-all"
+                                >
+                                    <Download className="w-3 h-3 sm:w-4 sm:h-4" />
+                                    <span className="hidden sm:inline">Export</span>
                                 </button>
                             </div>
                         }

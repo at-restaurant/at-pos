@@ -26,7 +26,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
     const [tableWarning, setTableWarning] = useState<{ show: boolean; tableNumber: number; currentOrder?: any } | null>(null)
     const [confirmAddMore, setConfirmAddMore] = useState(false)
     const [editingQuantity, setEditingQuantity] = useState<{ [key: string]: string }>({})
-    const [customTaxPercent, setCustomTaxPercent] = useState<string>('5')
+    const [customTaxPercent, setCustomTaxPercent] = useState<string>('0')
     const [editingTax, setEditingTax] = useState(false)
 
     // ✅ NEW: Category data for cart items

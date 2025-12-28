@@ -1,4 +1,5 @@
-// src/lib/hooks/useOrderManagement.ts - FIXED WITH IDEMPOTENCY
+// src/lib/hooks/useOrderManagement.ts - UUID FIX
+
 import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
@@ -6,7 +7,15 @@ import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { addToQueue } from '@/lib/db/syncQueue'
 
-// ✅ FIX: Track in-flight requests to prevent duplicates
+// ✅ FIX: Generate proper UUID
+function generateUUID(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0
+        const v = c === 'x' ? r : (r & 0x3 | 0x8)
+        return v.toString(16)
+    })
+}
+
 const inFlightRequests = new Map<string, Promise<any>>()
 
 export function useOrderManagement() {
@@ -100,37 +109,33 @@ export function useOrderManagement() {
         }
     }, [markPrinted, completeOrder, toast])
 
-    // ✅ FIX: Idempotent order creation
     const createOrder = useCallback(async (orderData: any, items: any[]) => {
-        // ✅ Generate idempotency key
         const idempotencyKey = orderData.idempotencyKey ||
             `order_${orderData.table_id || 'delivery'}_${Date.now()}`
 
-        // ✅ Check if request is already in-flight
         if (inFlightRequests.has(idempotencyKey)) {
-            console.log('🔄 Order creation already in progress, returning existing promise')
+            console.log('🔄 Order creation already in progress')
             return inFlightRequests.get(idempotencyKey)!
         }
 
         setLoading(true)
 
-        // ✅ Create and store the promise
         const createPromise = (async () => {
             try {
                 const isOnline = navigator.onLine
 
                 if (isOnline) {
-                    // ✅ Check if order already exists (idempotency check)
+                    // ✅ Online: Check for duplicates
                     const { data: existingOrder } = await supabase
                         .from('orders')
                         .select('id')
                         .eq('table_id', orderData.table_id)
                         .eq('status', 'pending')
-                        .gte('created_at', new Date(Date.now() - 60000).toISOString()) // Last 1 minute
+                        .gte('created_at', new Date(Date.now() - 60000).toISOString())
                         .single()
 
                     if (existingOrder) {
-                        console.log('⚠️ Duplicate order prevented:', existingOrder.id)
+                        console.log('⚠️ Duplicate order prevented')
                         return {
                             success: true,
                             order: existingOrder,
@@ -138,7 +143,7 @@ export function useOrderManagement() {
                         }
                     }
 
-                    // Online creation
+                    // ✅ Create order online
                     const { data: order, error: orderError } = await supabase
                         .from('orders')
                         .insert(orderData)
@@ -183,7 +188,7 @@ export function useOrderManagement() {
                     toast.add('success', '✅ Order created!')
                     return { success: true, order }
                 } else {
-                    // ✅ Offline order creation with idempotency
+                    // ✅ OFFLINE: Use proper UUID format
                     const existingOffline = await db.get(STORES.ORDERS, idempotencyKey)
                     if (existingOffline) {
                         console.log('⚠️ Duplicate offline order prevented')
@@ -194,12 +199,14 @@ export function useOrderManagement() {
                         }
                     }
 
-                    const orderId = `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                    // ✅ Generate UUID for offline order
+                    const orderId = generateUUID()
 
                     const offlineOrder = {
                         ...orderData,
-                        id: orderId,
-                        idempotencyKey, // ✅ Store key for deduplication
+                        id: orderId, // ✅ UUID format
+                        offline_id: `offline_${Date.now()}`, // ✅ Keep offline marker
+                        idempotencyKey,
                         created_at: new Date().toISOString(),
                         synced: false
                     }
@@ -207,7 +214,7 @@ export function useOrderManagement() {
                     await db.put(STORES.ORDERS, offlineOrder)
 
                     const orderItems = items.map(item => ({
-                        id: `${orderId}_${item.id}`,
+                        id: generateUUID(), // ✅ UUID for items too
                         order_id: orderId,
                         menu_item_id: item.id,
                         quantity: item.quantity,
@@ -246,14 +253,11 @@ export function useOrderManagement() {
                 return { success: false, error: error.message }
             } finally {
                 setLoading(false)
-                // ✅ Remove from in-flight after completion
                 inFlightRequests.delete(idempotencyKey)
             }
         })()
 
-        // ✅ Store the promise
         inFlightRequests.set(idempotencyKey, createPromise)
-
         return createPromise
     }, [supabase, toast])
 

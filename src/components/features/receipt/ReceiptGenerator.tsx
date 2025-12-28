@@ -1,4 +1,4 @@
-// src/components/features/receipt/ReceiptGenerator.tsx - FIXED PRINT VERSION
+// src/components/features/receipt/ReceiptGenerator.tsx - COMPLETE FIXED
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
@@ -22,7 +22,7 @@ type ReceiptProps = {
         order_items: Array<{
             id: string
             quantity: number
-            menu_items: { name: string; price: number; category_id: string }
+            menu_items: { name: string; price: number; category_id?: string }
             total_price: number
         }>
     }
@@ -47,15 +47,69 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         setCategories(cats || [])
     }
 
+    // ✅ FIX: Safe grouping with fallback
     const groupedItems = order.order_items.reduce((acc: any, item) => {
-        const categoryId = item.menu_items.category_id
+        // ✅ Check if menu_items exists and has category_id
+        const categoryId = item.menu_items?.category_id || 'uncategorized'
         if (!acc[categoryId]) acc[categoryId] = []
         acc[categoryId].push(item)
         return acc
     }, {})
 
+    // ✅ CLEAN PRINT FUNCTION
     const handlePrint = () => {
-        window.print()
+        if (!receiptRef.current) return
+
+        const printWindow = window.open('', '_blank')
+        if (!printWindow) return
+
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Receipt - ${order.id.slice(0, 8)}</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { 
+                        font-family: 'Courier New', monospace; 
+                        padding: 20px; 
+                        background: white;
+                        color: black;
+                    }
+                    .text-center { text-align: center; }
+                    .border-dashed { border-top: 2px dashed #666; margin: 15px 0; }
+                    .flex-between { display: flex; justify-content: space-between; margin: 5px 0; }
+                    .category-header {
+                        background: #f0f0f0;
+                        padding: 8px;
+                        margin: 10px 0 5px 0;
+                        border-left: 3px solid #3b82f6;
+                        font-weight: bold;
+                        font-size: 14px;
+                    }
+                    .item-row { margin: 5px 0; padding-left: 10px; font-size: 14px; }
+                    .item-detail { font-size: 11px; color: #666; margin-left: 20px; }
+                    h2 { font-size: 24px; margin-bottom: 5px; }
+                    .total-row {
+                        border-top: 2px solid #333;
+                        padding-top: 10px;
+                        margin-top: 10px;
+                        font-size: 18px;
+                        font-weight: bold;
+                    }
+                </style>
+            </head>
+            <body>
+                ${receiptRef.current.innerHTML}
+            </body>
+            </html>
+        `)
+        printWindow.document.close()
+
+        setTimeout(() => {
+            printWindow.print()
+            printWindow.close()
+        }, 250)
     }
 
     const handleDownload = async () => {
@@ -89,36 +143,85 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         }
     }
 
+    // ✅ RENDER ITEMS - Safe rendering
+    const renderItems = () => {
+        // ✅ Filter valid categories
+        const validCategories = categories.filter(cat =>
+            groupedItems[cat.id] && groupedItems[cat.id].length > 0
+        )
+
+        if (validCategories.length > 0) {
+            return validCategories.map(category => (
+                <div key={category.id} className="mb-2 sm:mb-3">
+                    <div className="font-bold text-xs sm:text-sm mb-1 sm:mb-2 px-2 py-1 rounded bg-gray-100 text-gray-900" style={{ borderLeft: '3px solid #3b82f6' }}>
+                        {category.icon} {category.name.toUpperCase()}
+                    </div>
+                    <div className="space-y-1 sm:space-y-2">
+                        {groupedItems[category.id].map((item: any) => (
+                            <div key={item.id} className="text-xs sm:text-sm">
+                                <div className="flex justify-between">
+                                    <span className="text-gray-900">
+                                        {item.quantity}x {item.menu_items?.name || 'Unknown Item'}
+                                    </span>
+                                    <span className="font-bold text-gray-900">PKR {item.total_price}</span>
+                                </div>
+                                <div className="text-xs text-gray-500 ml-4">
+                                    @ PKR {item.menu_items?.price || 0} each
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ))
+        }
+
+        // ✅ Fallback: Show uncategorized items
+        if (groupedItems['uncategorized']?.length > 0) {
+            return (
+                <div className="space-y-1 sm:space-y-2">
+                    {groupedItems['uncategorized'].map((item: any) => (
+                        <div key={item.id} className="text-xs sm:text-sm">
+                            <div className="flex justify-between">
+                                <span className="text-gray-900">
+                                    {item.quantity}x {item.menu_items?.name || 'Unknown Item'}
+                                </span>
+                                <span className="font-bold text-gray-900">PKR {item.total_price}</span>
+                            </div>
+                            <div className="text-xs text-gray-500 ml-4">
+                                @ PKR {item.menu_items?.price || 0} each
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )
+        }
+
+        // ✅ Final fallback: Show all items
+        return (
+            <div className="space-y-1 sm:space-y-2">
+                {order.order_items.map((item: any) => (
+                    <div key={item.id} className="text-xs sm:text-sm">
+                        <div className="flex justify-between">
+                            <span className="text-gray-900">
+                                {item.quantity}x {item.menu_items?.name || 'Unknown Item'}
+                            </span>
+                            <span className="font-bold text-gray-900">PKR {item.total_price}</span>
+                        </div>
+                        <div className="text-xs text-gray-500 ml-4">
+                            @ PKR {item.menu_items?.price || 0} each
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )
+    }
+
     return (
         <>
-            {/* Print Styles */}
-            <style jsx global>{`
-                @media print {
-                    body * {
-                        visibility: hidden;
-                    }
-                    #receipt-content,
-                    #receipt-content * {
-                        visibility: visible;
-                    }
-                    #receipt-content {
-                        position: absolute;
-                        left: 0;
-                        top: 0;
-                        width: 100%;
-                        background: white !important;
-                        padding: 20px;
-                    }
-                    .print-hide {
-                        display: none !important;
-                    }
-                }
-            `}</style>
-
-            <div className="fixed inset-0 flex items-center justify-center p-4 z-50 bg-black/70 print-hide">
+            <div className="fixed inset-0 flex items-center justify-center p-4 z-50 bg-black/70">
                 <div className="rounded-xl w-full max-w-md border bg-white">
                     {/* Header */}
-                    <div className="flex items-center justify-between p-4 sm:p-6 border-b print-hide">
+                    <div className="flex items-center justify-between p-4 sm:p-6 border-b">
                         <div className="flex items-center gap-3">
                             <Printer className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                             <h3 className="text-lg sm:text-xl font-bold text-gray-900">Receipt</h3>
@@ -130,7 +233,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
 
                     {/* Receipt Content */}
                     <div
-                        id="receipt-content"
                         ref={receiptRef}
                         className="p-4 sm:p-6 font-mono bg-white"
                         style={{ maxHeight: '60vh', overflowY: 'auto' }}
@@ -205,33 +307,10 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
 
                         <div className="border-t-2 border-dashed my-3 sm:my-4 border-gray-300"></div>
 
-                        {/* Items by Category */}
+                        {/* ✅ FIXED: Items Rendering */}
                         <div className="mb-3 sm:mb-4">
                             <p className="font-bold text-xs sm:text-sm mb-2 text-gray-900">ORDER ITEMS</p>
-                            {categories
-                                .filter(cat => groupedItems[cat.id]?.length > 0)
-                                .map(category => (
-                                    <div key={category.id} className="mb-2 sm:mb-3">
-                                        <div className="font-bold text-xs sm:text-sm mb-1 sm:mb-2 px-2 py-1 rounded bg-gray-100 text-gray-900" style={{ borderLeft: '3px solid #3b82f6' }}>
-                                            {category.icon} {category.name.toUpperCase()}
-                                        </div>
-                                        <div className="space-y-1 sm:space-y-2">
-                                            {groupedItems[category.id].map((item: any) => (
-                                                <div key={item.id} className="text-xs sm:text-sm">
-                                                    <div className="flex justify-between">
-                                                        <span className="text-gray-900">
-                                                            {item.quantity}x {item.menu_items.name}
-                                                        </span>
-                                                        <span className="font-bold text-gray-900">PKR {item.total_price}</span>
-                                                    </div>
-                                                    <div className="text-xs text-gray-500 ml-4">
-                                                        @ PKR {item.menu_items.price} each
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
+                            {renderItems()}
                         </div>
 
                         <div className="border-t-2 border-dashed my-3 sm:my-4 border-gray-300"></div>
@@ -269,7 +348,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex gap-2 sm:gap-3 p-4 sm:p-6 border-t print-hide">
+                    <div className="flex gap-2 sm:gap-3 p-4 sm:p-6 border-t">
                         <button
                             onClick={handleDownload}
                             disabled={downloading}

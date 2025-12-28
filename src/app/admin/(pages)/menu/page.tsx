@@ -1,4 +1,4 @@
-// src/app/admin/(pages)/menu/page.tsx - WITH CATEGORY MANAGER
+// src/app/admin/(pages)/menu/page.tsx - MOBILE FRIENDLY
 "use client"
 
 import { useState, useEffect } from 'react'
@@ -125,24 +125,25 @@ export default function MenuPage() {
 
                 <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
                     <header className="sticky top-0 z-20 bg-[var(--card)] border-b border-[var(--border)]">
-                        <div className="max-w-7xl mx-auto px-4 py-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h1 className="text-2xl font-bold text-[var(--fg)]">Menu</h1>
-                                    <p className="text-sm text-[var(--muted)] mt-1">{filtered.length} items • {categories.length} categories</p>
+                        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3 sm:py-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <h1 className="text-xl sm:text-2xl font-bold text-[var(--fg)] truncate">Menu</h1>
+                                    <p className="text-xs sm:text-sm text-[var(--muted)] mt-1">{filtered.length} items</p>
                                 </div>
                                 <button
                                     onClick={() => openModal()}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm active:scale-95"
+                                    className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95 flex-shrink-0"
                                 >
-                                    <Plus className="w-4 h-4" />
-                                    Add Item
+                                    <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
+                                    <span className="hidden sm:inline">Add Item</span>
+                                    <span className="sm:hidden">Add</span>
                                 </button>
                             </div>
                         </div>
                     </header>
 
-                    <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+                    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
                         {/* Category Manager */}
                         <CategoryManager
                             type="menu"
@@ -152,41 +153,41 @@ export default function MenuPage() {
                             }}
                         />
 
-                        {/* Menu Items Grid */}
-                        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {/* Menu Items Grid - Mobile Optimized */}
+                        <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                             {filtered.map(i => (
-                                <div key={i.id} className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden hover:shadow-lg transition-all group">
+                                <div key={i.id} className="bg-[var(--card)] border border-[var(--border)] rounded-lg sm:rounded-xl overflow-hidden hover:shadow-lg transition-all group">
                                     {i.image_url && (
-                                        <div className="relative h-40 overflow-hidden">
+                                        <div className="relative h-32 sm:h-40 overflow-hidden">
                                             <img src={i.image_url} alt={i.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                                         </div>
                                     )}
-                                    <div className="p-4">
+                                    <div className="p-3 sm:p-4">
                                         <div className="flex items-start justify-between mb-2">
                                             <div className="flex-1 min-w-0">
-                                                <h3 className="font-semibold text-[var(--fg)] truncate">{i.name}</h3>
-                                                <p className="text-xs text-[var(--muted)]">
+                                                <h3 className="font-semibold text-sm sm:text-base text-[var(--fg)] truncate">{i.name}</h3>
+                                                <p className="text-xs text-[var(--muted)] truncate">
                                                     {i.menu_categories?.icon || '📋'} {i.menu_categories?.name}
                                                 </p>
                                             </div>
                                         </div>
                                         {i.description && (
-                                            <p className="text-sm text-[var(--muted)] mb-3 line-clamp-2">{i.description}</p>
+                                            <p className="text-xs sm:text-sm text-[var(--muted)] mb-3 line-clamp-2">{i.description}</p>
                                         )}
                                         <div className="flex items-center justify-between gap-2">
-                                            <span className="text-lg font-bold text-blue-600 truncate">PKR {i.price}</span>
-                                            <div className="flex gap-2 flex-shrink-0">
+                                            <span className="text-base sm:text-lg font-bold text-blue-600 truncate">PKR {i.price}</span>
+                                            <div className="flex gap-1 sm:gap-2 flex-shrink-0">
                                                 <button
                                                     onClick={() => openModal(i)}
-                                                    className="p-2 text-blue-600 hover:bg-blue-600/10 rounded"
+                                                    className="p-1.5 sm:p-2 text-blue-600 hover:bg-blue-600/10 rounded"
                                                 >
-                                                    <Edit2 className="w-4 h-4" />
+                                                    <Edit2 className="w-3 h-3 sm:w-4 sm:h-4" />
                                                 </button>
                                                 <button
                                                     onClick={() => deleteItem(i.id, i.image_url)}
-                                                    className="p-2 text-red-600 hover:bg-red-600/10 rounded"
+                                                    className="p-1.5 sm:p-2 text-red-600 hover:bg-red-600/10 rounded"
                                                 >
-                                                    <Trash2 className="w-4 h-4" />
+                                                    <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
                                                 </button>
                                             </div>
                                         </div>
@@ -197,9 +198,9 @@ export default function MenuPage() {
 
                         {filtered.length === 0 && (
                             <div className="text-center py-12">
-                                <div className="text-6xl mb-4">🍽️</div>
-                                <p className="text-[var(--fg)] font-medium mb-2">No menu items yet</p>
-                                <p className="text-sm text-[var(--muted)]">Add your first menu item</p>
+                                <div className="text-5xl sm:text-6xl mb-4">🍽️</div>
+                                <p className="text-[var(--fg)] font-medium mb-2 text-sm sm:text-base">No menu items yet</p>
+                                <p className="text-xs sm:text-sm text-[var(--muted)]">Add your first menu item</p>
                             </div>
                         )}
                     </div>

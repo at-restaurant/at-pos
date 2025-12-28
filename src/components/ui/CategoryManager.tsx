@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Edit2, Trash2, FolderPlus, X } from 'lucide-react'
+import { Plus, Edit2, Trash2, FolderPlus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import IconPicker from '@/components/ui/IconPicker'
 import { useToast } from '@/components/ui/Toast'
 
@@ -19,6 +19,7 @@ export default function CategoryManager({ type, onCategoryChange }: CategoryMana
     const [form, setForm] = useState({ name: '', icon: '📋' })
     const [editingId, setEditingId] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
+    const [isExpanded, setIsExpanded] = useState(false)
     const toast = useToast()
     const supabase = createClient()
 
@@ -48,6 +49,7 @@ export default function CategoryManager({ type, onCategoryChange }: CategoryMana
             setEditingId(null)
         }
         setShowModal(true)
+        setIsExpanded(true) // Auto-expand when adding category
     }
 
     const save = async () => {
@@ -93,7 +95,6 @@ export default function CategoryManager({ type, onCategoryChange }: CategoryMana
     }
 
     const deleteCategory = async (id: string) => {
-        // Check if category has items
         const { data: items } = await supabase
             .from(itemsTable)
             .select('id')
@@ -123,53 +124,75 @@ export default function CategoryManager({ type, onCategoryChange }: CategoryMana
 
     return (
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 mb-6">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-[var(--fg)] flex items-center gap-2">
+            {/* Header - Always visible on mobile, with toggle and add buttons */}
+            <div className="flex items-center justify-between gap-2 mb-4">
+                {/* Toggle button - Only on mobile */}
+                <button
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="md:hidden flex items-center gap-2 text-[var(--fg)] hover:text-blue-600 transition-colors"
+                >
+                    <FolderPlus className="w-5 h-5 text-green-600" />
+                    <h3 className="text-lg font-bold">Manage Categories</h3>
+                    {isExpanded ? (
+                        <ChevronUp className="w-5 h-5" />
+                    ) : (
+                        <ChevronDown className="w-5 h-5" />
+                    )}
+                </button>
+
+                {/* Desktop title - Always visible */}
+                <h3 className="hidden md:flex text-lg font-bold text-[var(--fg)] items-center gap-2">
                     <FolderPlus className="w-5 h-5 text-green-600" />
                     Manage Categories
                 </h3>
+
+                {/* Add Category Button */}
                 <button
                     onClick={() => openModal()}
-                    className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm active:scale-95"
+                    className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm active:scale-95 whitespace-nowrap"
                 >
                     <Plus className="w-4 h-4" />
-                    Add Category
+                    <span className="hidden sm:inline">Add Category</span>
+                    <span className="sm:hidden">Add</span>
                 </button>
             </div>
 
-            {categories.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                    {categories.map(cat => (
-                        <div
-                            key={cat.id}
-                            className="bg-[var(--bg)] border border-[var(--border)] rounded-lg p-3 hover:border-blue-600 transition-all group"
-                        >
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="text-2xl">{cat.icon || '📋'}</span>
-                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                        onClick={() => openModal(cat)}
-                                        className="p-1 text-blue-600 hover:bg-blue-600/10 rounded"
-                                    >
-                                        <Edit2 className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                        onClick={() => deleteCategory(cat.id)}
-                                        className="p-1 text-red-600 hover:bg-red-600/10 rounded"
-                                    >
-                                        <Trash2 className="w-3 h-3" />
-                                    </button>
+            {/* Collapsible content - Hidden on mobile by default */}
+            <div className={`${isExpanded ? 'block' : 'hidden'} md:block`}>
+                {categories.length > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                        {categories.map(cat => (
+                            <div
+                                key={cat.id}
+                                className="bg-[var(--bg)] border border-[var(--border)] rounded-lg p-3 hover:border-blue-600 transition-all group"
+                            >
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-2xl">{cat.icon || '📋'}</span>
+                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={() => openModal(cat)}
+                                            className="p-1 text-blue-600 hover:bg-blue-600/10 rounded"
+                                        >
+                                            <Edit2 className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                            onClick={() => deleteCategory(cat.id)}
+                                            className="p-1 text-red-600 hover:bg-red-600/10 rounded"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                        </button>
+                                    </div>
                                 </div>
+                                <p className="text-sm font-medium text-[var(--fg)] truncate">{cat.name}</p>
                             </div>
-                            <p className="text-sm font-medium text-[var(--fg)] truncate">{cat.name}</p>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="text-center py-8 text-[var(--muted)] text-sm">
-                    No categories yet. Click "Add Category" to create one.
-                </div>
-            )}
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-8 text-[var(--muted)] text-sm">
+                        No categories yet. Click "Add Category" to create one.
+                    </div>
+                )}
+            </div>
 
             {/* Add/Edit Modal */}
             {showModal && (
