@@ -1,6 +1,5 @@
 // src/app/layout.tsx - UPDATED WITH SCROLL TO TOP + BOTTOM PADDING FIX
 import type { Metadata, Viewport } from "next"
-import { Geist } from "next/font/google"
 import "./globals.css"
 import ThemeInitializer from "@/components/ThemeInitializer"
 import ToastContainer from '@/components/ui/Toast'
@@ -14,7 +13,6 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 import '@/lib/db/realtimeSync'
 
-const geist = Geist({ variable: "--font-geist", subsets: ["latin"] })
 
 export const metadata: Metadata = {
     title: "AT Restaurant - Management System",
@@ -128,7 +126,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 `
             }} />
         </head>
-        <body className={`${geist.variable} antialiased`}>
+        <body className="antialiased">
         <ErrorBoundary>
             <ThemeInitializer />
             <OfflineInitializer />
@@ -139,7 +137,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <InstallPrompt />
 
             {/* ✅ Main content with proper mobile padding */}
-            <main className="lg:ml-16 min-h-screen pb-20 lg:pb-0">
+            <main className="lg:ml-16 min-h-screen pb-16 lg:pb-0">
                 {children}
             </main>
 
