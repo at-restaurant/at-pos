@@ -1,10 +1,15 @@
-// src/components/features/receipt/ReceiptGenerator.tsx - FIXED
+// ============================================
+// FILE: src/components/features/receipt/ReceiptGenerator.tsx
+// PRODUCTION VERSION with Thermal Printer Integration
+// ============================================
+
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Printer, Download, X } from 'lucide-react'
+import { Printer, Download, X, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { browserThermalPrinter } from '@/lib/print/browserThermalPrinter'
+import { thermalPrinter } from '@/lib/print/thermalPrinter'
+import { ReceiptData } from '@/types'
 import { useToast } from '@/components/ui/Toast'
 
 type ReceiptProps = {
@@ -20,6 +25,7 @@ type ReceiptProps = {
         delivery_address?: string
         delivery_charges?: number
         payment_method?: string
+        notes?: string
         restaurant_tables?: { table_number: number }
         waiters?: { name: string }
         order_items: Array<{
@@ -36,12 +42,14 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
     const [categories, setCategories] = useState<any[]>([])
     const [downloading, setDownloading] = useState(false)
     const [printing, setPrinting] = useState(false)
+    const [printerStatus, setPrinterStatus] = useState<'checking' | 'online' | 'offline'>('checking')
     const receiptRef = useRef<HTMLDivElement>(null)
     const supabase = createClient()
     const toast = useToast()
 
     useEffect(() => {
         loadCategories()
+        checkPrinterStatus()
 
         // Keyboard shortcut: Ctrl+P
         const handleKeyPress = (e: KeyboardEvent) => {
@@ -63,10 +71,31 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         setCategories(data || [])
     }
 
+    const checkPrinterStatus = async () => {
+        const status = await thermalPrinter.checkStatus()
+        setPrinterStatus(status.status === 'online' && status.printer === 'connected' ? 'online' : 'offline')
+    }
+
     const handleThermalPrint = async () => {
         setPrinting(true)
+
         try {
-            // Get category names for items
+            // Check printer status first
+            const status = await thermalPrinter.checkStatus()
+
+            if (status.status === 'offline') {
+                toast.add('error', '❌ Printer service is offline. Please start the printer server.')
+                setPrinting(false)
+                return
+            }
+
+            if (status.printer === 'disconnected') {
+                toast.add('error', '❌ Thermal printer not connected. Please check USB connection.')
+                setPrinting(false)
+                return
+            }
+
+            // Prepare receipt data with categories
             const itemsWithCategories = order.order_items.map(item => {
                 const category = categories.find(c => c.id === item.menu_items.category_id)
                 return {
@@ -74,39 +103,47 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                     quantity: item.quantity,
                     price: item.menu_items.price,
                     total: item.total_price,
-                    category: category ? `${category.icon} ${category.name}` : 'Other'
+                    category: category ? `${category.icon} ${category.name}` : '📋 Other'
                 }
             })
 
-            // Prepare receipt data
-            const receiptData = {
+            const receiptData: ReceiptData = {
+                restaurantName: 'AT RESTAURANT',
+                tagline: 'Delicious Food, Memorable Moments',
+                address: 'Sooter Mills Rd, Lahore',
+                phone: 'Tel: +92-XXX-XXXXXXX',
                 orderNumber: order.id.slice(0, 8).toUpperCase(),
-                date: new Date(order.created_at).toLocaleString(),
+                date: new Date(order.created_at).toLocaleString('en-PK', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short'
+                }),
                 orderType: order.order_type || 'dine-in',
                 items: itemsWithCategories,
                 subtotal: order.subtotal,
                 tax: order.tax,
                 total: order.total_amount,
-                paymentMethod: order.payment_method,
+                paymentMethod: order.payment_method as 'cash' | 'online' | 'card' | undefined,
                 customerName: order.customer_name,
                 customerPhone: order.customer_phone,
                 deliveryAddress: order.delivery_address,
                 deliveryCharges: order.delivery_charges,
                 waiter: order.waiters?.name,
-                tableNumber: order.restaurant_tables?.table_number
+                tableNumber: order.restaurant_tables?.table_number,
+                notes: order.notes
             }
 
-            // Print using browser thermal printer
-            const success = await browserThermalPrinter.printReceipt(receiptData)
+            // Send to thermal printer
+            const result = await thermalPrinter.print(receiptData)
 
-            if (success) {
-                toast.add('success', '✅ Print dialog opened!')
+            if (result.success) {
+                toast.add('success', '✅ Receipt printed successfully!')
             } else {
-                toast.add('error', '❌ Print failed')
+                toast.add('error', `❌ Print failed: ${result.error}`)
             }
-        } catch (error) {
+
+        } catch (error: any) {
             console.error('Print error:', error)
-            toast.add('error', '❌ Print failed')
+            toast.add('error', '❌ Unexpected print error')
         } finally {
             setPrinting(false)
         }
@@ -134,21 +171,23 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 a.click()
                 document.body.removeChild(a)
                 URL.revokeObjectURL(url)
+                toast.add('success', '✅ Receipt downloaded!')
             }, 'image/png')
         } catch (error) {
             console.error('Download failed:', error)
+            toast.add('error', '❌ Download failed')
         } finally {
             setDownloading(false)
         }
     }
 
-    // Render items grouped by category - FIXED: Added unique keys
+    // Render items grouped by category
     const renderItems = () => {
         const grouped: Record<string, typeof order.order_items> = {}
 
         order.order_items.forEach(item => {
             const category = categories.find(c => c.id === item.menu_items.category_id)
-            const key = category ? `${category.icon} ${category.name}` : 'Other'
+            const key = category ? `${category.icon} ${category.name}` : '📋 Other'
             if (!grouped[key]) grouped[key] = []
             grouped[key].push(item)
         })
@@ -161,7 +200,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 </div>
                 <div className="space-y-2">
                     {items.map((item: any, index: number) => (
-                        // FIXED: Use composite key with category + item.id + index
                         <div key={`${category}-${item.id}-${index}`} className="text-xs">
                             <div className="flex justify-between">
                                 <span className="text-gray-900">
@@ -187,7 +225,21 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                     <div className="flex items-center justify-between p-6 border-b">
                         <div className="flex items-center gap-3">
                             <Printer className="w-6 h-6 text-blue-600" />
-                            <h3 className="text-xl font-bold text-gray-900">Receipt</h3>
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900">Receipt</h3>
+                                {printerStatus === 'checking' && (
+                                    <p className="text-xs text-gray-500">Checking printer...</p>
+                                )}
+                                {printerStatus === 'offline' && (
+                                    <p className="text-xs text-red-600 flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3" />
+                                        Printer offline
+                                    </p>
+                                )}
+                                {printerStatus === 'online' && (
+                                    <p className="text-xs text-green-600">✅ Printer ready</p>
+                                )}
+                            </div>
                         </div>
                         <button onClick={onClose} className="p-2 hover:opacity-70 text-gray-500">
                             <X className="w-5 h-5" />
@@ -304,6 +356,16 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             </div>
                         )}
 
+                        {order.notes && (
+                            <>
+                                <div className="border-t-2 border-dashed my-4 border-gray-300"></div>
+                                <div className="text-xs">
+                                    <p className="font-bold text-gray-900 mb-1">Special Instructions:</p>
+                                    <p className="text-gray-600">{order.notes}</p>
+                                </div>
+                            </>
+                        )}
+
                         <div className="border-t-2 border-dashed my-4 border-gray-300"></div>
 
                         {/* Footer */}
@@ -319,7 +381,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                         <button
                             onClick={handleDownload}
                             disabled={downloading}
-                            className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-gray-100 text-gray-900 hover:bg-gray-200 disabled:opacity-50 text-sm relative group"
+                            className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-gray-100 text-gray-900 hover:bg-gray-200 disabled:opacity-50 text-sm"
                         >
                             {downloading ? (
                                 <>
@@ -335,8 +397,8 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                         </button>
                         <button
                             onClick={handleThermalPrint}
-                            disabled={printing}
-                            className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 text-sm relative group"
+                            disabled={printing || printerStatus === 'offline'}
+                            className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm relative group"
                         >
                             {printing ? (
                                 <>
@@ -346,10 +408,12 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             ) : (
                                 <>
                                     <Printer className="w-4 h-4" />
-                                    Print Receipt
-                                    <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                                        Press Ctrl+P
-                                    </span>
+                                    {printerStatus === 'offline' ? 'Printer Offline' : 'Print Receipt'}
+                                    {printerStatus === 'online' && (
+                                        <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                            Press Ctrl+P
+                                        </span>
+                                    )}
                                 </>
                             )}
                         </button>

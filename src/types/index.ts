@@ -152,3 +152,68 @@ export type CartItem = {
     quantity: number
     image_url?: string
 }
+
+
+// ============================================
+// PRINT TYPES
+// ============================================
+
+export interface ReceiptItem {
+    name: string
+    quantity: number
+    price: number
+    total: number
+    category?: string
+}
+
+export interface ReceiptData {
+    // Restaurant info
+    restaurantName?: string
+    tagline?: string
+    address?: string
+    phone?: string
+
+    // Order details
+    orderNumber: string
+    date: string
+    orderType: 'dine-in' | 'delivery'
+
+    // Dine-in specific
+    tableNumber?: number
+    waiter?: string
+
+    // Delivery specific
+    customerName?: string
+    customerPhone?: string
+    deliveryAddress?: string
+    deliveryCharges?: number
+
+    // Items
+    items: ReceiptItem[]
+
+    // Pricing
+    subtotal: number
+    tax: number
+    discount?: number
+    total: number
+
+    // Payment
+    paymentMethod?: 'cash' | 'online' | 'card'
+
+    // Additional
+    notes?: string
+}
+
+export interface PrintResponse {
+    success: boolean
+    message?: string
+    error?: string
+    orderNumber?: string
+}
+
+export interface PrinterStatus {
+    status: 'online' | 'offline'
+    printer: 'connected' | 'disconnected'
+    uptime?: number
+    timestamp?: string
+}
