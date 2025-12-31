@@ -1,86 +1,260 @@
 // ============================================
 // FILE: printer-service/server.js
-// OS-BASED PRINTER SOLUTION (Windows/Linux/Mac)
-// Uses system installed printers
+// PRODUCTION SOLUTION - Pure JS, No Native Dependencies
+// Works on Windows, Linux, Android
 // ============================================
 
 const express = require('express');
-const printer = require('@thiagoelg/node-printer');
-const PDFDocument = require('pdfkit');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
+const { exec, spawn } = require('child_process');
 const os = require('os');
 
 const app = express();
 
 // ============================================
+// DETECT PLATFORM
+// ============================================
+const isWindows = os.platform() === 'win32';
+const isLinux = os.platform() === 'linux';
+const isMac = os.platform() === 'darwin';
+
+console.log(`🖥️  Platform: ${os.platform()}`);
+
+// ============================================
 // MIDDLEWARE
 // ============================================
 app.use(helmet());
-app.use(cors({ origin: '*', credentials: true }));
+app.use(cors({ origin: '*' }));
 app.use(bodyParser.json({ limit: '1mb' }));
 
 const limiter = rateLimit({
     windowMs: 1 * 60 * 1000,
-    max: 50,
-    message: { success: false, error: 'Too many requests' }
+    max: 50
 });
 app.use('/api/print', limiter);
 
 // ============================================
-// PRINTER CONFIGURATION
+// CONFIG
 // ============================================
 let savedPrinterConfig = null;
 const configPath = path.join(__dirname, 'printer-config.json');
 
-function loadPrinterConfig() {
+function loadConfig() {
     try {
         if (fs.existsSync(configPath)) {
             savedPrinterConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            console.log('✅ Loaded printer:', savedPrinterConfig.printerName);
+            console.log('✅ Config loaded:', savedPrinterConfig.printerName);
         }
     } catch (error) {
-        console.log('ℹ️  No saved printer config');
+        console.log('ℹ️  No saved config');
     }
 }
 
-loadPrinterConfig();
+loadConfig();
 
 // ============================================
-// DETECT OS PRINTERS
+// WINDOWS: Detect Printers
+// ============================================
+function getWindowsPrinters() {
+    return new Promise((resolve) => {
+        exec('wmic printer get name,portname,driverName /format:list', (error, stdout) => {
+            if (error) {
+                console.error('Windows detection failed:', error.message);
+                resolve([]);
+                return;
+            }
+
+            const printers = [];
+            const blocks = stdout.split('\n\n').filter(b => b.trim());
+
+            blocks.forEach((block, idx) => {
+                const lines = block.split('\n');
+                const printer = {};
+
+                lines.forEach(line => {
+                    const [key, value] = line.split('=').map(s => s.trim());
+                    if (key && value) printer[key.toLowerCase()] = value;
+                });
+
+                if (printer.name) {
+                    printers.push({
+                        id: `win_${idx}`,
+                        name: printer.name,
+                        type: 'windows',
+                        port: printer.portname || 'Unknown',
+                        driver: printer.drivername || 'Unknown',
+                        connected: true,
+                        isDefault: false
+                    });
+                }
+            });
+
+            // Get default printer
+            exec('wmic printer where default=true get name /format:list', (err, out) => {
+                if (!err && out) {
+                    const match = out.match(/Name=(.+)/);
+                    if (match) {
+                        const defaultName = match[1].trim();
+                        printers.forEach(p => {
+                            if (p.name === defaultName) p.isDefault = true;
+                        });
+                    }
+                }
+
+                console.log(`✅ Windows: ${printers.length} printers`);
+                resolve(printers);
+            });
+        });
+    });
+}
+
+// ============================================
+// LINUX: Detect Printers
+// ============================================
+function getLinuxPrinters() {
+    return new Promise((resolve) => {
+        const printers = [];
+
+        // CUPS printers
+        exec('lpstat -p -d 2>/dev/null', (error, stdout) => {
+            if (!error && stdout) {
+                const lines = stdout.split('\n');
+                let defaultPrinter = null;
+
+                lines.forEach((line, idx) => {
+                    // Get default
+                    if (line.includes('system default destination:')) {
+                        defaultPrinter = line.split(':')[1]?.trim();
+                    }
+
+                    // Get printers
+                    if (line.startsWith('printer')) {
+                        const match = line.match(/printer\s+(\S+)/);
+                        if (match) {
+                            const name = match[1];
+                            printers.push({
+                                id: `cups_${idx}`,
+                                name: name,
+                                type: 'cups',
+                                port: 'CUPS',
+                                driver: 'System Driver',
+                                connected: true,
+                                isDefault: name === defaultPrinter
+                            });
+                        }
+                    }
+                });
+            }
+
+            // USB devices
+            const usbPaths = ['/dev/usb/lp0', '/dev/usb/lp1', '/dev/lp0', '/dev/lp1'];
+            usbPaths.forEach((usbPath, idx) => {
+                if (fs.existsSync(usbPath)) {
+                    const stats = fs.statSync(usbPath);
+                    const isWritable = (stats.mode & 0o200) !== 0;
+
+                    printers.push({
+                        id: `usb_${idx}`,
+                        name: `USB Printer (${path.basename(usbPath)})`,
+                        type: 'usb',
+                        port: usbPath,
+                        driver: 'Direct USB',
+                        connected: isWritable,
+                        isDefault: false,
+                        needsPermission: !isWritable
+                    });
+                }
+            });
+
+            console.log(`✅ Linux: ${printers.length} printers`);
+            resolve(printers);
+        });
+    });
+}
+
+// ============================================
+// MAC: Detect Printers
+// ============================================
+function getMacPrinters() {
+    return new Promise((resolve) => {
+        exec('lpstat -p -d', (error, stdout) => {
+            if (error) {
+                resolve([]);
+                return;
+            }
+
+            const printers = [];
+            const lines = stdout.split('\n');
+            let defaultPrinter = null;
+
+            lines.forEach((line, idx) => {
+                if (line.includes('system default destination:')) {
+                    defaultPrinter = line.split(':')[1]?.trim();
+                }
+
+                if (line.startsWith('printer')) {
+                    const match = line.match(/printer\s+(\S+)/);
+                    if (match) {
+                        const name = match[1];
+                        printers.push({
+                            id: `mac_${idx}`,
+                            name: name,
+                            type: 'cups',
+                            port: 'System',
+                            driver: 'Mac Driver',
+                            connected: true,
+                            isDefault: name === defaultPrinter
+                        });
+                    }
+                }
+            });
+
+            console.log(`✅ Mac: ${printers.length} printers`);
+            resolve(printers);
+        });
+    });
+}
+
+// ============================================
+// UNIVERSAL DETECT
 // ============================================
 app.get('/api/printers/detect', async (req, res) => {
     try {
-        // Get all printers from OS
-        const printers = printer.getPrinters();
+        let printers = [];
 
-        const devices = printers.map((p, index) => ({
-            id: `printer_${index}`,
-            name: p.name,
-            type: p.isDefault ? 'default' : 'installed',
-            driver: p.driverName || 'Unknown',
-            status: p.status || 'idle',
-            isDefault: p.isDefault || false,
-            attributes: p.attributes || {},
-            connected: true
-        }));
+        if (isWindows) {
+            printers = await getWindowsPrinters();
+        } else if (isLinux) {
+            printers = await getLinuxPrinters();
+        } else if (isMac) {
+            printers = await getMacPrinters();
+        }
 
-        // Get default printer
-        const defaultPrinterName = printer.getDefaultPrinterName();
-
-        console.log(`✅ Detected ${devices.length} printer(s)`);
-        console.log(`🖨️  Default: ${defaultPrinterName || 'None'}`);
+        if (printers.length === 0) {
+            printers.push({
+                id: 'none',
+                name: 'No printers detected',
+                type: 'none',
+                port: 'N/A',
+                driver: 'N/A',
+                connected: false,
+                isDefault: false,
+                note: isLinux
+                    ? 'Install CUPS or connect USB printer'
+                    : 'Install printer drivers'
+            });
+        }
 
         res.json({
             success: true,
-            printers: devices,
-            defaultPrinter: defaultPrinterName,
+            printers,
             platform: os.platform(),
-            count: devices.length
+            count: printers.length
         });
 
     } catch (error) {
@@ -94,61 +268,55 @@ app.get('/api/printers/detect', async (req, res) => {
 });
 
 // ============================================
-// GENERATE THERMAL RECEIPT (ESC/POS Commands)
+// GENERATE ESC/POS RECEIPT
 // ============================================
-function generateThermalReceipt(receipt) {
+function generateReceipt(receipt) {
     const ESC = '\x1B';
     const GS = '\x1D';
-
-    let output = '';
+    let out = '';
 
     // Initialize
-    output += ESC + '@';
+    out += ESC + '@';
 
-    // Header - Center aligned, bold, double size
-    output += ESC + 'a' + '\x01'; // Center
-    output += ESC + 'E' + '\x01'; // Bold on
-    output += GS + '!' + '\x11';  // Double height & width
-    output += (receipt.restaurantName || 'AT RESTAURANT') + '\n';
-    output += GS + '!' + '\x00';  // Normal size
-    output += ESC + 'E' + '\x00'; // Bold off
-    output += (receipt.tagline || 'Delicious Food') + '\n';
-    output += (receipt.address || 'Lahore') + '\n';
-    output += '================================\n';
+    // Header
+    out += ESC + 'a' + '\x01'; // Center
+    out += ESC + 'E' + '\x01'; // Bold
+    out += GS + '!' + '\x11';  // Double
+    out += (receipt.restaurantName || 'AT RESTAURANT') + '\n';
+    out += GS + '!' + '\x00';
+    out += ESC + 'E' + '\x00';
+    out += (receipt.tagline || 'Delicious Food') + '\n';
+    out += (receipt.address || 'Lahore') + '\n';
+    out += '================================\n';
 
-    // Order Info - Left aligned
-    output += ESC + 'a' + '\x00'; // Left align
-    output += `Order: ${receipt.orderNumber}\n`;
-    output += `Date: ${receipt.date}\n`;
-    output += `Type: ${receipt.orderType?.toUpperCase() || 'DINE-IN'}\n`;
+    // Order info
+    out += ESC + 'a' + '\x00'; // Left
+    out += `Order: ${receipt.orderNumber}\n`;
+    out += `Date: ${receipt.date}\n`;
+    out += `Type: ${receipt.orderType?.toUpperCase() || 'DINE-IN'}\n`;
 
-    if (receipt.tableNumber) {
-        output += `Table: ${receipt.tableNumber}\n`;
-    }
-    if (receipt.waiter) {
-        output += `Waiter: ${receipt.waiter}\n`;
-    }
+    if (receipt.tableNumber) out += `Table: ${receipt.tableNumber}\n`;
+    if (receipt.waiter) out += `Waiter: ${receipt.waiter}\n`;
 
-    // Delivery info
+    // Delivery
     if (receipt.orderType === 'delivery') {
-        output += '================================\n';
-        output += ESC + 'E' + '\x01'; // Bold
-        output += 'DELIVERY INFO\n';
-        output += ESC + 'E' + '\x00'; // Bold off
-        if (receipt.customerName) output += `Name: ${receipt.customerName}\n`;
-        if (receipt.customerPhone) output += `Phone: ${receipt.customerPhone}\n`;
-        if (receipt.deliveryAddress) output += `Address: ${receipt.deliveryAddress}\n`;
+        out += '================================\n';
+        out += ESC + 'E' + '\x01';
+        out += 'DELIVERY INFO\n';
+        out += ESC + 'E' + '\x00';
+        if (receipt.customerName) out += `Name: ${receipt.customerName}\n`;
+        if (receipt.customerPhone) out += `Phone: ${receipt.customerPhone}\n`;
+        if (receipt.deliveryAddress) out += `Address: ${receipt.deliveryAddress}\n`;
     }
 
-    output += '================================\n';
+    out += '================================\n';
 
     // Items
-    output += ESC + 'E' + '\x01'; // Bold
-    output += 'ORDER ITEMS\n';
-    output += ESC + 'E' + '\x00'; // Bold off
-    output += '\n';
+    out += ESC + 'E' + '\x01';
+    out += 'ORDER ITEMS\n';
+    out += ESC + 'E' + '\x00';
+    out += '\n';
 
-    // Group by category
     const grouped = {};
     (receipt.items || []).forEach(item => {
         const cat = item.category || 'Other';
@@ -157,132 +325,131 @@ function generateThermalReceipt(receipt) {
     });
 
     Object.entries(grouped).forEach(([category, items]) => {
-        output += ESC + 'E' + '\x01'; // Bold
-        output += `  ${category}\n`;
-        output += ESC + 'E' + '\x00'; // Bold off
+        out += ESC + 'E' + '\x01';
+        out += `  ${category}\n`;
+        out += ESC + 'E' + '\x00';
 
         items.forEach(item => {
-            output += `  ${item.quantity}x ${item.name}\n`;
-            output += `     PKR ${item.total.toFixed(2)}\n`;
+            out += `  ${item.quantity}x ${item.name}\n`;
+            out += `     PKR ${item.total.toFixed(2)}\n`;
         });
 
-        output += '\n';
+        out += '\n';
     });
 
-    output += '================================\n';
+    out += '================================\n';
 
     // Totals
-    output += `Subtotal: PKR ${receipt.subtotal?.toFixed(2) || 0}\n`;
-    output += `Tax: PKR ${receipt.tax?.toFixed(2) || 0}\n`;
+    out += `Subtotal: PKR ${receipt.subtotal?.toFixed(2) || 0}\n`;
+    out += `Tax: PKR ${receipt.tax?.toFixed(2) || 0}\n`;
 
-    if (receipt.deliveryCharges && receipt.deliveryCharges > 0) {
-        output += `Delivery: PKR ${receipt.deliveryCharges.toFixed(2)}\n`;
+    if (receipt.deliveryCharges) {
+        out += `Delivery: PKR ${receipt.deliveryCharges.toFixed(2)}\n`;
     }
 
-    output += '\n';
-    output += ESC + 'E' + '\x01'; // Bold
-    output += GS + '!' + '\x11';  // Double size
-    output += `TOTAL: PKR ${receipt.total?.toFixed(2) || 0}\n`;
-    output += GS + '!' + '\x00';  // Normal
-    output += ESC + 'E' + '\x00'; // Bold off
+    out += '\n';
+    out += ESC + 'E' + '\x01';
+    out += GS + '!' + '\x11';
+    out += `TOTAL: PKR ${receipt.total?.toFixed(2) || 0}\n`;
+    out += GS + '!' + '\x00';
+    out += ESC + 'E' + '\x00';
 
     if (receipt.paymentMethod) {
-        output += '\n';
-        output += `Payment: ${receipt.paymentMethod.toUpperCase()}\n`;
+        out += '\n';
+        out += `Payment: ${receipt.paymentMethod.toUpperCase()}\n`;
     }
 
-    output += '================================\n';
+    out += '================================\n';
 
-    // Footer - Center aligned
-    output += ESC + 'a' + '\x01'; // Center
-    output += 'Thank you!\n';
-    output += 'Please visit again\n';
-    output += '\n';
+    // Footer
+    out += ESC + 'a' + '\x01';
+    out += 'Thank you!\n';
+    out += 'Please visit again\n';
+    out += '\n\n';
 
-    // Cut paper
-    output += GS + 'V' + '\x00';
+    // Cut
+    out += GS + 'V' + '\x00';
 
-    return Buffer.from(output, 'binary');
+    return out;
 }
 
 // ============================================
-// TEST PRINTER
+// PRINT FUNCTION
+// ============================================
+function printToPrinter(printerName, data, callback) {
+    if (isWindows) {
+        // Windows: Use PowerShell
+        const tempFile = path.join(os.tmpdir(), `receipt_${Date.now()}.txt`);
+        fs.writeFileSync(tempFile, data, 'binary');
+
+        const psCmd = `Get-Content -Path "${tempFile}" -Encoding Byte -ReadCount 0 | Out-Printer -Name "${printerName}"`;
+        exec(`powershell -Command "${psCmd}"`, (error) => {
+            fs.unlinkSync(tempFile);
+            callback(error);
+        });
+
+    } else if (isLinux || isMac) {
+        // Linux/Mac: Use lp command or direct write
+        if (printerName.startsWith('/dev/')) {
+            // Direct USB
+            fs.writeFile(printerName, data, 'binary', callback);
+        } else {
+            // CUPS
+            const tempFile = path.join(os.tmpdir(), `receipt_${Date.now()}.txt`);
+            fs.writeFileSync(tempFile, data, 'binary');
+            exec(`lp -d "${printerName}" "${tempFile}"`, (error) => {
+                fs.unlinkSync(tempFile);
+                callback(error);
+            });
+        }
+    } else {
+        callback(new Error('Unsupported platform'));
+    }
+}
+
+// ============================================
+// TEST PRINT
 // ============================================
 app.post('/api/printers/test', async (req, res) => {
     try {
         const { printerName } = req.body;
 
         if (!printerName) {
-            return res.json({
-                success: false,
-                error: 'No printer selected'
-            });
+            return res.json({ success: false, error: 'No printer selected' });
         }
 
-        // Check if printer exists
-        const printers = printer.getPrinters();
-        const exists = printers.some(p => p.name === printerName);
+        const testData = generateReceipt({
+            restaurantName: 'TEST PRINT',
+            tagline: 'Printer Working!',
+            address: new Date().toLocaleString(),
+            orderNumber: 'TEST',
+            date: new Date().toLocaleString(),
+            orderType: 'dine-in',
+            items: [
+                { name: 'Test Item', quantity: 1, total: 100, category: 'Test' }
+            ],
+            subtotal: 100,
+            tax: 0,
+            total: 100
+        });
 
-        if (!exists) {
-            return res.json({
-                success: false,
-                error: `Printer "${printerName}" not found`
-            });
-        }
-
-        // Generate test receipt
-        const ESC = '\x1B';
-        const GS = '\x1D';
-
-        let testPrint = ESC + '@'; // Initialize
-        testPrint += ESC + 'a' + '\x01'; // Center
-        testPrint += ESC + 'E' + '\x01'; // Bold
-        testPrint += GS + '!' + '\x11';  // Double size
-        testPrint += 'TEST PRINT\n';
-        testPrint += GS + '!' + '\x00';  // Normal
-        testPrint += ESC + 'E' + '\x00'; // Bold off
-        testPrint += '================================\n';
-        testPrint += 'Printer Working!\n';
-        testPrint += new Date().toLocaleString() + '\n';
-        testPrint += `Platform: ${os.platform()}\n`;
-        testPrint += '================================\n';
-        testPrint += '\n\n';
-        testPrint += GS + 'V' + '\x00'; // Cut
-
-        const buffer = Buffer.from(testPrint, 'binary');
-
-        // Print using OS printer
-        printer.printDirect({
-            data: buffer,
-            printer: printerName,
-            type: 'RAW',
-            success: () => {
+        printToPrinter(printerName, testData, (error) => {
+            if (error) {
+                console.error('Print error:', error);
+                res.json({ success: false, error: error.message });
+            } else {
                 console.log('✅ Test print sent');
-                res.json({
-                    success: true,
-                    message: 'Test print sent to printer'
-                });
-            },
-            error: (err) => {
-                console.error('Print error:', err);
-                res.json({
-                    success: false,
-                    error: err.message || 'Print failed'
-                });
+                res.json({ success: true, message: 'Test print sent' });
             }
         });
 
     } catch (error) {
-        console.error('Test error:', error);
-        res.json({
-            success: false,
-            error: error.message
-        });
+        res.json({ success: false, error: error.message });
     }
 });
 
 // ============================================
-// SAVE PRINTER
+// SAVE CONFIG
 // ============================================
 app.post('/api/printers/save', async (req, res) => {
     try {
@@ -300,17 +467,10 @@ app.post('/api/printers/save', async (req, res) => {
         savedPrinterConfig = config;
 
         console.log('✅ Saved:', printerName);
-
-        res.json({
-            success: true,
-            message: 'Settings saved'
-        });
+        res.json({ success: true, message: 'Settings saved' });
 
     } catch (error) {
-        res.json({
-            success: false,
-            error: error.message
-        });
+        res.json({ success: false, error: error.message });
     }
 });
 
@@ -318,27 +478,14 @@ app.post('/api/printers/save', async (req, res) => {
 // HEALTH CHECK
 // ============================================
 app.get('/api/health', (req, res) => {
-    try {
-        const printers = printer.getPrinters();
-        const defaultPrinter = printer.getDefaultPrinterName();
-
-        res.json({
-            status: 'online',
-            printer: savedPrinterConfig ? 'configured' : 'not configured',
-            savedPrinter: savedPrinterConfig?.printerName || 'None',
-            defaultPrinter: defaultPrinter || 'None',
-            printersAvailable: printers.length,
-            platform: os.platform(),
-            uptime: process.uptime(),
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        res.json({
-            status: 'online',
-            printer: 'error',
-            error: error.message
-        });
-    }
+    res.json({
+        status: 'online',
+        printer: savedPrinterConfig ? 'configured' : 'not configured',
+        savedPrinter: savedPrinterConfig?.printerName || 'None',
+        platform: os.platform(),
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
 });
 
 // ============================================
@@ -346,61 +493,38 @@ app.get('/api/health', (req, res) => {
 // ============================================
 app.post('/api/print', async (req, res) => {
     if (!req.body || !req.body.orderNumber) {
-        return res.status(400).json({
-            success: false,
-            error: 'Invalid receipt data'
-        });
+        return res.status(400).json({ success: false, error: 'Invalid data' });
     }
 
     const receipt = req.body;
 
     try {
-        // Use saved printer or default
-        let printerName = savedPrinterConfig?.printerName;
-
-        if (!printerName) {
-            printerName = printer.getDefaultPrinterName();
-
-            if (!printerName) {
-                return res.status(503).json({
-                    success: false,
-                    error: 'No printer configured. Please configure in settings.'
-                });
-            }
+        if (!savedPrinterConfig?.printerName) {
+            return res.status(503).json({
+                success: false,
+                error: 'No printer configured'
+            });
         }
 
-        // Generate receipt
-        const buffer = generateThermalReceipt(receipt);
+        const data = generateReceipt(receipt);
 
-        // Print
-        printer.printDirect({
-            data: buffer,
-            printer: printerName,
-            type: 'RAW',
-            success: () => {
+        printToPrinter(savedPrinterConfig.printerName, data, (error) => {
+            if (error) {
+                console.error('Print error:', error);
+                res.status(500).json({ success: false, error: error.message });
+            } else {
                 console.log(`✅ Printed: ${receipt.orderNumber}`);
                 res.json({
                     success: true,
                     message: 'Receipt printed',
-                    orderNumber: receipt.orderNumber,
-                    printer: printerName
-                });
-            },
-            error: (err) => {
-                console.error('Print error:', err);
-                res.status(500).json({
-                    success: false,
-                    error: err.message || 'Print failed'
+                    orderNumber: receipt.orderNumber
                 });
             }
         });
 
     } catch (error) {
-        console.error('Print error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        console.error('Error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -409,44 +533,40 @@ app.post('/api/print', async (req, res) => {
 // ============================================
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
-    res.status(500).json({
-        success: false,
-        error: 'Internal error'
-    });
+    res.status(500).json({ success: false, error: 'Internal error' });
 });
 
 // ============================================
-// START SERVER
+// START
 // ============================================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-    try {
-        const printers = printer.getPrinters();
-        const defaultPrinter = printer.getDefaultPrinterName();
+app.listen(PORT, async () => {
+    console.log('');
+    console.log('🖨️  ========================================');
+    console.log('🖨️   THERMAL PRINTER SERVICE');
+    console.log('🖨️  ========================================');
+    console.log(`🖨️   Platform: ${os.platform()}`);
+    console.log(`🖨️   Port: ${PORT}`);
+    console.log(`🖨️   Saved: ${savedPrinterConfig?.printerName || 'None'}`);
+    console.log('🖨️  ========================================');
+    console.log('');
 
-        console.log('');
-        console.log('🖨️  ========================================');
-        console.log('🖨️   THERMAL PRINTER SERVICE');
-        console.log('🖨️  ========================================');
-        console.log(`🖨️   Platform: ${os.platform()}`);
-        console.log(`🖨️   Port: ${PORT}`);
-        console.log(`🖨️   Printers: ${printers.length} available`);
-        console.log(`🖨️   Default: ${defaultPrinter || 'None'}`);
-        console.log(`🖨️   Saved: ${savedPrinterConfig?.printerName || 'None'}`);
-        console.log('🖨️  ========================================');
-        console.log('');
+    // Auto-detect printers on startup
+    try {
+        let printers = [];
+        if (isWindows) printers = await getWindowsPrinters();
+        else if (isLinux) printers = await getLinuxPrinters();
+        else if (isMac) printers = await getMacPrinters();
 
         if (printers.length > 0) {
             console.log('📋 Available printers:');
             printers.forEach(p => {
-                console.log(`   - ${p.name}${p.isDefault ? ' (default)' : ''}`);
+                console.log(`   ${p.isDefault ? '⭐' : ' '} ${p.name} (${p.type})`);
             });
             console.log('');
         }
-    } catch (error) {
-        console.log('');
-        console.log('🖨️  Service running on port', PORT);
-        console.log('');
+    } catch (err) {
+        console.log('⚠️  Could not list printers');
     }
 });
 
