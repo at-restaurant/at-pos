@@ -1,6 +1,6 @@
 // ============================================
 // FILE: src/app/api/print/route.ts
-// Next.js API Route (Proxy to printer service)
+// Next.js API Route - Proxy to printer service
 // ============================================
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -26,7 +26,6 @@ export async function POST(request: NextRequest) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(body),
-            // Timeout after 10 seconds
             signal: AbortSignal.timeout(10000)
         })
 
@@ -44,7 +43,6 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error('Print API error:', error)
 
-        // Handle timeout
         if (error.name === 'TimeoutError' || error.name === 'AbortError') {
             return NextResponse.json(
                 { success: false, error: 'Printer service timeout' },
@@ -52,12 +50,11 @@ export async function POST(request: NextRequest) {
             )
         }
 
-        // Handle connection refused
         if (error.code === 'ECONNREFUSED') {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'Printer service offline. Please start the printer server.'
+                    error: 'Printer service offline. Please start: pnpm dev'
                 },
                 { status: 503 }
             )

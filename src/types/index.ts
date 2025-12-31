@@ -213,7 +213,9 @@ export interface PrintResponse {
 
 export interface PrinterStatus {
     status: 'online' | 'offline'
-    printer: 'connected' | 'disconnected'
+    printer: 'connected' | 'disconnected' | 'configured' | 'not configured'
     uptime?: number
     timestamp?: string
+    platform?: string
+    printersAvailable?: number
 }

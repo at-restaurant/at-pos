@@ -1,6 +1,7 @@
 // ============================================
 // FILE: printer-service/server.js
-// CROSS-PLATFORM: Works on Windows + Linux
+// UNIVERSAL PRINTER DETECTION
+// Windows, Linux, Android compatible
 // ============================================
 
 const express = require('express');
@@ -12,35 +13,36 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
-const os = require('os'); // ✅ Detect OS
+const os = require('os');
 
 const app = express();
+
+// ============================================
+// DETECT OPERATING SYSTEM
+// ============================================
+const isWindows = os.platform() === 'win32';
+const isLinux = os.platform() === 'linux';
+const isAndroid = fs.existsSync('/system/build.prop');
+
+console.log(`🖥️  Platform: ${os.platform()} (${isWindows ? 'Windows' : isLinux ? 'Linux' : 'Other'})`);
+if (isAndroid) console.log('📱 Android detected');
 
 // ============================================
 // SECURITY & MIDDLEWARE
 // ============================================
 app.use(helmet());
 app.use(cors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+    origin: '*', // Allow all for local network
     credentials: true
 }));
 app.use(bodyParser.json({ limit: '1mb' }));
 
 const limiter = rateLimit({
     windowMs: 1 * 60 * 1000,
-    max: 30,
+    max: 50,
     message: { success: false, error: 'Too many requests' }
 });
 app.use('/api/print', limiter);
-
-// ============================================
-// OS DETECTION
-// ============================================
-const isWindows = os.platform() === 'win32';
-const isLinux = os.platform() === 'linux';
-const isMac = os.platform() === 'darwin';
-
-console.log(`🖥️  OS Detected: ${os.platform()}`);
 
 // ============================================
 // PRINTER CONFIGURATION
@@ -52,7 +54,7 @@ function loadPrinterConfig() {
     try {
         if (fs.existsSync(configPath)) {
             savedPrinterConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            console.log('✅ Loaded printer config:', savedPrinterConfig.printerId);
+            console.log('✅ Loaded printer config:', savedPrinterConfig.printerName);
         }
     } catch (error) {
         console.log('ℹ️  No saved printer config');
@@ -62,154 +64,166 @@ function loadPrinterConfig() {
 loadPrinterConfig();
 
 // ============================================
-// WINDOWS PRINTER DETECTION (PowerShell)
+// UNIVERSAL PRINTER DETECTION
 // ============================================
-function getWindowsPrinters() {
-    return new Promise((resolve, reject) => {
-        const command = 'powershell -Command "Get-Printer | Select-Object Name, PortName, DriverName | ConvertTo-Json"';
+async function detectPrinters() {
+    const printers = [];
 
-        exec(command, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-            if (error) {
-                console.error('❌ Windows printer detection failed:', error.message);
-                resolve([{
-                    id: 'default',
-                    name: 'No printers found',
-                    type: 'system',
-                    connected: false
-                }]);
-                return;
-            }
-
-            try {
-                const printers = JSON.parse(stdout);
-                const printerList = Array.isArray(printers) ? printers : [printers];
-
-                const mapped = printerList.map((p, idx) => ({
-                    id: `printer_${idx}`,
-                    name: p.Name || 'Unknown Printer',
-                    type: p.PortName?.includes('USB') ? 'usb' : 'network',
-                    path: p.Name, // ✅ Windows uses printer name directly
-                    driver: p.DriverName,
-                    manufacturer: p.DriverName?.split(' ')[0] || 'Unknown',
-                    connected: true
-                }));
-
-                resolve(mapped.length > 0 ? mapped : [{
-                    id: 'default',
-                    name: 'No printers found',
-                    type: 'system',
-                    connected: false
-                }]);
-
-            } catch (parseError) {
-                console.error('❌ Failed to parse printer list:', parseError);
-                resolve([{
-                    id: 'default',
-                    name: 'Error detecting printers',
-                    type: 'system',
-                    connected: false
-                }]);
-            }
-        });
-    });
-}
-
-// ============================================
-// LINUX PRINTER DETECTION (lpstat)
-// ============================================
-function getLinuxPrinters() {
-    return new Promise((resolve, reject) => {
-        exec('lpstat -p -d', (error, stdout, stderr) => {
-            if (error) {
-                resolve([{
-                    id: 'usb_direct',
-                    name: 'USB Direct (/dev/usb/lp0)',
-                    type: 'usb',
-                    path: '/dev/usb/lp0',
-                    connected: fs.existsSync('/dev/usb/lp0')
-                }]);
-                return;
-            }
-
-            const lines = stdout.split('\n');
-            const printers = [];
-
-            lines.forEach(line => {
-                if (line.startsWith('printer')) {
-                    const match = line.match(/printer\s+(\S+)/);
-                    if (match) {
+    try {
+        // WINDOWS: Use WMI or reg query
+        if (isWindows) {
+            return new Promise((resolve) => {
+                exec('wmic printer get name,portname', (error, stdout) => {
+                    if (error) {
+                        // Fallback: Check common printer ports
                         printers.push({
-                            id: `printer_${printers.length}`,
-                            name: match[1],
-                            type: 'system',
-                            path: match[1],
+                            id: 'usb_windows',
+                            name: 'USB Printer (Windows)',
+                            type: 'usb',
+                            path: 'USB001',
+                            connected: true
+                        });
+                        resolve(printers);
+                        return;
+                    }
+
+                    const lines = stdout.split('\n').slice(1);
+                    lines.forEach((line, index) => {
+                        const parts = line.trim().split(/\s{2,}/);
+                        if (parts[0] && parts[0] !== 'Name') {
+                            printers.push({
+                                id: `printer_${index}`,
+                                name: parts[0],
+                                type: parts[1]?.includes('USB') ? 'usb' : 'network',
+                                path: parts[1] || 'Unknown',
+                                connected: true
+                            });
+                        }
+                    });
+
+                    resolve(printers.length > 0 ? printers : [{
+                        id: 'default',
+                        name: 'No printers detected',
+                        type: 'system',
+                        connected: false
+                    }]);
+                });
+            });
+        }
+
+        // LINUX: Use lpstat
+        if (isLinux && !isAndroid) {
+            return new Promise((resolve) => {
+                exec('lpstat -p -d', (error, stdout) => {
+                    if (error) {
+                        // Check USB devices directly
+                        if (fs.existsSync('/dev/usb/lp0')) {
+                            printers.push({
+                                id: 'usb_linux',
+                                name: 'USB Thermal Printer',
+                                type: 'usb',
+                                path: '/dev/usb/lp0',
+                                connected: true
+                            });
+                        }
+                        resolve(printers);
+                        return;
+                    }
+
+                    const lines = stdout.split('\n');
+                    lines.forEach((line, index) => {
+                        if (line.startsWith('printer')) {
+                            const match = line.match(/printer\s+(\S+)/);
+                            if (match) {
+                                printers.push({
+                                    id: `printer_${index}`,
+                                    name: match[1],
+                                    type: 'system',
+                                    connected: true
+                                });
+                            }
+                        }
+                    });
+
+                    // Always add USB direct option
+                    if (fs.existsSync('/dev/usb/lp0')) {
+                        printers.push({
+                            id: 'usb_direct',
+                            name: 'USB Direct (/dev/usb/lp0)',
+                            type: 'usb',
+                            path: '/dev/usb/lp0',
                             connected: true
                         });
                     }
-                }
+
+                    resolve(printers);
+                });
             });
-
-            // Add USB direct access
-            printers.push({
-                id: 'usb_direct',
-                name: 'USB Direct (/dev/usb/lp0)',
-                type: 'usb',
-                path: '/dev/usb/lp0',
-                connected: fs.existsSync('/dev/usb/lp0')
-            });
-
-            resolve(printers.length > 0 ? printers : [{
-                id: 'default',
-                name: 'No printers found',
-                type: 'system',
-                connected: false
-            }]);
-        });
-    });
-}
-
-// ============================================
-// UNIFIED PRINTER DETECTION
-// ============================================
-app.get('/api/printers/detect', async (req, res) => {
-    try {
-        let printers = [];
-
-        if (isWindows) {
-            console.log('🔍 Detecting Windows printers...');
-            printers = await getWindowsPrinters();
-        } else if (isLinux) {
-            console.log('🔍 Detecting Linux printers...');
-            printers = await getLinuxPrinters();
-        } else {
-            // macOS fallback
-            printers = [{
-                id: 'default',
-                name: 'macOS printer detection not implemented',
-                type: 'system',
-                connected: false
-            }];
         }
 
+        // ANDROID: Check USB OTG
+        if (isAndroid) {
+            // Android USB OTG printers
+            if (fs.existsSync('/dev/bus/usb')) {
+                printers.push({
+                    id: 'usb_android',
+                    name: 'USB OTG Printer',
+                    type: 'usb',
+                    path: '/dev/bus/usb',
+                    connected: true
+                });
+            }
+
+            // Bluetooth printers (if available)
+            printers.push({
+                id: 'bluetooth',
+                name: 'Bluetooth Printer',
+                type: 'bluetooth',
+                connected: false,
+                note: 'Pair via Android settings first'
+            });
+
+            return printers;
+        }
+
+        // Fallback
+        return [{
+            id: 'default',
+            name: 'Manual Configuration Required',
+            type: 'manual',
+            connected: false
+        }];
+
+    } catch (error) {
+        console.error('Detection error:', error);
+        return [{
+            id: 'error',
+            name: 'Error detecting printers',
+            type: 'error',
+            connected: false,
+            error: error.message
+        }];
+    }
+}
+
+app.get('/api/printers/detect', async (req, res) => {
+    try {
+        const printers = await detectPrinters();
         console.log(`✅ Detected ${printers.length} printer(s)`);
 
         res.json({
             success: true,
             printers,
-            os: os.platform()
+            platform: os.platform(),
+            isAndroid
         });
 
     } catch (error) {
         console.error('Detection error:', error);
         res.json({
             success: true,
-            printers: [{
-                id: 'default',
-                name: 'Error detecting printers',
-                type: 'system',
-                connected: false,
-                error: error.message
-            }]
+            printers: [],
+            error: error.message
         });
     }
 });
@@ -219,15 +233,17 @@ app.get('/api/printers/detect', async (req, res) => {
 // ============================================
 app.post('/api/printers/test', async (req, res) => {
     try {
-        const { printerName, printerPath } = req.body;
+        const { printerPath, printerType } = req.body;
 
-        // ✅ Windows: Use printer name directly
-        // ✅ Linux: Use /dev/usb/lp0 or printer name
-        const printerInterface = isWindows
-            ? printerName  // Windows uses printer name
-            : (printerPath || '/dev/usb/lp0'); // Linux uses path
+        if (!printerPath) {
+            return res.json({
+                success: false,
+                error: 'No printer path provided'
+            });
+        }
 
-        console.log(`🖨️  Testing printer: ${printerInterface}`);
+        // For Windows, use printer name directly
+        const printerInterface = isWindows ? printerPath : (printerPath || '/dev/usb/lp0');
 
         const printer = new ThermalPrinter({
             type: PrinterTypes.EPSON,
@@ -240,26 +256,35 @@ app.post('/api/printers/test', async (req, res) => {
             }
         });
 
-        const isConnected = await printer.isPrinterConnected();
+        let isConnected = false;
+        try {
+            isConnected = await printer.isPrinterConnected();
+        } catch (err) {
+            // On Windows, connection check might fail but printing works
+            if (isWindows) {
+                isConnected = true;
+            } else {
+                throw err;
+            }
+        }
 
         if (!isConnected) {
             return res.json({
                 success: false,
-                error: `Cannot connect to printer: ${printerInterface}`
+                error: `Cannot connect to printer at ${printerInterface}`
             });
         }
 
         printer.alignCenter();
         printer.setTextDoubleHeight();
-        printer.setTextDoubleWidth();
         printer.bold(true);
         printer.println("TEST PRINT");
         printer.bold(false);
         printer.setTextNormal();
         printer.drawLine();
-        printer.println("Printer Connected!");
-        printer.println(`OS: ${os.platform()}`);
+        printer.println("Printer Working!");
         printer.println(new Date().toLocaleString());
+        printer.println(`Platform: ${os.platform()}`);
         printer.drawLine();
         printer.newLine();
         printer.cut();
@@ -286,12 +311,14 @@ app.post('/api/printers/test', async (req, res) => {
 // ============================================
 app.post('/api/printers/save', async (req, res) => {
     try {
-        const { printerId, printerName, printerPath } = req.body;
+        const { printerId, printerName, printerPath, printerType } = req.body;
 
         const config = {
             printerId,
             printerName,
-            printerPath: isWindows ? printerName : printerPath, // ✅ Windows fix
+            printerPath,
+            printerType,
+            platform: os.platform(),
             savedAt: new Date().toISOString()
         };
 
@@ -319,9 +346,12 @@ app.post('/api/printers/save', async (req, res) => {
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'online',
-        os: os.platform(),
         printer: savedPrinterConfig ? 'configured' : 'not configured',
         savedPrinter: savedPrinterConfig?.printerName || 'None',
+        platform: os.platform(),
+        isWindows,
+        isLinux,
+        isAndroid,
         uptime: process.uptime(),
         timestamp: new Date().toISOString()
     });
@@ -341,11 +371,14 @@ app.post('/api/print', async (req, res) => {
     const receipt = req.body;
 
     try {
-        // ✅ Use saved config or detect automatically
-        const printerInterface = savedPrinterConfig?.printerPath ||
-            (isWindows ? 'USB001' : '/dev/usb/lp0');
+        if (!savedPrinterConfig?.printerPath) {
+            return res.status(503).json({
+                success: false,
+                error: 'No printer configured. Please configure printer in settings.'
+            });
+        }
 
-        console.log(`🖨️  Printing to: ${printerInterface}`);
+        const printerInterface = savedPrinterConfig.printerPath;
 
         const printer = new ThermalPrinter({
             type: PrinterTypes.EPSON,
@@ -358,7 +391,16 @@ app.post('/api/print', async (req, res) => {
             }
         });
 
-        const isConnected = await printer.isPrinterConnected();
+        let isConnected = false;
+        try {
+            isConnected = await printer.isPrinterConnected();
+        } catch (err) {
+            if (isWindows) {
+                isConnected = true;
+            } else {
+                throw err;
+            }
+        }
 
         if (!isConnected) {
             return res.status(503).json({
@@ -370,7 +412,6 @@ app.post('/api/print', async (req, res) => {
         // HEADER
         printer.alignCenter();
         printer.setTextDoubleHeight();
-        printer.setTextDoubleWidth();
         printer.bold(true);
         printer.println(receipt.restaurantName || 'AT RESTAURANT');
         printer.bold(false);
@@ -503,10 +544,12 @@ app.listen(PORT, () => {
     console.log('🖨️  ========================================');
     console.log('🖨️   THERMAL PRINTER SERVICE');
     console.log('🖨️  ========================================');
+    console.log(`🖨️   Platform: ${os.platform()}`);
     console.log(`🖨️   Status: Running on port ${PORT}`);
-    console.log(`🖨️   OS: ${os.platform()}`);
     console.log(`🖨️   Printer: ${savedPrinterConfig?.printerName || 'Not configured'}`);
-    console.log(`🖨️   Path: ${savedPrinterConfig?.printerPath || (isWindows ? 'USB001' : '/dev/usb/lp0')}`);
+    if (isWindows) console.log('🖨️   Mode: Windows');
+    if (isLinux) console.log('🖨️   Mode: Linux');
+    if (isAndroid) console.log('🖨️   Mode: Android (OTG)');
     console.log('🖨️  ========================================');
     console.log('');
 });

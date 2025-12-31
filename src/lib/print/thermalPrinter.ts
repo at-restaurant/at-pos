@@ -40,13 +40,12 @@ export class ThermalPrinter {
         } catch (error: any) {
             console.error('Print request error:', error)
 
-            // User-friendly error messages
             let errorMessage = 'Print failed. Please try again.'
 
             if (error.message.includes('fetch')) {
-                errorMessage = 'Cannot connect to printer service. Please check if printer server is running.'
+                errorMessage = 'Cannot connect to printer service.'
             } else if (error.message.includes('timeout')) {
-                errorMessage = 'Print request timed out. Printer may be busy.'
+                errorMessage = 'Print request timed out.'
             }
 
             return {
@@ -88,8 +87,12 @@ export class ThermalPrinter {
      */
     async testPrint(): Promise<PrintResponse> {
         try {
-            const response = await fetch('http://localhost:3001/api/test-print', {
-                method: 'POST'
+            const response = await fetch('http://localhost:3001/api/printers/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({})
             })
 
             const result = await response.json()
