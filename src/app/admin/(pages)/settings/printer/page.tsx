@@ -6,24 +6,20 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Printer, RefreshCw, CheckCircle, AlertCircle, Zap, Wifi, Usb, ArrowLeft } from 'lucide-react'
+import { Printer, RefreshCw, CheckCircle, AlertCircle, Zap, Wifi, Usb } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { useRouter } from 'next/navigation'
 
 interface PrinterDevice {
     id: string
     name: string
-    type: 'usb' | 'network' | 'system'
-    path?: string
+    type: 'default' | 'installed' | 'system'
     driver?: string
-    manufacturer?: string
+    status?: string
+    isDefault?: boolean
     connected: boolean
-    vendorId?: number  // ✅ Added
-    productId?: number // ✅ Added
 }
 
 export default function PrinterSettingsPage() {
-    const router = useRouter()
     const [printers, setPrinters] = useState<PrinterDevice[]>([])
     const [selectedPrinter, setSelectedPrinter] = useState<PrinterDevice | null>(null)
     const [loading, setLoading] = useState(false)
@@ -78,8 +74,7 @@ export default function PrinterSettingsPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     printerId: selectedPrinter.id,
-                    printerName: selectedPrinter.name,
-                    printerPath: selectedPrinter.path
+                    printerName: selectedPrinter.name
                 })
             })
 
@@ -113,7 +108,7 @@ export default function PrinterSettingsPage() {
                 body: JSON.stringify({
                     printerId: selectedPrinter.id,
                     printerName: selectedPrinter.name,
-                    printerPath: selectedPrinter.path
+                    isDefault: selectedPrinter.isDefault
                 })
             })
 
@@ -133,17 +128,6 @@ export default function PrinterSettingsPage() {
 
     return (
         <div className="min-h-screen bg-[var(--bg)] lg:ml-16 pb-20 lg:pb-0">
-            {/* Back Button - Mobile & Desktop Friendly */}
-            <div className="sticky top-0 z-10 bg-[var(--bg)] border-b border-[var(--border)] px-4 py-3">
-                <button
-                    onClick={() => router.back()}
-                    className="flex items-center gap-2 text-[var(--fg)] hover:text-blue-600 transition-colors"
-                >
-                    <ArrowLeft className="w-5 h-5" />
-                    <span className="font-medium">Back</span>
-                </button>
-            </div>
-
             <PageHeader
                 title="Printer Settings"
                 subtitle="Auto-detect and configure your thermal printer"
@@ -208,10 +192,10 @@ export default function PrinterSettingsPage() {
                                                     ? 'bg-green-500/20 text-green-600'
                                                     : 'bg-gray-500/20 text-gray-600'
                                             }`}>
-                                                {printer.type === 'usb' ? (
-                                                    <Usb className="w-5 h-5 sm:w-6 sm:h-6" />
+                                                {printer.isDefault ? (
+                                                    <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6" />
                                                 ) : (
-                                                    <Wifi className="w-5 h-5 sm:w-6 sm:h-6" />
+                                                    <Printer className="w-5 h-5 sm:w-6 sm:h-6" />
                                                 )}
                                             </div>
                                             <div className="flex-1 min-w-0">
@@ -219,25 +203,29 @@ export default function PrinterSettingsPage() {
                                                     {printer.name}
                                                 </h3>
                                                 <p className="text-xs text-[var(--muted)] truncate">
-                                                    {printer.manufacturer || 'Unknown manufacturer'}
+                                                    {printer.driver || 'Unknown driver'}
                                                 </p>
-                                                {printer.vendorId && (
+                                                {printer.status && (
                                                     <p className="text-xs text-[var(--muted)] mt-1">
-                                                        ID: {printer.vendorId.toString(16)}:{printer.productId?.toString(16)}
+                                                        Status: {printer.status}
                                                     </p>
                                                 )}
                                             </div>
                                         </div>
 
                                         <div className="flex items-center gap-2 flex-shrink-0">
-                                            {printer.connected ? (
+                                            {printer.isDefault ? (
+                                                <span className="text-[10px] sm:text-xs font-semibold text-blue-600 bg-blue-500/20 px-2 sm:px-3 py-1 rounded-full whitespace-nowrap">
+                          ⭐ Default
+                        </span>
+                                            ) : printer.connected ? (
                                                 <span className="text-[10px] sm:text-xs font-semibold text-green-600 bg-green-500/20 px-2 sm:px-3 py-1 rounded-full whitespace-nowrap">
-                                                    ✅ Ready
-                                                </span>
+                          ✅ Ready
+                        </span>
                                             ) : (
                                                 <span className="text-[10px] sm:text-xs font-semibold text-gray-600 bg-gray-500/20 px-2 sm:px-3 py-1 rounded-full whitespace-nowrap">
-                                                    ⚠️ Offline
-                                                </span>
+                          ⚠️ Offline
+                        </span>
                                             )}
 
                                             {selectedPrinter?.id === printer.id && (

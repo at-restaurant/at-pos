@@ -10,7 +10,6 @@
     "format": "biome format --write",
     "type-check": "tsc --noEmit",
     "test:build": "npm run type-check && npm run build",
-
     "printer:dev": "node printer-service/server.js",
     "printer:start": "node printer-service/server.js",
     "printer:pm2": "pm2 start printer-service/ecosystem.config.js",
@@ -18,33 +17,31 @@
     "printer:restart": "pm2 restart thermal-printer",
     "printer:logs": "pm2 logs thermal-printer",
     "printer:test": "node -e \"const http = require('http'); http.get('http://localhost:3001/api/health', (res) => { console.log('Printer service:', res.statusCode === 200 ? '✅ Online' : '❌ Offline'); }).on('error', () => console.log('❌ Offline'));\"",
-
     "dev:all": "concurrently -k -n PRINTER,NEXT -c magenta,cyan \"node printer-service/server.js\" \"next dev\"",
     "dev:next": "next dev",
     "dev:printer": "node printer-service/server.js",
-
     "prod:build": "next build",
     "prod:start": "npm run prod:build && pm2 start printer-service/ecosystem.config.js && pm2 start npm --name nextjs-pos -- start",
     "prod:stop": "pm2 stop all && pm2 delete all",
     "prod:restart": "pm2 restart all",
     "prod:status": "pm2 status",
-
     "clean": "rm -rf .next node_modules/.cache",
     "postinstall": "echo '✅ Dependencies installed successfully'"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.87.1",
+    "@thiagoelg/node-printer": "^0.6.2",
     "body-parser": "^2.2.1",
     "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
-    "node-thermal-printer": "^4.4.7",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "html2canvas": "^1.4.1",
     "lucide-react": "^0.561.0",
     "next": "16.0.10",
+    "pdfkit": "^0.17.2",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "recharts": "^3.6.0",

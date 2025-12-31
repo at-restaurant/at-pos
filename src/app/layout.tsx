@@ -10,7 +10,6 @@ import OfflineInitializer from '@/components/OfflineInitializer'
 import SyncProgressIndicator from '@/components/ui/SyncProgressIndicator'
 import ScrollToTop from '@/components/ui/ScrollToTop'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import PrinterServiceStatus from '@/components/PrinterServiceStatus'
 
 import '@/lib/db/realtimeSync'
 
@@ -144,8 +143,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             {/* ✅ Global Scroll to Top Button */}
             <ScrollToTop />
-
-            <PrinterServiceStatus />
         </ErrorBoundary>
         </body>
         </html>
