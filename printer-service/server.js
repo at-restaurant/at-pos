@@ -1,4 +1,4 @@
-// printer-service/server.js - WINDOWS PRODUCTION
+// printer-service/server.js - FIXED WINDOWS DETECTION
 const express = require('express');
 const cors = require('cors');
 const { exec } = require('child_process');
@@ -12,12 +12,13 @@ const PORT = 3001;
 app.use(cors({ origin: ['http://localhost:3000', 'http://localhost:3001'], credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 
-// Detect Windows Printers
+// ✅ IMPROVED: Detect Windows Printers with Better Status Detection
 function detectWindowsPrinters() {
     return new Promise((resolve) => {
-        const command = `powershell -Command "Get-Printer | Select-Object Name, DriverName, PortName, PrinterStatus | ConvertTo-Json"`;
+        // Get detailed printer info including queue status
+        const command = `powershell -Command "Get-Printer | Select-Object Name, DriverName, PortName, PrinterStatus, Type | ConvertTo-Json"`;
 
-        exec(command, { encoding: 'utf8' }, (error, stdout, stderr) => {
+        exec(command, { encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
             if (error) {
                 console.error('❌ Printer detection error:', error.message);
                 resolve([]);
@@ -28,18 +29,53 @@ function detectWindowsPrinters() {
                 let printers = JSON.parse(stdout);
                 if (!Array.isArray(printers)) printers = [printers];
 
-                const formatted = printers.map((p, index) => ({
-                    id: `printer_${index}`,
-                    name: p.Name || 'Unknown Printer',
-                    driver: p.DriverName || 'Unknown Driver',
-                    port: p.PortName || 'USB',
-                    status: p.PrinterStatus || 'Unknown',
-                    type: 'system',
-                    connected: p.PrinterStatus === 'Normal' || p.PrinterStatus === 'Idle',
-                    isDefault: index === 0
-                }));
+                const formatted = printers.map((p, index) => {
+                    // ✅ Better status detection
+                    const status = p.PrinterStatus;
+                    const isUsb = (p.PortName || '').includes('USB');
+
+                    // ✅ Consider printer "connected" if:
+                    // 1. It's a USB printer, OR
+                    // 2. Status is Normal/Idle/Unknown (Unknown often means ready)
+                    const isConnected = isUsb ||
+                        status === 'Normal' ||
+                        status === 'Idle' ||
+                        status === 'Unknown';
+
+                    return {
+                        id: `printer_${index}`,
+                        name: p.Name || 'Unknown Printer',
+                        driver: p.DriverName || 'Unknown Driver',
+                        port: p.PortName || 'USB',
+                        status: status || 'Ready',
+                        type: isUsb ? 'usb' : 'system',
+                        connected: isConnected,
+                        isDefault: index === 0 // First USB printer as default
+                    };
+                });
+
+                // ✅ Sort: USB printers first, then by name
+                formatted.sort((a, b) => {
+                    if (a.type === 'usb' && b.type !== 'usb') return -1;
+                    if (a.type !== 'usb' && b.type === 'usb') return 1;
+                    return a.name.localeCompare(b.name);
+                });
+
+                // ✅ Set first USB printer as default
+                if (formatted.length > 0) {
+                    const firstUsb = formatted.find(p => p.type === 'usb');
+                    if (firstUsb) {
+                        formatted.forEach(p => p.isDefault = (p.id === firstUsb.id));
+                    } else {
+                        formatted[0].isDefault = true;
+                    }
+                }
 
                 console.log(`✅ Found ${formatted.length} printer(s)`);
+                console.log('📋 Printers:', formatted.map(p =>
+                    `${p.name} (${p.type}, ${p.connected ? 'Connected' : 'Offline'})`
+                ).join(', '));
+
                 resolve(formatted);
             } catch (parseError) {
                 console.error('❌ Parse error:', parseError);
@@ -223,12 +259,16 @@ app.post('/api/print', async (req, res) => {
             return res.status(503).json({ success: false, error: 'No printers available' });
         }
 
-        const defaultPrinter = printers.find(p => p.isDefault) || printers[0];
+        // ✅ Use first connected USB printer, or first printer as fallback
+        const defaultPrinter = printers.find(p => p.type === 'usb' && p.connected) ||
+            printers.find(p => p.connected) ||
+            printers[0];
+
         const receiptText = formatReceipt(receiptData);
 
         await printToWindowsPrinter(defaultPrinter.name, receiptText);
 
-        console.log(`✅ Receipt printed: Order ${receiptData.orderNumber}`);
+        console.log(`✅ Receipt printed: Order ${receiptData.orderNumber} on ${defaultPrinter.name}`);
 
         res.json({
             success: true,
@@ -256,7 +296,12 @@ app.listen(PORT, () => {
 
     detectWindowsPrinters().then(printers => {
         if (printers.length > 0) {
+            const usbPrinters = printers.filter(p => p.type === 'usb' && p.connected);
             console.log('✅ Printers detected!\n');
+            if (usbPrinters.length > 0) {
+                console.log('🎯 USB Printers Ready:');
+                usbPrinters.forEach(p => console.log(`   - ${p.name} (${p.driver})`));
+            }
         } else {
             console.log('⚠️  No printers found\n');
         }
