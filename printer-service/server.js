@@ -1,4 +1,4 @@
-// printer-service/server.js - FIXED WINDOWS DETECTION
+// printer-service/server.js - FIXED CORS & ERROR HANDLING
 const express = require('express');
 const cors = require('cors');
 const { exec } = require('child_process');
@@ -9,12 +9,27 @@ const fs = require('fs');
 const app = express();
 const PORT = 3001;
 
-app.use(cors({ origin: ['http://localhost:3000', 'http://localhost:3001'], credentials: true }));
+// ✅ FIX 1: Allow ALL origins in development
+app.use(cors({
+    origin: '*', // Allow all origins
+    credentials: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json({ limit: '10mb' }));
+
+// ✅ FIX 2: Add request logging
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    next();
+});
 
 // ✅ IMPROVED: Detect Windows Printers with Better Status Detection
 function detectWindowsPrinters() {
     return new Promise((resolve) => {
+        console.log('🔍 Detecting Windows printers...');
+
         // Get detailed printer info including queue status
         const command = `powershell -Command "Get-Printer | Select-Object Name, DriverName, PortName, PrinterStatus, Type | ConvertTo-Json"`;
 
@@ -26,17 +41,19 @@ function detectWindowsPrinters() {
             }
 
             try {
-                let printers = JSON.parse(stdout);
-                if (!Array.isArray(printers)) printers = [printers];
+                let printers = [];
+
+                // Parse JSON output
+                if (stdout && stdout.trim()) {
+                    printers = JSON.parse(stdout);
+                    if (!Array.isArray(printers)) printers = [printers];
+                }
 
                 const formatted = printers.map((p, index) => {
-                    // ✅ Better status detection
-                    const status = p.PrinterStatus;
-                    const isUsb = (p.PortName || '').includes('USB');
+                    const status = p.PrinterStatus || 'Unknown';
+                    const isUsb = (p.PortName || '').toUpperCase().includes('USB');
 
-                    // ✅ Consider printer "connected" if:
-                    // 1. It's a USB printer, OR
-                    // 2. Status is Normal/Idle/Unknown (Unknown often means ready)
+                    // Consider printer "connected" if it's USB or has good status
                     const isConnected = isUsb ||
                         status === 'Normal' ||
                         status === 'Idle' ||
@@ -47,23 +64,23 @@ function detectWindowsPrinters() {
                         name: p.Name || 'Unknown Printer',
                         driver: p.DriverName || 'Unknown Driver',
                         port: p.PortName || 'USB',
-                        status: status || 'Ready',
+                        status: status,
                         type: isUsb ? 'usb' : 'system',
                         connected: isConnected,
-                        isDefault: index === 0 // First USB printer as default
+                        isDefault: false
                     };
                 });
 
-                // ✅ Sort: USB printers first, then by name
+                // Sort: USB printers first
                 formatted.sort((a, b) => {
                     if (a.type === 'usb' && b.type !== 'usb') return -1;
                     if (a.type !== 'usb' && b.type === 'usb') return 1;
                     return a.name.localeCompare(b.name);
                 });
 
-                // ✅ Set first USB printer as default
+                // Set first USB printer as default
                 if (formatted.length > 0) {
-                    const firstUsb = formatted.find(p => p.type === 'usb');
+                    const firstUsb = formatted.find(p => p.type === 'usb' && p.connected);
                     if (firstUsb) {
                         formatted.forEach(p => p.isDefault = (p.id === firstUsb.id));
                     } else {
@@ -72,13 +89,14 @@ function detectWindowsPrinters() {
                 }
 
                 console.log(`✅ Found ${formatted.length} printer(s)`);
-                console.log('📋 Printers:', formatted.map(p =>
-                    `${p.name} (${p.type}, ${p.connected ? 'Connected' : 'Offline'})`
-                ).join(', '));
+                formatted.forEach(p => {
+                    console.log(`   - ${p.name} (${p.type}, ${p.connected ? 'Connected' : 'Offline'})`);
+                });
 
                 resolve(formatted);
             } catch (parseError) {
-                console.error('❌ Parse error:', parseError);
+                console.error('❌ Parse error:', parseError.message);
+                console.log('Raw output:', stdout);
                 resolve([]);
             }
         });
@@ -91,23 +109,31 @@ function printToWindowsPrinter(printerName, receiptText) {
         const tempDir = os.tmpdir();
         const tempFile = path.join(tempDir, `receipt_${Date.now()}.txt`);
 
+        console.log(`📄 Creating temp file: ${tempFile}`);
         fs.writeFileSync(tempFile, receiptText, 'utf8');
 
         const command = `print /D:"${printerName}" "${tempFile}"`;
+        console.log(`🖨️  Executing: ${command}`);
 
         exec(command, (error, stdout, stderr) => {
+            // Clean up temp file
             try {
                 fs.unlinkSync(tempFile);
+                console.log('🗑️  Temp file deleted');
             } catch (e) {
-                console.warn('⚠️ Could not delete temp file');
+                console.warn('⚠️  Could not delete temp file');
             }
 
             if (error) {
+                console.error('❌ Print error:', error.message);
                 reject(new Error(`Print failed: ${error.message}`));
                 return;
             }
 
             console.log('✅ Print successful');
+            if (stdout) console.log('stdout:', stdout);
+            if (stderr) console.log('stderr:', stderr);
+
             resolve({ success: true, stdout, stderr });
         });
     });
@@ -198,22 +224,41 @@ function leftRight(left, right, bold = false) {
     return left + ' '.repeat(Math.max(1, spaces)) + right;
 }
 
-// API Endpoints
+// ============================================
+// API ENDPOINTS
+// ============================================
+
+// ✅ FIX 3: Enhanced health check with CORS headers
 app.get('/api/health', (req, res) => {
+    res.header('Access-Control-Allow-Origin', '*');
     res.json({
         status: 'online',
         timestamp: new Date().toISOString(),
         platform: os.platform(),
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        port: PORT,
+        version: '2.0.0'
     });
 });
 
 app.get('/api/printers/detect', async (req, res) => {
     try {
+        console.log('📡 Printer detection requested');
         const printers = await detectWindowsPrinters();
-        res.json({ success: true, printers, count: printers.length });
+
+        res.json({
+            success: true,
+            printers,
+            count: printers.length,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message, printers: [] });
+        console.error('❌ Detection error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            printers: []
+        });
     }
 });
 
@@ -222,8 +267,13 @@ app.post('/api/printers/test', async (req, res) => {
         const { printerName } = req.body;
 
         if (!printerName) {
-            return res.status(400).json({ success: false, error: 'Printer name required' });
+            return res.status(400).json({
+                success: false,
+                error: 'Printer name required'
+            });
         }
+
+        console.log(`🧪 Test print requested for: ${printerName}`);
 
         const testReceipt = formatReceipt({
             restaurantName: 'AT RESTAURANT',
@@ -232,16 +282,30 @@ app.post('/api/printers/test', async (req, res) => {
             orderNumber: 'TEST-001',
             date: new Date().toLocaleString(),
             orderType: 'dine-in',
-            items: [{ name: 'Test Item', quantity: 1, price: 100, total: 100, category: 'Test' }],
+            items: [{
+                name: 'Test Item',
+                quantity: 1,
+                price: 100,
+                total: 100,
+                category: 'Test'
+            }],
             subtotal: 100,
             tax: 0,
             total: 100
         });
 
         await printToWindowsPrinter(printerName, testReceipt);
-        res.json({ success: true, message: 'Test print sent successfully' });
+
+        res.json({
+            success: true,
+            message: 'Test print sent successfully'
+        });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('❌ Test print error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 
@@ -250,25 +314,34 @@ app.post('/api/print', async (req, res) => {
         const receiptData = req.body;
 
         if (!receiptData || !receiptData.items) {
-            return res.status(400).json({ success: false, error: 'Invalid receipt data' });
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid receipt data'
+            });
         }
+
+        console.log(`📄 Print job received: Order ${receiptData.orderNumber}`);
 
         const printers = await detectWindowsPrinters();
 
         if (printers.length === 0) {
-            return res.status(503).json({ success: false, error: 'No printers available' });
+            return res.status(503).json({
+                success: false,
+                error: 'No printers available'
+            });
         }
 
-        // ✅ Use first connected USB printer, or first printer as fallback
+        // Use first connected USB printer, or first printer as fallback
         const defaultPrinter = printers.find(p => p.type === 'usb' && p.connected) ||
             printers.find(p => p.connected) ||
             printers[0];
 
-        const receiptText = formatReceipt(receiptData);
+        console.log(`🖨️  Using printer: ${defaultPrinter.name}`);
 
+        const receiptText = formatReceipt(receiptData);
         await printToWindowsPrinter(defaultPrinter.name, receiptText);
 
-        console.log(`✅ Receipt printed: Order ${receiptData.orderNumber} on ${defaultPrinter.name}`);
+        console.log(`✅ Receipt printed successfully`);
 
         res.json({
             success: true,
@@ -277,38 +350,77 @@ app.post('/api/print', async (req, res) => {
             printer: defaultPrinter.name
         });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('❌ Print error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 
 app.post('/api/printers/save', async (req, res) => {
-    res.json({ success: true, message: 'Printer settings saved' });
+    res.json({
+        success: true,
+        message: 'Printer settings saved'
+    });
 });
 
-// Start Server
-app.listen(PORT, () => {
-    console.log('\n' + '='.repeat(50));
-    console.log('🖨️  THERMAL PRINTER SERVICE - WINDOWS');
-    console.log('='.repeat(50));
-    console.log(`✅ Server: http://localhost:${PORT}`);
-    console.log(`📍 Platform: ${os.platform()}`);
-    console.log('='.repeat(50) + '\n');
+// ✅ FIX 4: Handle OPTIONS preflight requests
+app.options('*', cors());
 
+// ============================================
+// START SERVER
+// ============================================
+const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log('\n' + '='.repeat(60));
+    console.log('🖨️  THERMAL PRINTER SERVICE - WINDOWS');
+    console.log('='.repeat(60));
+    console.log(`✅ Server: http://localhost:${PORT}`);
+    console.log(`✅ Network: http://0.0.0.0:${PORT}`);
+    console.log(`📍 Platform: ${os.platform()} (${os.arch()})`);
+    console.log(`🔧 Node: ${process.version}`);
+    console.log('='.repeat(60));
+    console.log('\n📝 Available Endpoints:');
+    console.log('   GET  /api/health');
+    console.log('   GET  /api/printers/detect');
+    console.log('   POST /api/printers/test');
+    console.log('   POST /api/print');
+    console.log('   POST /api/printers/save\n');
+
+    // Auto-detect printers on startup
     detectWindowsPrinters().then(printers => {
         if (printers.length > 0) {
             const usbPrinters = printers.filter(p => p.type === 'usb' && p.connected);
-            console.log('✅ Printers detected!\n');
+            console.log('✅ Printer detection complete!\n');
             if (usbPrinters.length > 0) {
                 console.log('🎯 USB Printers Ready:');
-                usbPrinters.forEach(p => console.log(`   - ${p.name} (${p.driver})`));
+                usbPrinters.forEach(p => {
+                    console.log(`   - ${p.name} (${p.driver})`);
+                });
+            } else {
+                console.log('⚠️  No USB thermal printers detected');
+                console.log('💡 Tip: Connect USB printer and restart service\n');
             }
         } else {
-            console.log('⚠️  No printers found\n');
+            console.log('⚠️  No printers found');
+            console.log('💡 Please install printer drivers and restart\n');
         }
     });
 });
 
+// Graceful shutdown
 process.on('SIGINT', () => {
-    console.log('\n👋 Shutting down...');
-    process.exit(0);
+    console.log('\n\n👋 Shutting down gracefully...');
+    server.close(() => {
+        console.log('✅ Server closed');
+        process.exit(0);
+    });
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
