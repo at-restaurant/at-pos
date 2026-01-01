@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="67f4679a-43a9-470e-8f29-73c04c9ed524" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/start-printer.bat" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/diagnose-printer.bat" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/printer-service/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/printer-service/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/lib/print/browserPrint.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib/print/browserPrint.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/lib/print/deviceDetection.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib/print/deviceDetection.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/lib/print/thermalPrinter.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib/print/thermalPrinter.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/start-windows.bat" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="PackageJsonUpdateNotifier">
+    <dismissed value="$PROJECT_DIR$/package.json" />
+  </component>
+  <component name="ProblemsViewState">
+    <option name="groupByToolId" value="true" />
+    <option name="proportion" value="0.59085965" />
+    <option name="selectedTabId" value="CurrentFile" />
+    <option name="showPreview" value="true" />
+    <option name="sortByName" value="true" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 5
+}</component>
+  <component name="ProjectId" id="36sMlpU0q05S9pf71l1LtufS3yO" />
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="2" id="Add" />
+  </component>
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;js.debugger.nextJs.config.created.client&quot;: &quot;true&quot;,
+    &quot;js.debugger.nextJs.config.created.server&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/findme/WebstormProjects/rt-restaurant-pos&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_interpreter_path&quot;: &quot;node&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;/usr/local/bin/npm&quot;,
+    &quot;npm.build.executor&quot;: &quot;Run&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;settings.nodejs&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;/home/findme/WebstormProjects/rt-restaurant-pos/node_modules/typescript/lib&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/backup" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/printer-service" />
+      <recent name="$PROJECT_DIR$/public/icons" />
+      <recent name="$PROJECT_DIR$/src/components" />
+      <recent name="$PROJECT_DIR$/public" />
+      <recent name="$PROJECT_DIR$/src/lib/sync" />
+    </key>
+  </component>
+  <component name="RunManager" selected="npm.build">
+    <configuration name="Next.js: debug client-side" type="JavascriptDebugType" uri="http://localhost:3000/">
+      <method v="2" />
+    </configuration>
+    <configuration name="Next.js: server-side" type="js.build_tools.npm">
+      <package-json value="$PROJECT_DIR$/package.json" />
+      <command value="run" />
+      <scripts>
+        <script value="dev" />
+      </scripts>
+      <node-interpreter value="project" />
+      <envs />
+      <method v="2" />
+    </configuration>
+    <configuration name="build" type="js.build_tools.npm" temporary="true" nameIsGenerated="true">
+      <package-json value="$PROJECT_DIR$/package.json" />
+      <command value="run" />
+      <scripts>
+        <script value="build" />
+      </scripts>
+      <node-interpreter value="project" />
+      <package-manager value="pnpm" />
+      <envs />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="npm.build" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-3aa1da707db6-JavaScript-WS-252.27397.92" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="67f4679a-43a9-470e-8f29-73c04c9ed524" name="Changes" comment="" />
+      <created>1765790980135</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1765790980135</updated>
+      <workItem from="1765790981689" duration="2280000" />
+      <workItem from="1765818025134" duration="8065000" />
+      <workItem from="1765848998825" duration="6053000" />
+      <workItem from="1765862507039" duration="10145000" />
+      <workItem from="1765876275499" duration="2707000" />
+      <workItem from="1765888903207" duration="3049000" />
+      <workItem from="1765894988086" duration="6831000" />
+      <workItem from="1765935238817" duration="4751000" />
+      <workItem from="1765949060938" duration="8822000" />
+      <workItem from="1765982659345" duration="4394000" />
+      <workItem from="1765988549561" duration="813000" />
+      <workItem from="1765989876183" duration="631000" />
+      <workItem from="1766022204413" duration="4155000" />
+      <workItem from="1766041090146" duration="5068000" />
+      <workItem from="1766072545570" duration="2918000" />
+      <workItem from="1766125805703" duration="4306000" />
+      <workItem from="1766136302947" duration="1914000" />
+      <workItem from="1766148215875" duration="4271000" />
+      <workItem from="1766171174223" duration="5301000" />
+      <workItem from="1766191132660" duration="2135000" />
+      <workItem from="1766197022476" duration="2000" />
+      <workItem from="1766197068369" duration="17000" />
+      <workItem from="1766202683201" duration="6083000" />
+      <workItem from="1766223318489" duration="1633000" />
+      <workItem from="1766254540023" duration="6018000" />
+      <workItem from="1766297416559" duration="668000" />
+      <workItem from="1766299374181" duration="5840000" />
+      <workItem from="1766307868791" duration="5558000" />
+      <workItem from="1766314933683" duration="610000" />
+      <workItem from="1766315990918" duration="1719000" />
+      <workItem from="1766343385250" duration="2762000" />
+      <workItem from="1766384680579" duration="4428000" />
+      <workItem from="1766396952496" duration="1563000" />
+      <workItem from="1766401828064" duration="6715000" />
+      <workItem from="1766416438258" duration="1760000" />
+      <workItem from="1766454151432" duration="10023000" />
+      <workItem from="1766470409101" duration="3262000" />
+      <workItem from="1766484969663" duration="7185000" />
+      <workItem from="1766493749230" duration="1835000" />
+      <workItem from="1766497272979" duration="624000" />
+      <workItem from="1766504430211" duration="3916000" />
+      <workItem from="1766509371399" duration="805000" />
+      <workItem from="1766511708827" duration="5308000" />
+      <workItem from="1766556631245" duration="3332000" />
+      <workItem from="1766570519498" duration="2679000" />
+      <workItem from="1766574951241" duration="140000" />
+      <workItem from="1766575120237" duration="3139000" />
+      <workItem from="1766580619266" duration="4564000" />
+      <workItem from="1766587202986" duration="72000" />
+      <workItem from="1766587280841" duration="9247000" />
+      <workItem from="1766599790878" duration="5191000" />
+      <workItem from="1766656571329" duration="7575000" />
+      <workItem from="1766667382412" duration="4274000" />
+      <workItem from="1766673908596" duration="3920000" />
+      <workItem from="1766678515569" duration="5936000" />
+      <workItem from="1766686462466" duration="1584000" />
+      <workItem from="1766688072384" duration="313000" />
+      <workItem from="1766708028964" duration="3200000" />
+      <workItem from="1766713122799" duration="5278000" />
+      <workItem from="1766743177652" duration="2651000" />
+      <workItem from="1766749313953" duration="1798000" />
+      <workItem from="1766756713233" duration="587000" />
+      <workItem from="1766759175017" duration="7198000" />
+      <workItem from="1766767662570" duration="2052000" />
+      <workItem from="1766817018874" duration="3313000" />
+      <workItem from="1766840815420" duration="12721000" />
+      <workItem from="1766869276214" duration="487000" />
+      <workItem from="1766913688842" duration="7294000" />
+      <workItem from="1766922840630" duration="1434000" />
+      <workItem from="1766925497491" duration="11000" />
+      <workItem from="1766929637211" duration="4088000" />
+      <workItem from="1766951114561" duration="4465000" />
+      <workItem from="1766973639196" duration="2161000" />
+      <workItem from="1767018515402" duration="1492000" />
+      <workItem from="1767094225198" duration="659000" />
+      <workItem from="1767098451045" duration="7640000" />
+      <workItem from="1767109492754" duration="1153000" />
+      <workItem from="1767111840773" duration="3653000" />
+      <workItem from="1767159730328" duration="2881000" />
+      <workItem from="1767182864449" duration="21057000" />
+      <workItem from="1767246675110" duration="3417000" />
+      <workItem from="1767262268144" duration="4237000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>

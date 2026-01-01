@@ -1,4 +1,4 @@
-// src/lib/print/thermalPrinter.ts - UNIVERSAL PRINTING
+// src/lib/print/thermalPrinter.ts
 import { ReceiptData, PrintResponse, PrinterStatus } from '@/types'
 import { detectDevice, shouldUseServicePrint, getPrintServiceURL } from './deviceDetection'
 import BrowserPrint from './browserPrint'
@@ -10,15 +10,11 @@ export class ThermalPrinter {
         this.baseUrl = getPrintServiceURL()
     }
 
-    /**
-     * Universal print method - auto-detects device and uses best method
-     */
     async print(receipt: ReceiptData): Promise<PrintResponse> {
         const device = detectDevice()
+        console.log('🖨️ Print on:', device.type, 'using:', device.printMethod)
 
-        console.log('🖨️ Print requested on:', device.type, 'using:', device.printMethod)
-
-        // Windows: Use printer service via Cloudflare tunnel
+        // Windows: Use printer service
         if (shouldUseServicePrint()) {
             try {
                 const response = await fetch(`${this.baseUrl}/api/print`, {
@@ -29,36 +25,28 @@ export class ThermalPrinter {
                 })
 
                 if (!response.ok) {
-                    console.warn('Printer service failed, falling back to browser print')
+                    console.warn('Printer service failed, fallback to browser')
                     return this.browserPrintFallback(receipt)
                 }
 
-                const result = await response.json()
-                return result
+                return await response.json()
 
             } catch (error: any) {
                 console.error('Printer service error:', error)
-                console.log('📱 Falling back to browser print...')
                 return this.browserPrintFallback(receipt)
             }
         }
 
-        // All other devices: Use browser print
+        // All other devices: Browser print
         return this.browserPrintFallback(receipt)
     }
 
-    /**
-     * Browser print fallback for all devices
-     */
     private async browserPrintFallback(receipt: ReceiptData): Promise<PrintResponse> {
         try {
             const success = await BrowserPrint.print(receipt)
-
             return {
                 success,
-                message: success
-                    ? 'Print dialog opened successfully'
-                    : 'Failed to open print dialog',
+                message: success ? 'Print dialog opened' : 'Failed to open print dialog',
                 orderNumber: receipt.orderNumber
             }
         } catch (error: any) {
@@ -69,21 +57,15 @@ export class ThermalPrinter {
         }
     }
 
-    /**
-     * Check printer status
-     */
     async checkStatus(): Promise<PrinterStatus> {
         const device = detectDevice()
 
-        // Windows: Check service
         if (shouldUseServicePrint()) {
             try {
                 const response = await fetch(`${this.baseUrl}/api/health`, {
                     signal: AbortSignal.timeout(5000)
                 })
-
                 if (!response.ok) throw new Error('Service offline')
-
                 return await response.json()
             } catch {
                 return {
@@ -94,7 +76,6 @@ export class ThermalPrinter {
             }
         }
 
-        // Other devices: Always available via browser
         return {
             status: 'online',
             printer: 'configured',
@@ -103,9 +84,6 @@ export class ThermalPrinter {
         }
     }
 
-    /**
-     * Test print
-     */
     async testPrint(): Promise<PrintResponse> {
         const testReceipt: ReceiptData = {
             restaurantName: 'AT RESTAURANT',
@@ -118,20 +96,8 @@ export class ThermalPrinter {
             tableNumber: 1,
             waiter: 'Test Waiter',
             items: [
-                {
-                    name: 'Test Item 1',
-                    quantity: 2,
-                    price: 100,
-                    total: 200,
-                    category: '🧪 Test Category'
-                },
-                {
-                    name: 'Test Item 2',
-                    quantity: 1,
-                    price: 150,
-                    total: 150,
-                    category: '🧪 Test Category'
-                }
+                { name: 'Test Item 1', quantity: 2, price: 100, total: 200, category: '🧪 Test' },
+                { name: 'Test Item 2', quantity: 1, price: 150, total: 150, category: '🧪 Test' }
             ],
             subtotal: 350,
             tax: 35,
@@ -139,20 +105,13 @@ export class ThermalPrinter {
             paymentMethod: 'cash',
             notes: 'This is a test receipt'
         }
-
         return this.print(testReceipt)
     }
 
-    /**
-     * Get device info and print capabilities
-     */
     getDeviceInfo() {
         return detectDevice()
     }
 }
 
-// Export singleton instance
 export const thermalPrinter = new ThermalPrinter()
-
-// Export class for custom instances
 export default ThermalPrinter

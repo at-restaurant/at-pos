@@ -1,18 +1,14 @@
-// src/lib/print/browserPrint.ts - Universal Browser Printing
+// src/lib/print/browserPrint.ts
 import { ReceiptData } from '@/types'
 
 export class BrowserPrint {
-    /**
-     * Print receipt using browser's native print dialog
-     * Works on: Android, iOS, Mac, Linux, Windows (fallback)
-     */
     static print(receipt: ReceiptData): Promise<boolean> {
         return new Promise((resolve) => {
             try {
                 const printWindow = window.open('', '_blank', 'width=300,height=600')
 
                 if (!printWindow) {
-                    console.error('Popup blocked - enable popups for printing')
+                    console.error('Popup blocked')
                     resolve(false)
                     return
                 }
@@ -21,15 +17,10 @@ export class BrowserPrint {
                 printWindow.document.write(html)
                 printWindow.document.close()
 
-                // Wait for content to load
                 printWindow.onload = () => {
                     printWindow.focus()
-
-                    // Delay to ensure rendering
                     setTimeout(() => {
                         printWindow.print()
-
-                        // Close after print dialog
                         setTimeout(() => {
                             printWindow.close()
                             resolve(true)
@@ -37,7 +28,6 @@ export class BrowserPrint {
                     }, 500)
                 }
 
-                // Fallback if onload doesn't fire
                 setTimeout(() => {
                     if (!printWindow.closed) {
                         printWindow.print()
@@ -52,10 +42,6 @@ export class BrowserPrint {
         })
     }
 
-    /**
-     * Format receipt as thermal printer style HTML
-     * Optimized for 80mm thermal printers
-     */
     private static formatReceiptHTML(data: ReceiptData): string {
         const grouped: Record<string, typeof data.items> = {}
         data.items.forEach(item => {
@@ -72,22 +58,9 @@ export class BrowserPrint {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Receipt ${data.orderNumber}</title>
     <style>
-        @page {
-            size: 80mm auto;
-            margin: 0;
-        }
-        
-        @media print {
-            body { padding: 0 !important; margin: 0 !important; }
-            .no-print { display: none !important; }
-        }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        @page { size: 80mm auto; margin: 0; }
+        @media print { body { padding: 0 !important; margin: 0 !important; } .no-print { display: none !important; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Courier New', 'Consolas', monospace;
             font-size: 12px;
@@ -98,96 +71,25 @@ export class BrowserPrint {
             max-width: 300px;
             margin: 0 auto;
         }
-        
         .center { text-align: center; }
         .bold { font-weight: bold; }
         .large { font-size: 16px; font-weight: bold; }
         .small { font-size: 10px; }
-        
-        .line {
-            border-bottom: 1px dashed #333;
-            margin: 8px 0;
-        }
-        
-        .double-line {
-            border-bottom: 2px solid #000;
-            margin: 10px 0;
-        }
-        
-        .row {
-            display: flex;
-            justify-content: space-between;
-            margin: 4px 0;
-        }
-        
-        .category {
-            font-weight: bold;
-            background: #f5f5f5;
-            padding: 4px 6px;
-            margin: 8px 0 4px 0;
-            border-left: 3px solid #333;
-            font-size: 11px;
-        }
-        
-        .item {
-            margin: 6px 0;
-        }
-        
-        .item-row {
-            display: flex;
-            justify-content: space-between;
-            font-weight: 500;
-        }
-        
-        .indent {
-            padding-left: 16px;
-            font-size: 10px;
-            color: #666;
-            margin-top: 2px;
-        }
-        
-        .total-section {
-            background: #f9f9f9;
-            padding: 8px;
-            margin: 10px 0;
-            border: 1px solid #ddd;
-        }
-        
-        .total-row {
-            font-size: 15px;
-            font-weight: bold;
-            margin-top: 6px;
-            padding-top: 6px;
-            border-top: 2px solid #333;
-        }
-        
-        .delivery-box {
-            background: #f0f8ff;
-            border: 1px solid #0066cc;
-            padding: 8px;
-            margin: 10px 0;
-            border-radius: 4px;
-        }
-        
-        .payment-badge {
-            display: inline-block;
-            padding: 6px 12px;
-            background: #4CAF50;
-            color: white;
-            border-radius: 4px;
-            font-weight: bold;
-            margin: 8px 0;
-        }
-        
-        .footer {
-            margin-top: 20px;
-            padding-top: 10px;
-            border-top: 1px solid #ddd;
-        }
+        .line { border-bottom: 1px dashed #333; margin: 8px 0; }
+        .double-line { border-bottom: 2px solid #000; margin: 10px 0; }
+        .row { display: flex; justify-content: space-between; margin: 4px 0; }
+        .category { font-weight: bold; background: #f5f5f5; padding: 4px 6px; margin: 8px 0 4px 0; border-left: 3px solid #333; font-size: 11px; }
+        .item { margin: 6px 0; }
+        .item-row { display: flex; justify-content: space-between; font-weight: 500; }
+        .indent { padding-left: 16px; font-size: 10px; color: #666; margin-top: 2px; }
+        .total-section { background: #f9f9f9; padding: 8px; margin: 10px 0; border: 1px solid #ddd; }
+        .total-row { font-size: 15px; font-weight: bold; margin-top: 6px; padding-top: 6px; border-top: 2px solid #333; }
+        .delivery-box { background: #f0f8ff; border: 1px solid #0066cc; padding: 8px; margin: 10px 0; border-radius: 4px; }
+        .payment-badge { display: inline-block; padding: 6px 12px; background: #4CAF50; color: white; border-radius: 4px; font-weight: bold; margin: 8px 0; }
+        .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd; }
     </style>
 </head>
 <body>
-    <!-- Header -->
     <div class="center">
         <div class="large">${data.restaurantName || 'AT RESTAURANT'}</div>
         <div class="small">${data.tagline || 'Delicious Food, Memorable Moments'}</div>
@@ -199,18 +101,13 @@ export class BrowserPrint {
     </div>
     <div class="double-line"></div>
 
-    <!-- Order Info -->
     <div class="row"><span>Order #</span><span class="bold">${data.orderNumber}</span></div>
     <div class="row"><span>Date</span><span>${data.date}</span></div>
-    <div class="row">
-        <span>Type</span>
-        <span class="bold">${data.orderType === 'delivery' ? '🚚 DELIVERY' : '🍽️ DINE-IN'}</span>
-    </div>
+    <div class="row"><span>Type</span><span class="bold">${data.orderType === 'delivery' ? '🚚 DELIVERY' : '🍽️ DINE-IN'}</span></div>
     ${data.tableNumber ? `<div class="row"><span>Table</span><span class="bold">#${data.tableNumber}</span></div>` : ''}
     ${data.waiter ? `<div class="row"><span>Waiter</span><span>${data.waiter}</span></div>` : ''}
     <div class="line"></div>
 
-    <!-- Delivery Details -->
     ${data.orderType === 'delivery' && (data.customerName || data.customerPhone) ? `
     <div class="delivery-box">
         <div class="bold center">📦 DELIVERY DETAILS</div>
@@ -221,7 +118,6 @@ export class BrowserPrint {
     </div>
     ` : ''}
 
-    <!-- Items -->
     <div class="bold">ORDER ITEMS</div>
     <div class="line"></div>
     
@@ -238,59 +134,51 @@ export class BrowserPrint {
         `).join('')}
     `).join('')}
 
-    <!-- Total Section -->
     <div class="double-line"></div>
     <div class="total-section">
         <div class="row"><span>Subtotal</span><span>PKR ${data.subtotal.toFixed(2)}</span></div>
         <div class="row"><span>Tax</span><span>PKR ${data.tax.toFixed(2)}</span></div>
-        ${data.deliveryCharges && data.deliveryCharges > 0 ?
-            `<div class="row"><span>Delivery</span><span>PKR ${data.deliveryCharges.toFixed(2)}</span></div>` : ''}
+        ${data.deliveryCharges && data.deliveryCharges > 0 ? `<div class="row"><span>Delivery</span><span>PKR ${data.deliveryCharges.toFixed(2)}</span></div>` : ''}
         <div class="total-row row">
             <span>TOTAL</span>
             <span>PKR ${data.total.toFixed(2)}</span>
         </div>
     </div>
 
-    <!-- Payment Method -->
     ${data.paymentMethod ? `
     <div class="center">
         <div class="payment-badge">
-            ${data.paymentMethod === 'cash' ? '💵 CASH PAYMENT' :
-            data.paymentMethod === 'online' ? '💳 ONLINE PAYMENT' :
-                '💰 ' + data.paymentMethod.toUpperCase()}
+            ${data.paymentMethod === 'cash' ? '💵 CASH PAYMENT' : data.paymentMethod === 'online' ? '💳 ONLINE PAYMENT' : '💰 ' + data.paymentMethod.toUpperCase()}
         </div>
     </div>
     ` : ''}
 
-    <!-- Notes -->
     ${data.notes ? `
     <div class="line"></div>
     <div class="bold">Special Instructions:</div>
-    <div style="padding: 6px; background: #fffacd; border-left: 3px solid #ffd700; margin: 6px 0;">
-        ${data.notes}
-    </div>
+    <div style="padding: 6px; background: #fffacd; border-left: 3px solid #ffd700; margin: 6px 0;">${data.notes}</div>
     ` : ''}
 
-    <!-- Footer -->
     <div class="double-line"></div>
     <div class="footer center">
         <div class="bold">Thank you for dining with us! 🙏</div>
         <div class="small" style="margin-top: 4px;">Please visit again</div>
-        <div class="small" style="margin-top: 8px; color: #666;">
-            Powered by AT Restaurant POS
-        </div>
+        <div class="small" style="margin-top: 8px; color: #666;">Powered by AT Restaurant POS</div>
     </div>
 
-    <!-- Print Instructions (shown on screen, hidden in print) -->
     <div class="no-print" style="margin-top: 20px; padding: 15px; background: #e3f2fd; border: 1px solid #2196F3; border-radius: 4px;">
         <div class="bold" style="color: #1976D2; margin-bottom: 8px;">📱 Print Instructions:</div>
         <ul style="margin-left: 20px; line-height: 1.8;">
-            <li><strong>Android:</strong> Tap print dialog → Select printer</li>
+            <li><strong>Android:</strong> Tap print → Select printer</li>
             <li><strong>iOS:</strong> Use AirPrint from Safari</li>
-            <li><strong>Desktop:</strong> Press Ctrl+P (or Cmd+P on Mac)</li>
+            <li><strong>Desktop:</strong> Press Ctrl+P (Cmd+P on Mac)</li>
         </ul>
     </div>
 
+    <script>
+        window.onload = () => window.print();
+        window.onafterprint = () => setTimeout(() => window.close(), 500);
+    </script>
 </body>
 </html>
         `

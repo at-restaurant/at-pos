@@ -1,6 +1,7 @@
 {
-  "name": "rt-restaurant-pos",
+  "name": "at-restaurant-pos",
   "version": "2.0.0",
+  "description": "Universal Restaurant POS with Multi-Platform Printing",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -43,7 +44,6 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
-    "bcryptjs": "^3.0.3",
     "concurrently": "^9.2.1",
     "tailwindcss": "^4.0.0",
     "typescript": "^5"

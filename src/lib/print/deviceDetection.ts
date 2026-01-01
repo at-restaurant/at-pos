@@ -30,10 +30,7 @@ export function detectDevice(): DeviceInfo {
     const isIOS = /iphone|ipad|ipod/.test(ua)
     const isLinux = /linux/.test(ua) && !isAndroid
 
-    // Check for USB support (desktop browsers)
     const hasUSB = 'usb' in navigator
-
-    // Check for Bluetooth support
     const hasBluetooth = 'bluetooth' in navigator
 
     let type: DeviceType = 'unknown'
@@ -41,7 +38,7 @@ export function detectDevice(): DeviceInfo {
 
     if (isWindows) {
         type = 'windows'
-        printMethod = 'usb-service' // Use Cloudflare tunnel service
+        printMethod = 'usb-service'
     } else if (isMac) {
         type = 'mac'
         printMethod = hasUSB ? 'escpos' : 'browser'
@@ -50,7 +47,7 @@ export function detectDevice(): DeviceInfo {
         printMethod = hasBluetooth ? 'escpos' : 'browser'
     } else if (isIOS) {
         type = 'ios'
-        printMethod = 'web-print' // AirPrint via Safari
+        printMethod = 'web-print'
     } else if (isLinux) {
         type = 'linux'
         printMethod = 'browser'
@@ -69,12 +66,10 @@ export function detectDevice(): DeviceInfo {
 export function getPrintServiceURL(): string {
     const device = detectDevice()
 
-    // Windows: Use Cloudflare tunnel or local service
     if (device.type === 'windows') {
         return process.env.NEXT_PUBLIC_PRINTER_SERVICE_URL || 'http://localhost:3001'
     }
 
-    // Others: Use browser print
     return ''
 }
 
@@ -92,7 +87,7 @@ export function getPrintCapabilities() {
         features: {
             usb: device.hasUSB,
             bluetooth: device.hasBluetooth,
-            wifi: true, // Browser always has network
+            wifi: true,
             directPrint: device.type === 'windows',
             escpos: device.hasUSB || device.hasBluetooth,
             browserPrint: true
