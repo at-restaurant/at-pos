@@ -1,11 +1,8 @@
-// ============================================
-// FILE: src/app/api/print/route.ts
-// Next.js API Route - Proxy to printer service
-// ============================================
-
+// src/app/api/print/route.ts - FIXED
 import { NextRequest, NextResponse } from 'next/server'
 
-const PRINTER_SERVICE_URL = process.env.PRINTER_SERVICE_URL || 'http://localhost:3001'
+// ✅ FIX: Use correct environment variable name
+const PRINTER_SERVICE_URL = process.env.NEXT_PUBLIC_PRINTER_SERVICE_URL || 'http://localhost:3001'
 
 export async function POST(request: NextRequest) {
     try {
@@ -19,6 +16,8 @@ export async function POST(request: NextRequest) {
             )
         }
 
+        console.log('🖨️ Forwarding to:', PRINTER_SERVICE_URL)
+
         // Forward to printer service
         const response = await fetch(`${PRINTER_SERVICE_URL}/api/print`, {
             method: 'POST',
@@ -26,7 +25,7 @@ export async function POST(request: NextRequest) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(10000)
+            signal: AbortSignal.timeout(15000)
         })
 
         const result = await response.json()
@@ -45,7 +44,7 @@ export async function POST(request: NextRequest) {
 
         if (error.name === 'TimeoutError' || error.name === 'AbortError') {
             return NextResponse.json(
-                { success: false, error: 'Printer service timeout' },
+                { success: false, error: 'Printer timeout. Check Cloudflare tunnel.' },
                 { status: 504 }
             )
         }
@@ -54,14 +53,14 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: 'Printer service offline. Please start: pnpm dev'
+                    error: 'Printer offline. Start: RUN-TUNNEL.bat'
                 },
                 { status: 503 }
             )
         }
 
         return NextResponse.json(
-            { success: false, error: 'Print request failed' },
+            { success: false, error: error.message || 'Print failed' },
             { status: 500 }
         )
     }
