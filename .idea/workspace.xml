@@ -4,17 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="67f4679a-43a9-470e-8f29-73c04c9ed524" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/start-printer.bat" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/diagnose-printer.bat" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/printer-service/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/printer-service/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/lib/print/browserPrint.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib/print/browserPrint.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/lib/print/deviceDetection.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib/print/deviceDetection.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/lib/print/thermalPrinter.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib/print/thermalPrinter.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/start-windows.bat" beforeDir="false" />
-    </list>
+    <list default="true" id="67f4679a-43a9-470e-8f29-73c04c9ed524" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -204,7 +194,7 @@
       <workItem from="1767159730328" duration="2881000" />
       <workItem from="1767182864449" duration="21057000" />
       <workItem from="1767246675110" duration="3417000" />
-      <workItem from="1767262268144" duration="4237000" />
+      <workItem from="1767262268144" duration="4915000" />
     </task>
     <servers />
   </component>

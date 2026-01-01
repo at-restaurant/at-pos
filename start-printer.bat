@@ -22,25 +22,33 @@ echo [OK] Node.js installed:
 node --version
 echo.
 
-:: Check ngrok
+:: Check ngrok (in System32 OR project folder)
+set NGROK_PATH=ngrok
 where ngrok >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] ngrok not found!
-    echo.
-    echo Download ngrok (100%% FREE):
-    echo.
-    echo Step 1: Visit https://ngrok.com/download
-    echo Step 2: Download Windows 64-bit ZIP
-    echo Step 3: Extract ngrok.exe
-    echo Step 4: Move ngrok.exe to C:\Windows\System32\
-    echo.
-    echo After installation, run this script again.
-    echo.
-    pause
-    exit /b 1
+    if exist "ngrok.exe" (
+        set NGROK_PATH=.\ngrok
+        echo [OK] ngrok found in project folder
+    ) else (
+        echo [ERROR] ngrok not found!
+        echo.
+        echo Download ngrok (100 percent FREE):
+        echo.
+        echo Step 1: Visit https://ngrok.com/download
+        echo Step 2: Download Windows (32-bit) ZIP
+        echo Step 3: Extract ngrok.exe
+        echo Step 4: Copy to C:\Windows\System32\
+        echo         OR copy to project folder
+        echo.
+        echo After installation, run this script again.
+        echo.
+        pause
+        exit /b 1
+    )
+) else (
+    echo [OK] ngrok installed:
+    ngrok version
 )
-echo [OK] ngrok installed:
-ngrok version
 echo.
 
 :: Check if in correct directory
@@ -106,7 +114,7 @@ echo   STARTING NGROK...
 echo ========================================
 echo.
 
-ngrok http 3001
+%NGROK_PATH% http 3001
 
 echo.
 echo ========================================
