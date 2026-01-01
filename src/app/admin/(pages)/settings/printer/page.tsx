@@ -1,18 +1,19 @@
 // ============================================
-// FILE: src/app/(admin)/admin/settings/printer/page.tsx
+// FILE: src/app/admin/(pages)/settings/printer/page.tsx
 // Printer Settings Page with Auto-Detection
+// ✅ FIXED: Uses environment variable for API URL
 // ============================================
 
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Printer, RefreshCw, CheckCircle, AlertCircle, Zap, Wifi, Usb } from 'lucide-react'
+import { Printer, RefreshCw, CheckCircle, AlertCircle, Zap } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 
 interface PrinterDevice {
     id: string
     name: string
-    type: 'default' | 'installed' | 'system'
+    type: 'default' | 'installed' | 'system' | 'usb'
     driver?: string
     status?: string
     isDefault?: boolean
@@ -28,6 +29,9 @@ export default function PrinterSettingsPage() {
     const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle')
     const [message, setMessage] = useState('')
 
+    // ✅ FIX: Use environment variable
+    const PRINTER_API_URL = process.env.NEXT_PUBLIC_PRINTER_SERVICE_URL || 'http://localhost:3001'
+
     // Auto-detect on load
     useEffect(() => {
         detectPrinters()
@@ -39,8 +43,17 @@ export default function PrinterSettingsPage() {
         setStatus('idle')
 
         try {
-            const res = await fetch('http://localhost:3001/api/printers/detect')
+            console.log('🔍 Detecting printers at:', PRINTER_API_URL)
+
+            // ✅ FIX: Use environment variable
+            const res = await fetch(`${PRINTER_API_URL}/api/printers/detect`)
+
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+            }
+
             const data = await res.json()
+            console.log('📡 Printer response:', data)
 
             if (data.success) {
                 setPrinters(data.printers)
@@ -53,9 +66,10 @@ export default function PrinterSettingsPage() {
                     setMessage('⚠️ No printers found. Check USB connection.')
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
+            console.error('❌ Printer detection error:', error)
             setStatus('error')
-            setMessage('❌ Printer service offline. Run: pnpm printer:dev')
+            setMessage(`❌ Printer service offline: ${error.message}`)
         } finally {
             setLoading(false)
         }
@@ -69,7 +83,10 @@ export default function PrinterSettingsPage() {
         setStatus('idle')
 
         try {
-            const res = await fetch('http://localhost:3001/api/printers/test', {
+            console.log('🧪 Testing printer:', selectedPrinter.name)
+
+            // ✅ FIX: Use environment variable
+            const res = await fetch(`${PRINTER_API_URL}/api/printers/test`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -79,6 +96,7 @@ export default function PrinterSettingsPage() {
             })
 
             const data = await res.json()
+            console.log('📄 Test result:', data)
 
             if (data.success) {
                 setStatus('success')
@@ -87,9 +105,10 @@ export default function PrinterSettingsPage() {
                 setStatus('error')
                 setMessage(`❌ Test failed: ${data.error}`)
             }
-        } catch (error) {
+        } catch (error: any) {
+            console.error('❌ Test print error:', error)
             setStatus('error')
-            setMessage('❌ Cannot connect to printer')
+            setMessage(`❌ Cannot connect to printer: ${error.message}`)
         } finally {
             setTesting(false)
         }
@@ -102,7 +121,10 @@ export default function PrinterSettingsPage() {
         setSaving(true)
 
         try {
-            const res = await fetch('http://localhost:3001/api/printers/save', {
+            console.log('💾 Saving printer:', selectedPrinter.name)
+
+            // ✅ FIX: Use environment variable
+            const res = await fetch(`${PRINTER_API_URL}/api/printers/save`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -118,9 +140,10 @@ export default function PrinterSettingsPage() {
                 setStatus('success')
                 setMessage('✅ Printer settings saved successfully!')
             }
-        } catch (error) {
+        } catch (error: any) {
+            console.error('❌ Save error:', error)
             setStatus('error')
-            setMessage('❌ Failed to save settings')
+            setMessage(`❌ Failed to save settings: ${error.message}`)
         } finally {
             setSaving(false)
         }
@@ -134,6 +157,13 @@ export default function PrinterSettingsPage() {
             />
 
             <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
+
+                {/* Debug Info */}
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-xs">
+                    <p className="text-blue-600 font-mono">
+                        🔗 API: {PRINTER_API_URL}
+                    </p>
+                </div>
 
                 {/* Status Banner */}
                 {status !== 'idle' && (
@@ -216,16 +246,16 @@ export default function PrinterSettingsPage() {
                                         <div className="flex items-center gap-2 flex-shrink-0">
                                             {printer.isDefault ? (
                                                 <span className="text-[10px] sm:text-xs font-semibold text-blue-600 bg-blue-500/20 px-2 sm:px-3 py-1 rounded-full whitespace-nowrap">
-                          ⭐ Default
-                        </span>
+                                                    ⭐ Default
+                                                </span>
                                             ) : printer.connected ? (
                                                 <span className="text-[10px] sm:text-xs font-semibold text-green-600 bg-green-500/20 px-2 sm:px-3 py-1 rounded-full whitespace-nowrap">
-                          ✅ Ready
-                        </span>
+                                                    ✅ Ready
+                                                </span>
                                             ) : (
                                                 <span className="text-[10px] sm:text-xs font-semibold text-gray-600 bg-gray-500/20 px-2 sm:px-3 py-1 rounded-full whitespace-nowrap">
-                          ⚠️ Offline
-                        </span>
+                                                    ⚠️ Offline
+                                                </span>
                                             )}
 
                                             {selectedPrinter?.id === printer.id && (
@@ -297,19 +327,19 @@ export default function PrinterSettingsPage() {
                         </li>
                         <li className="flex items-start gap-2">
                             <span className="font-bold text-blue-600 flex-shrink-0">2.</span>
-                            <span>Click "Detect Printers" to scan for devices</span>
+                            <span>Make sure printer service is running on Windows PC</span>
                         </li>
                         <li className="flex items-start gap-2">
                             <span className="font-bold text-blue-600 flex-shrink-0">3.</span>
-                            <span>Select your printer from the list</span>
+                            <span>Click "Detect Printers" to scan for devices</span>
                         </li>
                         <li className="flex items-start gap-2">
                             <span className="font-bold text-blue-600 flex-shrink-0">4.</span>
-                            <span>Click "Test Print" to verify connection</span>
+                            <span>Select your printer from the list</span>
                         </li>
                         <li className="flex items-start gap-2">
                             <span className="font-bold text-blue-600 flex-shrink-0">5.</span>
-                            <span>Click "Save Settings" to use this printer</span>
+                            <span>Click "Test Print" to verify connection</span>
                         </li>
                     </ol>
                 </div>
@@ -321,11 +351,19 @@ export default function PrinterSettingsPage() {
                     </h3>
                     <div className="space-y-3 text-xs sm:text-sm text-[var(--fg)]">
                         <div>
+                            <p className="font-semibold text-yellow-600 mb-1">Service offline?</p>
+                            <ul className="list-disc list-inside space-y-1 text-[var(--muted)]">
+                                <li>Check printer service is running on Windows PC</li>
+                                <li>Verify IP address in Vercel environment variables</li>
+                                <li>Test: <code className="bg-[var(--bg)] px-2 py-0.5 rounded">{PRINTER_API_URL}/api/health</code></li>
+                            </ul>
+                        </div>
+                        <div>
                             <p className="font-semibold text-yellow-600 mb-1">No printers detected?</p>
                             <ul className="list-disc list-inside space-y-1 text-[var(--muted)]">
                                 <li>Check USB cable is connected properly</li>
                                 <li>Make sure printer is powered on</li>
-                                <li>Run printer service: <code className="bg-[var(--bg)] px-2 py-0.5 rounded">pnpm printer:dev</code></li>
+                                <li>Install printer drivers if needed</li>
                             </ul>
                         </div>
                         <div>

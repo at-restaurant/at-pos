@@ -133,7 +133,6 @@ export class ThermalPrinter {
     <div class="line"></div>
     <div class="center">
         <div>${data.address || 'Sooter Mills Rd, Lahore'}</div>
-        <div>${data.phone || 'Tel: +92-XXX-XXXXXXX'}</div>
     </div>
     <div class="double-line"></div>
 
