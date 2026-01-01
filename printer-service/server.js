@@ -11,10 +11,10 @@ const PORT = 3001;
 
 // ✅ FIX 1: Allow ALL origins in development
 app.use(cors({
-    origin: '*', // Allow all origins
+    origin: '*',  // Allow all origins
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type']
 }));
 
 app.use(express.json({ limit: '10mb' }));
