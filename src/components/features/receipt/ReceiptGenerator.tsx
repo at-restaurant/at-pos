@@ -1,16 +1,11 @@
-// ============================================
-// FILE: src/components/features/receipt/ReceiptGenerator.tsx
-// PRODUCTION VERSION with Thermal Printer Integration
-// ============================================
-
+// src/components/features/receipt/ReceiptGenerator.tsx
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Printer, Download, X, AlertCircle } from 'lucide-react'
+import { Printer, Download, X, AlertCircle, CheckCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { thermalPrinter } from '@/lib/print/thermalPrinter'
 import { ReceiptData } from '@/types'
-import { useToast } from '@/components/ui/Toast'
 
 type ReceiptProps = {
     order: {
@@ -43,24 +38,13 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
     const [downloading, setDownloading] = useState(false)
     const [printing, setPrinting] = useState(false)
     const [printerStatus, setPrinterStatus] = useState<'checking' | 'online' | 'offline'>('checking')
+    const [statusMessage, setStatusMessage] = useState('')
     const receiptRef = useRef<HTMLDivElement>(null)
     const supabase = createClient()
-    const toast = useToast()
 
     useEffect(() => {
         loadCategories()
         checkPrinterStatus()
-
-        // Keyboard shortcut: Ctrl+P
-        const handleKeyPress = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
-                e.preventDefault()
-                handleThermalPrint()
-            }
-        }
-
-        window.addEventListener('keydown', handleKeyPress)
-        return () => window.removeEventListener('keydown', handleKeyPress)
     }, [])
 
     const loadCategories = async () => {
@@ -72,30 +56,31 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
     }
 
     const checkPrinterStatus = async () => {
+        const serviceURL = thermalPrinter.getConfiguredURL()
+
+        if (!serviceURL) {
+            setPrinterStatus('offline')
+            setStatusMessage('Printer URL not configured')
+            return
+        }
+
+        setStatusMessage('Checking printer...')
         const status = await thermalPrinter.checkStatus()
-        setPrinterStatus(status.status === 'online' && status.printer === 'connected' ? 'online' : 'offline')
+
+        if (status.status === 'online') {
+            setPrinterStatus('online')
+            setStatusMessage('Printer ready')
+        } else {
+            setPrinterStatus('offline')
+            setStatusMessage('Printer offline')
+        }
     }
 
     const handleThermalPrint = async () => {
         setPrinting(true)
+        setStatusMessage('Printing...')
 
         try {
-            // Check printer status first
-            const status = await thermalPrinter.checkStatus()
-
-            if (status.status === 'offline') {
-                toast.add('error', '❌ Printer service is offline. Please start the printer server.')
-                setPrinting(false)
-                return
-            }
-
-            if (status.printer === 'disconnected') {
-                toast.add('error', '❌ Thermal printer not connected. Please check USB connection.')
-                setPrinting(false)
-                return
-            }
-
-            // Prepare receipt data with categories
             const itemsWithCategories = order.order_items.map(item => {
                 const category = categories.find(c => c.id === item.menu_items.category_id)
                 return {
@@ -111,7 +96,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
                 address: 'Sooter Mills Rd, Lahore',
-                phone: 'Tel: +92-XXX-XXXXXXX',
                 orderNumber: order.id.slice(0, 8).toUpperCase(),
                 date: new Date(order.created_at).toLocaleString('en-PK', {
                     dateStyle: 'medium',
@@ -132,18 +116,20 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 notes: order.notes
             }
 
-            // Send to thermal printer
             const result = await thermalPrinter.print(receiptData)
 
             if (result.success) {
-                toast.add('success', '✅ Receipt printed successfully!')
+                setStatusMessage('✅ Print successful!')
+                setPrinterStatus('online')
             } else {
-                toast.add('error', `❌ Print failed: ${result.error}`)
+                setStatusMessage('❌ Print failed')
+                setPrinterStatus('offline')
             }
 
         } catch (error: any) {
             console.error('Print error:', error)
-            toast.add('error', '❌ Unexpected print error')
+            setStatusMessage('❌ Error: ' + error.message)
+            setPrinterStatus('offline')
         } finally {
             setPrinting(false)
         }
@@ -171,17 +157,14 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 a.click()
                 document.body.removeChild(a)
                 URL.revokeObjectURL(url)
-                toast.add('success', '✅ Receipt downloaded!')
             }, 'image/png')
         } catch (error) {
             console.error('Download failed:', error)
-            toast.add('error', '❌ Download failed')
         } finally {
             setDownloading(false)
         }
     }
 
-    // Render items grouped by category
     const renderItems = () => {
         const grouped: Record<string, typeof order.order_items> = {}
 
@@ -227,18 +210,23 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             <Printer className="w-6 h-6 text-blue-600" />
                             <div>
                                 <h3 className="text-xl font-bold text-gray-900">Receipt</h3>
-                                {printerStatus === 'checking' && (
-                                    <p className="text-xs text-gray-500">Checking printer...</p>
-                                )}
-                                {printerStatus === 'offline' && (
-                                    <p className="text-xs text-red-600 flex items-center gap-1">
-                                        <AlertCircle className="w-3 h-3" />
-                                        Printer offline
-                                    </p>
-                                )}
-                                {printerStatus === 'online' && (
-                                    <p className="text-xs text-green-600">✅ Printer ready</p>
-                                )}
+                                <div className="flex items-center gap-2 mt-1">
+                                    {printerStatus === 'checking' && (
+                                        <p className="text-xs text-gray-500">Checking printer...</p>
+                                    )}
+                                    {printerStatus === 'offline' && (
+                                        <div className="flex items-center gap-1">
+                                            <AlertCircle className="w-3 h-3 text-red-600" />
+                                            <p className="text-xs text-red-600">{statusMessage}</p>
+                                        </div>
+                                    )}
+                                    {printerStatus === 'online' && (
+                                        <div className="flex items-center gap-1">
+                                            <CheckCircle className="w-3 h-3 text-green-600" />
+                                            <p className="text-xs text-green-600">{statusMessage}</p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         <button onClick={onClose} className="p-2 hover:opacity-70 text-gray-500">
@@ -248,7 +236,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
 
                     {/* Receipt Content */}
                     <div ref={receiptRef} className="p-6 font-mono bg-white" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-                        {/* Restaurant Header */}
                         <div className="text-center mb-6">
                             <h2 className="text-2xl font-bold mb-1 text-gray-900">AT Restaurant</h2>
                             <p className="text-sm text-gray-600">Delicious Food, Memorable Moments</p>
@@ -258,7 +245,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
 
                         <div className="border-t-2 border-dashed my-4 border-gray-300"></div>
 
-                        {/* Order Info */}
                         <div className="space-y-1 mb-4 text-sm">
                             <div className="flex justify-between">
                                 <span className="text-gray-600">Order #</span>
@@ -288,8 +274,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             )}
                         </div>
 
-                        {/* Customer Details (Delivery Only) */}
-                        {order.order_type === 'delivery' && (order.customer_name || order.customer_phone || order.delivery_address) && (
+                        {order.order_type === 'delivery' && (order.customer_name || order.customer_phone) && (
                             <>
                                 <div className="border-t-2 border-dashed my-4 border-gray-300"></div>
                                 <div className="mb-4 bg-blue-50 p-3 rounded-lg">
@@ -309,7 +294,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                                     {order.delivery_address && (
                                         <div className="text-xs mt-2">
                                             <span className="text-gray-600">Address:</span>
-                                            <p className="text-gray-900 font-medium mt-1 leading-relaxed">{order.delivery_address}</p>
+                                            <p className="text-gray-900 font-medium mt-1">{order.delivery_address}</p>
                                         </div>
                                     )}
                                 </div>
@@ -318,7 +303,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
 
                         <div className="border-t-2 border-dashed my-4 border-gray-300"></div>
 
-                        {/* Items */}
                         <div className="mb-4">
                             <p className="font-bold text-sm mb-2 text-gray-900">ORDER ITEMS</p>
                             {renderItems()}
@@ -326,7 +310,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
 
                         <div className="border-t-2 border-dashed my-4 border-gray-300"></div>
 
-                        {/* Totals */}
                         <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
                                 <span className="text-gray-600">Subtotal</span>
@@ -336,13 +319,13 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                                 <span className="text-gray-600">Tax</span>
                                 <span className="text-gray-900">PKR {order.tax.toFixed(2)}</span>
                             </div>
-                            {order.order_type === 'delivery' && order.delivery_charges && order.delivery_charges > 0 && (
+                            {order.delivery_charges && order.delivery_charges > 0 && (
                                 <div className="flex justify-between">
-                                    <span className="text-gray-600">Delivery Charges</span>
+                                    <span className="text-gray-600">Delivery</span>
                                     <span className="text-gray-900">PKR {order.delivery_charges.toFixed(2)}</span>
                                 </div>
                             )}
-                            <div className="flex justify-between text-lg font-bold pt-2 border-t border-gray-300">
+                            <div className="flex justify-between text-lg font-bold pt-2 border-t">
                                 <span className="text-gray-900">TOTAL</span>
                                 <span className="text-blue-600">PKR {order.total_amount.toFixed(2)}</span>
                             </div>
@@ -356,22 +339,10 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             </div>
                         )}
 
-                        {order.notes && (
-                            <>
-                                <div className="border-t-2 border-dashed my-4 border-gray-300"></div>
-                                <div className="text-xs">
-                                    <p className="font-bold text-gray-900 mb-1">Special Instructions:</p>
-                                    <p className="text-gray-600">{order.notes}</p>
-                                </div>
-                            </>
-                        )}
-
                         <div className="border-t-2 border-dashed my-4 border-gray-300"></div>
 
-                        {/* Footer */}
                         <div className="text-center text-sm text-gray-600">
                             <p className="mb-1 font-bold">Thank you for dining with us!</p>
-                            <p className="mb-2">Please visit again</p>
                             <p className="text-xs text-gray-500 mt-3">Powered by AT Restaurant POS</p>
                         </div>
                     </div>
@@ -384,38 +355,23 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-gray-100 text-gray-900 hover:bg-gray-200 disabled:opacity-50 text-sm"
                         >
                             {downloading ? (
-                                <>
-                                    <div className="w-4 h-4 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
-                                    Downloading...
-                                </>
+                                <div className="w-4 h-4 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
                             ) : (
-                                <>
-                                    <Download className="w-4 h-4" />
-                                    Download
-                                </>
+                                <Download className="w-4 h-4" />
                             )}
+                            {downloading ? 'Downloading...' : 'Download'}
                         </button>
                         <button
                             onClick={handleThermalPrint}
-                            disabled={printing || printerStatus === 'offline'}
-                            className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm relative group"
+                            disabled={printing}
+                            className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 text-sm"
                         >
                             {printing ? (
-                                <>
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                    Printing...
-                                </>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                             ) : (
-                                <>
-                                    <Printer className="w-4 h-4" />
-                                    {printerStatus === 'offline' ? 'Printer Offline' : 'Print Receipt'}
-                                    {printerStatus === 'online' && (
-                                        <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                                            Press Ctrl+P
-                                        </span>
-                                    )}
-                                </>
+                                <Printer className="w-4 h-4" />
                             )}
+                            {printing ? 'Printing...' : 'Print'}
                         </button>
                     </div>
                 </div>

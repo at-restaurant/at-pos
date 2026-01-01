@@ -1,82 +1,78 @@
-// src/lib/print/thermalPrinter.ts - DIRECT CLIENT CONNECTION
+// src/lib/print/thermalPrinter.ts - PRODUCTION READY
 import { ReceiptData, PrintResponse, PrinterStatus } from '@/types'
 import { detectDevice, shouldUseServicePrint } from './deviceDetection'
 import BrowserPrint from './browserPrint'
 
 export class ThermalPrinter {
-    private baseUrl: string
+    private getServiceURL(): string {
+        // ✅ ONLY use environment variable, NO localhost fallback
+        if (typeof window === 'undefined') {
+            return ''
+        }
 
-    constructor() {
-        // ✅ FIX: Get URL directly from environment variable
-        this.baseUrl = typeof window !== 'undefined'
-            ? (process.env.NEXT_PUBLIC_PRINTER_SERVICE_URL || 'http://localhost:3001')
-            : 'http://localhost:3001'
+        const url = process.env.NEXT_PUBLIC_PRINTER_SERVICE_URL
 
-        console.log('🖨️ Printer Service URL:', this.baseUrl)
+        if (!url) {
+            console.error('❌ NEXT_PUBLIC_PRINTER_SERVICE_URL not configured!')
+            return ''
+        }
+
+        return url
     }
 
     async print(receipt: ReceiptData): Promise<PrintResponse> {
         const device = detectDevice()
-        console.log('🖨️ Printing on:', device.type, 'Method:', device.printMethod)
+        const serviceURL = this.getServiceURL()
 
-        // Windows: Direct call to Cloudflare tunnel
-        if (shouldUseServicePrint()) {
+        console.log('🖨️ Device:', device.type)
+        console.log('🔗 Service URL:', serviceURL || 'Not configured')
+
+        // Windows with service URL configured
+        if (shouldUseServicePrint() && serviceURL) {
             try {
-                console.log('📡 Connecting to printer service:', this.baseUrl)
+                console.log('📡 Sending to printer service...')
 
-                // ✅ FIX: Direct fetch from browser (bypasses Vercel API)
-                const response = await fetch(`${this.baseUrl}/api/print`, {
+                const response = await fetch(`${serviceURL}/api/print`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Accept': 'application/json'
                     },
                     body: JSON.stringify(receipt),
-                    mode: 'cors', // ✅ Enable CORS
+                    mode: 'cors',
+                    credentials: 'omit',
                     signal: AbortSignal.timeout(15000)
                 })
 
                 if (!response.ok) {
-                    const errorText = await response.text()
-                    console.error('❌ Printer service error:', response.status, errorText)
-                    console.log('🔄 Falling back to browser print...')
-                    return this.browserPrintFallback(receipt)
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
                 }
 
                 const result = await response.json()
-                console.log('✅ Print successful:', result)
+                console.log('✅ Print successful!')
                 return result
 
             } catch (error: any) {
-                console.error('❌ Print error:', error.message)
-
-                // Better error messages
-                if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-                    console.error('🔌 Cannot connect to printer service. Is it running?')
-                    console.log('💡 Start: RUN-TUNNEL.bat and node printer-service/server.js')
-                }
-
+                console.error('❌ Printer service failed:', error.message)
                 console.log('🔄 Falling back to browser print...')
                 return this.browserPrintFallback(receipt)
             }
         }
 
-        // All other devices: Browser print
-        console.log('🌐 Using browser print (non-Windows device)')
+        // Fallback: Browser print
+        console.log('🌐 Using browser print')
         return this.browserPrintFallback(receipt)
     }
 
     private async browserPrintFallback(receipt: ReceiptData): Promise<PrintResponse> {
         try {
-            console.log('📄 Opening browser print dialog...')
             const success = await BrowserPrint.print(receipt)
             return {
                 success,
-                message: success ? 'Print dialog opened' : 'Failed to open print dialog',
+                message: success ? 'Browser print dialog opened' : 'Failed to open print dialog',
                 orderNumber: receipt.orderNumber
             }
         } catch (error: any) {
-            console.error('❌ Browser print failed:', error)
             return {
                 success: false,
                 error: error.message || 'Print failed'
@@ -86,25 +82,20 @@ export class ThermalPrinter {
 
     async checkStatus(): Promise<PrinterStatus> {
         const device = detectDevice()
+        const serviceURL = this.getServiceURL()
 
-        if (shouldUseServicePrint()) {
+        if (shouldUseServicePrint() && serviceURL) {
             try {
-                console.log('🔍 Checking printer status:', this.baseUrl)
-
-                const response = await fetch(`${this.baseUrl}/api/health`, {
+                const response = await fetch(`${serviceURL}/api/health`, {
                     mode: 'cors',
+                    credentials: 'omit',
                     signal: AbortSignal.timeout(5000)
                 })
 
-                if (!response.ok) {
-                    throw new Error('Service offline')
-                }
+                if (!response.ok) throw new Error('Offline')
 
-                const data = await response.json()
-                console.log('✅ Printer online:', data)
-                return data
-            } catch (error: any) {
-                console.error('❌ Printer offline:', error.message)
+                return await response.json()
+            } catch {
                 return {
                     status: 'offline',
                     printer: 'disconnected',
@@ -126,7 +117,6 @@ export class ThermalPrinter {
             restaurantName: 'AT RESTAURANT',
             tagline: 'Test Print',
             address: 'Sooter Mills Rd, Lahore',
-            phone: '+92-XXX-XXXXXXX',
             orderNumber: 'TEST-' + Date.now().toString().slice(-6),
             date: new Date().toLocaleString(),
             orderType: 'dine-in',
@@ -149,9 +139,8 @@ export class ThermalPrinter {
         return detectDevice()
     }
 
-    // ✅ NEW: Get current service URL
-    getServiceURL(): string {
-        return this.baseUrl
+    getConfiguredURL(): string {
+        return this.getServiceURL()
     }
 }
 

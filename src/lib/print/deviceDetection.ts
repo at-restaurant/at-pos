@@ -63,16 +63,6 @@ export function detectDevice(): DeviceInfo {
     }
 }
 
-export function getPrintServiceURL(): string {
-    const device = detectDevice()
-
-    if (device.type === 'windows') {
-        return process.env.NEXT_PUBLIC_PRINTER_SERVICE_URL || 'http://localhost:3001'
-    }
-
-    return ''
-}
-
 export function shouldUseServicePrint(): boolean {
     const device = detectDevice()
     return device.type === 'windows' && device.printMethod === 'usb-service'
@@ -91,22 +81,6 @@ export function getPrintCapabilities() {
             directPrint: device.type === 'windows',
             escpos: device.hasUSB || device.hasBluetooth,
             browserPrint: true
-        },
-        recommended: getRecommendedPrintMethod(device)
-    }
-}
-
-function getRecommendedPrintMethod(device: DeviceInfo): string {
-    switch (device.type) {
-        case 'windows':
-            return 'USB Thermal Printer via Service'
-        case 'mac':
-            return device.hasUSB ? 'USB/ESC POS' : 'Browser Print (CMD+P)'
-        case 'android':
-            return device.hasBluetooth ? 'Bluetooth Printer' : 'Network Printer'
-        case 'ios':
-            return 'AirPrint (Safari)'
-        default:
-            return 'Browser Print (CTRL+P)'
+        }
     }
 }
