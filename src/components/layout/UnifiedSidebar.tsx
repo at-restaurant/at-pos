@@ -167,16 +167,6 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
                                     <span className="font-medium">Quick Actions</span>
                                 </button>
 
-                                {/* 🆕 PRINTER SETTINGS LINK */}
-                                <Link
-                                    href="/admin/settings/printer"
-                                    onClick={() => setOpen(false)}
-                                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--fg)] hover:bg-[var(--bg)] transition-all"
-                                >
-                                    <Printer className="w-5 h-5 text-blue-600" />
-                                    <span className="font-medium">Printer Settings</span>
-                                </Link>
-
                                 <button
                                     onClick={toggleTheme}
                                     className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-[var(--fg)] hover:bg-[var(--bg)] transition-all"
@@ -337,21 +327,6 @@ export default function UnifiedSidebar({ onCommandOpen }: { onCommandOpen?: () =
                         </div>
 
                         <div className="p-2">
-                            {/* 🆕 PRINTER SETTINGS LINK */}
-                            <Link
-                                href="/admin/settings/printer"
-                                onClick={() => setShowMoreMenu(false)}
-                                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-[var(--bg)]"
-                            >
-                                <div className="w-10 h-10 rounded-lg bg-blue-600/10 flex items-center justify-center">
-                                    <Printer className="w-5 h-5 text-blue-600" />
-                                </div>
-                                <div className="flex-1">
-                                    <p className="font-medium text-sm text-[var(--fg)]">Printer Settings</p>
-                                    <p className="text-xs text-[var(--muted)]">Setup thermal printer</p>
-                                </div>
-                            </Link>
-
                             <button
                                 onClick={() => {
                                     setShowStorage(true)

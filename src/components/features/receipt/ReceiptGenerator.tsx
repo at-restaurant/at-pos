@@ -1,11 +1,10 @@
-// src/components/features/receipt/ReceiptGenerator.tsx
+// src/components/features/receipt/ReceiptGenerator.tsx - SIMPLIFIED
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Printer, Download, X, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react'
+import { Printer, Download, X, AlertCircle, CheckCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { usePrinterDetection, type DetectedPrinter } from '@/lib/hooks/usePrinterDetection'
-import BrowserPrint from '@/lib/print/browserPrint'
+import { thermalPrinter } from '@/lib/print/thermalPrinter'
 import { ReceiptData } from '@/types'
 
 type ReceiptProps = {
@@ -43,14 +42,9 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
     const receiptRef = useRef<HTMLDivElement>(null)
     const supabase = createClient()
 
-    // ✅ NEW: Use printer detection hook
-    const { printers, selectedPrinter, setSelectedPrinter, loading: detectingPrinters, detectPrinters } = usePrinterDetection()
-
     useEffect(() => {
         loadCategories()
-        // Auto-detect printers on mount
-        void detectPrinters()
-    }, [detectPrinters])
+    }, [])
 
     const loadCategories = async () => {
         const { data } = await supabase
@@ -60,19 +54,14 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         setCategories(data || [])
     }
 
-    // ✅ NEW: Handle printing with detected printers
+    // ✅ FIXED: Direct printer service call
     const handlePrint = async () => {
-        if (!selectedPrinter) {
-            setPrintStatus('error')
-            setStatusMessage('❌ No printer selected')
-            return
-        }
-
         setPrinting(true)
         setPrintStatus('idle')
         setStatusMessage('Printing...')
 
         try {
+            // Build receipt data
             const itemsWithCategories = order.order_items.map(item => {
                 const category = categories.find(c => c.id === item.menu_items.category_id)
                 return {
@@ -108,12 +97,12 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 notes: order.notes
             }
 
-            // ✅ Use browser print for all devices
-            const success = await BrowserPrint.print(receiptData)
+            // ✅ Direct call to thermalPrinter
+            const result = await thermalPrinter.print(receiptData)
 
-            if (success) {
+            if (result.success) {
                 setPrintStatus('success')
-                setStatusMessage('✅ Print dialog opened! Check your ' + selectedPrinter.name)
+                setStatusMessage('✅ Receipt printed successfully!')
 
                 // Auto-close after 2 seconds
                 setTimeout(() => {
@@ -121,7 +110,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 }, 2000)
             } else {
                 setPrintStatus('error')
-                setStatusMessage('❌ Failed to open print dialog')
+                setStatusMessage('❌ Print failed: ' + (result.error || 'Unknown error'))
             }
         } catch (error: any) {
             console.error('Print error:', error)
@@ -214,44 +203,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             <X className="w-5 h-5" />
                         </button>
                     </div>
-
-                    {/* ✅ NEW: Printer Selection */}
-                    {!detectingPrinters && printers.length > 0 && (
-                        <div className="px-6 py-4 border-b bg-gray-50 space-y-3">
-                            <label className="block text-sm font-semibold text-gray-900">
-                                📍 Select Printer
-                            </label>
-                            <div className="grid grid-cols-1 gap-2">
-                                {printers.map(printer => (
-                                    <button
-                                        key={printer.id}
-                                        onClick={() => setSelectedPrinter(printer)}
-                                        className={`p-3 rounded-lg border-2 transition-all text-left ${
-                                            selectedPrinter?.id === printer.id
-                                                ? 'border-blue-600 bg-blue-50'
-                                                : 'border-gray-200 hover:border-gray-300'
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex-1">
-                                                <p className={`font-medium text-sm ${
-                                                    selectedPrinter?.id === printer.id ? 'text-blue-600' : 'text-gray-900'
-                                                }`}>
-                                                    {printer.name}
-                                                </p>
-                                                <p className="text-xs text-gray-600 mt-1">
-                                                    {printer.type === 'usb' ? '🔌 USB' : printer.type === 'bluetooth' ? '📡 Bluetooth' : printer.type === 'network' ? '🌐 Network' : '🖨️ System'} • {printer.status}
-                                                </p>
-                                            </div>
-                                            {selectedPrinter?.id === printer.id && (
-                                                <CheckCircle className="w-5 h-5 text-blue-600 flex-shrink-0" />
-                                            )}
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
 
                     {/* Status Messages */}
                     {printStatus !== 'idle' && (
@@ -402,21 +353,8 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                         </button>
 
                         <button
-                            onClick={() => detectPrinters()}
-                            disabled={detectingPrinters}
-                            className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-gray-100 text-gray-900 hover:bg-gray-200 disabled:opacity-50 text-sm"
-                        >
-                            {detectingPrinters ? (
-                                <div className="w-4 h-4 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                                <RefreshCw className="w-4 h-4" />
-                            )}
-                            {detectingPrinters ? 'Detecting...' : 'Detect'}
-                        </button>
-
-                        <button
                             onClick={handlePrint}
-                            disabled={printing || !selectedPrinter}
+                            disabled={printing}
                             className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 text-sm"
                         >
                             {printing ? (
