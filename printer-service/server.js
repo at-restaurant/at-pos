@@ -11,17 +11,22 @@ const PORT = 3001;
 
 // ✅ FIX 1: Allow ALL origins in development
 app.use(cors({
-    origin: '*',  // Allow all origins
+    origin: function (origin, callback) {
+        callback(null, true); // Allow ALL
+    },
     credentials: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type']
+    methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Length'],
+    maxAge: 86400
 }));
 
 app.use(express.json({ limit: '10mb' }));
 
 // ✅ FIX 2: Add request logging
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     next();
 });
 

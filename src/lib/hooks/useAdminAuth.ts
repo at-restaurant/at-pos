@@ -1,4 +1,4 @@
-// src/lib/hooks/useAdminAuth.ts - FIXED: Single verification with offline support
+// src/lib/hooks/useAdminAuth.ts - FIXED: Single verification
 "use client"
 
 import { useState, useEffect } from 'react'
@@ -27,7 +27,7 @@ export function useAdminAuth() {
     const checkAuth = () => {
         const isLoginPage = pathname === '/admin/login'
 
-        // ✅ Single check - session validity
+        // ✅ Check session validity
         const sessionAuth = sessionStorage.getItem('admin_auth')
         const sessionTime = sessionStorage.getItem('admin_auth_time')
 
@@ -35,7 +35,7 @@ export function useAdminAuth() {
             const elapsed = Date.now() - parseInt(sessionTime)
 
             if (elapsed < SESSION_DURATION) {
-                // ✅ Valid session
+                // ✅ Valid session - load profile
                 const storedProfile = localStorage.getItem('admin_profile')
                 if (storedProfile) {
                     try {
@@ -67,9 +67,11 @@ export function useAdminAuth() {
             let isValid = false
             let profileData: AdminProfile | null = null
 
-            // ✅ Try online verification first
+            // ✅ FIX: Try online first, THEN offline (not both)
             if (navigator.onLine) {
                 try {
+                    console.log('🔐 Attempting online verification...')
+
                     const res = await fetch('/api/auth/verify-admin', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -78,6 +80,8 @@ export function useAdminAuth() {
 
                     if (res.ok) {
                         const data = await res.json()
+                        console.log('✅ Online verification successful')
+
                         isValid = true
                         profileData = data.profile
 
@@ -87,11 +91,13 @@ export function useAdminAuth() {
                         localStorage.setItem('admin_offline_enabled', 'true')
                     } else {
                         const data = await res.json()
+                        console.log('❌ Online verification failed:', data.error)
                         return { success: false, error: data.error || 'Invalid password' }
                     }
                 } catch (networkError) {
-                    // Network failed, try offline
-                    console.log('Network error, trying offline verification...')
+                    console.log('📴 Network error, trying offline verification...')
+
+                    // ✅ FIX: Only try offline if online failed
                     const offlineResult = await verifyOffline(password)
                     if (!offlineResult.success) {
                         return offlineResult
@@ -99,7 +105,8 @@ export function useAdminAuth() {
                     isValid = true
                 }
             } else {
-                // ✅ Offline mode
+                // ✅ Offline mode - direct verification
+                console.log('📴 Offline mode - using cached credentials')
                 const offlineResult = await verifyOffline(password)
                 if (!offlineResult.success) {
                     return offlineResult
@@ -109,6 +116,8 @@ export function useAdminAuth() {
 
             // ✅ Login successful
             if (isValid) {
+                console.log('✅ Login successful - setting session')
+
                 sessionStorage.setItem('admin_auth', 'true')
                 sessionStorage.setItem('admin_auth_time', Date.now().toString())
 
@@ -138,6 +147,7 @@ export function useAdminAuth() {
         const offlineEnabled = localStorage.getItem('admin_offline_enabled') === 'true'
 
         if (!offlineEnabled) {
+            console.log('❌ Offline mode not enabled')
             return {
                 success: false,
                 error: '🔒 Please login online once to enable offline access'
@@ -146,18 +156,22 @@ export function useAdminAuth() {
 
         const storedHash = localStorage.getItem('admin_pwd_hash')
         if (!storedHash) {
+            console.log('❌ No cached credentials found')
             return {
                 success: false,
                 error: '🔒 No offline credentials found'
             }
         }
 
+        console.log('🔐 Verifying offline credentials...')
         const isValid = await bcrypt.compare(password, storedHash)
 
         if (!isValid) {
+            console.log('❌ Offline password mismatch')
             return { success: false, error: 'Invalid password' }
         }
 
+        console.log('✅ Offline verification successful')
         return { success: true }
     }
 

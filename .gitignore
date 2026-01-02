@@ -37,6 +37,7 @@ next-env.d.ts
 # logs
 logs
 *.log
+.idea
 
 # OS
 Thumbs.db
