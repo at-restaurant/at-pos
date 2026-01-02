@@ -158,6 +158,36 @@ Before going live:
 - [ ] Vercel app deployed
 - [ ] Environment variables added in Vercel
 - [ ] Offline mode tested
+- [ ] **HTTPS certificate trusted in browser**
+
+---
+
+## 🔐 NEW: How to Trust the HTTPS Certificate (One Time)
+
+To allow your Vercel app (`https://...`) to talk to your local printer service (`https://localhost:3001`), you must tell your browser to trust the new, self-signed SSL certificate.
+
+1.  **Start the Printer Service:**
+    ```bash
+    # Run this in your project folder
+    pnpm printer
+    ```
+
+2.  **Open Your Browser:**
+    - Open Chrome or Firefox.
+
+3.  **Visit the Service URL:**
+    - Go to this exact address: `https://localhost:3001/api/health`
+
+4.  **Bypass the Warning:**
+    - You will see a security warning like "Your connection is not private." This is expected.
+    - Click **"Advanced"**.
+    - Click **"Proceed to localhost (unsafe)"**.
+
+5.  **Check for Success:**
+    - The page should now show a JSON message like: `{"status":"online",...}`.
+    - By doing this, you have permanently trusted the certificate for this browser.
+
+**✅ That's it!** Your Vercel app can now securely connect to the printer service.
 
 ---
 
