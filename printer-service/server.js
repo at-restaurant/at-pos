@@ -5,6 +5,7 @@ const { exec } = require('child_process');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
+const printer = require('printer');
 
 const app = express();
 const PORT = 3001;
@@ -30,117 +31,89 @@ app.use((req, res, next) => {
     next();
 });
 
-// ✅ IMPROVED: Detect Windows Printers with Better Status Detection
+// ✅ IMPROVED: Detect Windows Printers with node-printer
 function detectWindowsPrinters() {
     return new Promise((resolve) => {
-        console.log('🔍 Detecting Windows printers...');
-
-        // Get detailed printer info including queue status
-        const command = `powershell -Command "Get-Printer | Select-Object Name, DriverName, PortName, PrinterStatus, Type | ConvertTo-Json"`;
-
-        exec(command, { encoding: 'utf8', maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-            if (error) {
-                console.error('❌ Printer detection error:', error.message);
+        console.log('🔍 Detecting printers using node-printer...');
+        try {
+            const availablePrinters = printer.getPrinters();
+            if (!availablePrinters || availablePrinters.length === 0) {
+                console.log('⚠️ No printers found.');
                 resolve([]);
                 return;
             }
 
-            try {
-                let printers = [];
+            const formatted = availablePrinters.map((p, index) => {
+                const isConnected = p.status.includes('PRINTING') || p.status.includes('IDLE');
+                const isUsb = (p.portName || '').toUpperCase().includes('USB');
 
-                // Parse JSON output
-                if (stdout && stdout.trim()) {
-                    printers = JSON.parse(stdout);
-                    if (!Array.isArray(printers)) printers = [printers];
-                }
+                return {
+                    id: `printer_${index}`,
+                    name: p.name || 'Unknown Printer',
+                    driver: p.driverName || 'Unknown Driver',
+                    port: p.portName || 'N/A',
+                    status: p.status || 'Unknown',
+                    type: isUsb ? 'usb' : 'system',
+                    connected: isConnected,
+                    isDefault: p.isDefault || false,
+                };
+            });
 
-                const formatted = printers.map((p, index) => {
-                    const status = p.PrinterStatus || 'Unknown';
-                    const isUsb = (p.PortName || '').toUpperCase().includes('USB');
+            // Sort: USB printers first
+            formatted.sort((a, b) => {
+                if (a.type === 'usb' && b.type !== 'usb') return -1;
+                if (a.type !== 'usb' && b.type === 'usb') return 1;
+                return a.name.localeCompare(b.name);
+            });
 
-                    // Consider printer "connected" if it's USB or has good status
-                    const isConnected = isUsb ||
-                        status === 'Normal' ||
-                        status === 'Idle' ||
-                        status === 'Unknown';
-
-                    return {
-                        id: `printer_${index}`,
-                        name: p.Name || 'Unknown Printer',
-                        driver: p.DriverName || 'Unknown Driver',
-                        port: p.PortName || 'USB',
-                        status: status,
-                        type: isUsb ? 'usb' : 'system',
-                        connected: isConnected,
-                        isDefault: false
-                    };
-                });
-
-                // Sort: USB printers first
-                formatted.sort((a, b) => {
-                    if (a.type === 'usb' && b.type !== 'usb') return -1;
-                    if (a.type !== 'usb' && b.type === 'usb') return 1;
-                    return a.name.localeCompare(b.name);
-                });
-
-                // Set first USB printer as default
-                if (formatted.length > 0) {
+            if (!formatted.some(p => p.isDefault)) {
+                 if (formatted.length > 0) {
                     const firstUsb = formatted.find(p => p.type === 'usb' && p.connected);
                     if (firstUsb) {
                         formatted.forEach(p => p.isDefault = (p.id === firstUsb.id));
-                    } else {
+                    } else if (formatted.length > 0) {
                         formatted[0].isDefault = true;
                     }
                 }
-
-                console.log(`✅ Found ${formatted.length} printer(s)`);
-                formatted.forEach(p => {
-                    console.log(`   - ${p.name} (${p.type}, ${p.connected ? 'Connected' : 'Offline'})`);
-                });
-
-                resolve(formatted);
-            } catch (parseError) {
-                console.error('❌ Parse error:', parseError.message);
-                console.log('Raw output:', stdout);
-                resolve([]);
             }
-        });
+
+            console.log(`✅ Found ${formatted.length} printer(s)`);
+            formatted.forEach(p => {
+                console.log(`   - ${p.name} (${p.type}, ${p.connected ? 'Connected' : 'Offline'}) ${p.isDefault ? '[DEFAULT]' : ''}`);
+            });
+
+            resolve(formatted);
+
+        } catch (error) {
+            console.error('❌ Printer detection error:', error.message);
+            resolve([]);
+        }
     });
 }
 
-// Print to Windows Printer
+// Print to Windows Printer using node-printer
 function printToWindowsPrinter(printerName, receiptText) {
     return new Promise((resolve, reject) => {
-        const tempDir = os.tmpdir();
-        const tempFile = path.join(tempDir, `receipt_${Date.now()}.txt`);
+        console.log(`🖨️  Sending print job to: ${printerName}`);
 
-        console.log(`📄 Creating temp file: ${tempFile}`);
-        fs.writeFileSync(tempFile, receiptText, 'utf8');
-
-        const command = `print /D:"${printerName}" "${tempFile}"`;
-        console.log(`🖨️  Executing: ${command}`);
-
-        exec(command, (error, stdout, stderr) => {
-            // Clean up temp file
-            try {
-                fs.unlinkSync(tempFile);
-                console.log('🗑️  Temp file deleted');
-            } catch (e) {
-                console.warn('⚠️  Could not delete temp file');
-            }
-
-            if (error) {
-                console.error('❌ Print error:', error.message);
-                reject(new Error(`Print failed: ${error.message}`));
-                return;
-            }
-
-            console.log('✅ Print successful');
-            if (stdout) console.log('stdout:', stdout);
-            if (stderr) console.log('stderr:', stderr);
-
-            resolve({ success: true, stdout, stderr });
-        });
+        try {
+            printer.printDirect({
+                data: receiptText,
+                printer: printerName,
+                type: 'RAW',
+                success: function (jobId) {
+                    console.log(`✅ Print job sent successfully. Job ID: ${jobId}`);
+                    resolve({ success: true, jobId });
+                },
+                error: function (err) {
+                    console.error('❌ Print error:', err);
+                    reject(new Error(`Print failed: ${err.message || err}`));
+                },
+            });
+        } catch (err) {
+            console.error('❌ Synchronous print error:', err);
+            reject(new Error(`Print failed synchronously: ${err.message || err}`));
+        }
     });
 }
 
