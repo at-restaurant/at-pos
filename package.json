@@ -14,7 +14,7 @@
     "printer": "node printer-service/server.js",
     "dev:all": "concurrently -k -n PRINTER,NEXT -c magenta,cyan \"node printer-service/server.js\" \"next dev\"",
     "clean": "rm -rf .next node_modules/.cache",
-
+    "postinstall": "electron-rebuild",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c cyan,blue \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "cross-env BUILD_ELECTRON=true next build && electron-builder",
     "electron:start": "electron ."
@@ -52,6 +52,7 @@
     "cross-env": "^10.1.0",
     "electron": "^39.2.7",
     "electron-builder": "^26.0.12",
+    "electron-rebuild": "^3.2.9",
     "tailwindcss": "^4.0.0",
     "typescript": "^5",
     "wait-on": "^9.0.3"
@@ -71,7 +72,9 @@
       "!printer-service/node_modules"
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "public/icons/icon-512.png"
     },
     "nsis": {
