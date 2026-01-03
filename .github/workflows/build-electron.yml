@@ -1,4 +1,4 @@
-name: Build Electron App
+name: Build Electron App (32-bit + 64-bit)
 
 on:
   workflow_dispatch:
@@ -7,7 +7,10 @@ on:
       - 'v*'
 
 jobs:
-  build-windows:
+  # ====================================
+  # BUILD FOR 64-BIT WINDOWS
+  # ====================================
+  build-windows-x64:
     runs-on: windows-latest
 
     steps:
@@ -19,7 +22,6 @@ jobs:
         with:
           node-version: '20'
 
-      # ✅ Install Windows Build Tools (CRITICAL for native modules)
       - name: Install Windows Build Tools
         run: |
           npm install --global --production windows-build-tools
@@ -30,86 +32,145 @@ jobs:
         uses: pnpm/action-setup@v3
         with:
           version: 9
-          run_install: false
 
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.PNPM_STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
-
-      # ✅ Install Python (needed for node-gyp)
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # ✅ Install dependencies with proper flags
       - name: Install dependencies
-        run: |
-          pnpm install --frozen-lockfile --shamefully-hoist
-        env:
-          npm_config_node_gyp: ${{ github.workspace }}\node_modules\node-gyp\bin\node-gyp.js
+        run: pnpm install --frozen-lockfile --shamefully-hoist
 
-      # ✅ Rebuild native modules for Electron
-      - name: Rebuild native modules
-        run: |
-          pnpm exec electron-rebuild -f -w printer
+      - name: Rebuild native modules (x64)
+        run: pnpm exec electron-rebuild -f -w printer --arch=x64
         continue-on-error: true
 
-      # ✅ Build Next.js first
       - name: Build Next.js
         run: pnpm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
 
-      # ✅ Build Electron App
-      - name: Build Electron App
-        run: pnpm run electron:build
+      - name: Build Electron App (x64)
+        run: pnpm run electron:build -- --x64
         env:
           BUILD_ELECTRON: 'true'
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCH: 'x64'
 
-      # ✅ Upload Artifacts
-      - name: Upload Windows Installer
+      - name: Upload x64 Installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
+          name: windows-x64-installer
           path: |
-            dist/*.exe
-            dist/*.zip
+            dist/*-x64.exe
+            dist/*-x64.zip
           retention-days: 30
 
-      # ✅ Create GitHub Release (only on tags)
+  # ====================================
+  # BUILD FOR 32-BIT WINDOWS
+  # ====================================
+  build-windows-ia32:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (32-bit)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          architecture: 'x86'  # ✅ 32-bit Node.js
+
+      - name: Install Windows Build Tools
+        run: |
+          npm install --global --production windows-build-tools
+          npm config set msvs_version 2019
+        continue-on-error: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --shamefully-hoist
+
+      - name: Rebuild native modules (ia32)
+        run: pnpm exec electron-rebuild -f -w printer --arch=ia32
+        continue-on-error: true
+
+      - name: Build Next.js
+        run: pnpm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Build Electron App (ia32)
+        run: pnpm run electron:build -- --ia32
+        env:
+          BUILD_ELECTRON: 'true'
+          ARCH: 'ia32'
+
+      - name: Upload ia32 Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-ia32-installer
+          path: |
+            dist/*-ia32.exe
+            dist/*-ia32.zip
+          retention-days: 30
+
+  # ====================================
+  # CREATE UNIFIED RELEASE
+  # ====================================
+  create-release:
+    needs: [build-windows-x64, build-windows-ia32]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x64-installer
+          path: release/x64
+
+      - name: Download ia32 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-ia32-installer
+          path: release/ia32
+
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.exe
-            dist/*.zip
+            release/x64/*
+            release/ia32/*
           draft: false
           prerelease: false
           generate_release_notes: true
+          body: |
+            ## 📦 Download Options
+            
+            ### For 64-bit Windows (x64) - RECOMMENDED
+            - Most modern PCs (2015+)
+            - Better performance
+            - Download: `AT-Restaurant-POS-Setup-x64.exe`
+            
+            ### For 32-bit Windows (x86/ia32)
+            - Older PCs
+            - Windows 32-bit OS
+            - Download: `AT-Restaurant-POS-Setup-ia32.exe`
+            
+            ### Not sure which version?
+            1. Right-click "This PC" → Properties
+            2. Check "System type"
+            3. If it says "64-bit" → Download x64
+            4. If it says "32-bit" → Download ia32
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ✅ Upload to Artifacts (always)
-      - name: Upload Build Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            npm-debug.log*
-            yarn-error.log*
-            pnpm-debug.log*
-          if-no-files-found: ignore
-          retention-days: 7
