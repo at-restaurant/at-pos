@@ -19,6 +19,13 @@ jobs:
         with:
           node-version: '20'
 
+      # ✅ Install Windows Build Tools (CRITICAL for native modules)
+      - name: Install Windows Build Tools
+        run: |
+          npm install --global --production windows-build-tools
+          npm config set msvs_version 2019
+        continue-on-error: true
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
@@ -38,24 +45,71 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      # ✅ Install Python (needed for node-gyp)
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
+      # ✅ Install dependencies with proper flags
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile --shamefully-hoist
+        env:
+          npm_config_node_gyp: ${{ github.workspace }}\node_modules\node-gyp\bin\node-gyp.js
+
+      # ✅ Rebuild native modules for Electron
+      - name: Rebuild native modules
+        run: |
+          pnpm exec electron-rebuild -f -w printer
+        continue-on-error: true
+
+      # ✅ Build Next.js first
+      - name: Build Next.js
+        run: pnpm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+
+      # ✅ Build Electron App
       - name: Build Electron App
         run: pnpm run electron:build
         env:
           BUILD_ELECTRON: 'true'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ✅ Upload Artifacts
       - name: Upload Windows Installer
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*.zip
+          retention-days: 30
 
+      # ✅ Create GitHub Release (only on tags)
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.exe
+          files: |
+            dist/*.exe
+            dist/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ✅ Upload to Artifacts (always)
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            npm-debug.log*
+            yarn-error.log*
+            pnpm-debug.log*
+          if-no-files-found: ignore
+          retention-days: 7

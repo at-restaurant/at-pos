@@ -13,11 +13,12 @@
     "type-check": "tsc --noEmit",
     "printer": "node printer-service/server.js",
     "dev:all": "concurrently -k -n PRINTER,NEXT -c magenta,cyan \"node printer-service/server.js\" \"next dev\"",
-    "clean": "rm -rf .next node_modules/.cache",
-    "postinstall": "electron-rebuild",
+    "clean": "rm -rf .next node_modules/.cache dist",
+    "postinstall": "electron-builder install-app-deps",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c cyan,blue \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "cross-env BUILD_ELECTRON=true next build && electron-builder",
-    "electron:start": "electron ."
+    "electron:build": "cross-env BUILD_ELECTRON=true next build && next export && electron-builder",
+    "electron:start": "electron .",
+    "rebuild:printer": "electron-rebuild -f -w printer"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
@@ -69,23 +70,43 @@
       "out/**/*",
       "public/icons/**/*",
       "printer-service/**/*",
-      "!printer-service/node_modules"
+      "!printer-service/node_modules",
+      "node_modules/printer/**/*"
     ],
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
       ],
-      "icon": "public/icons/icon-512.png"
+      "icon": "public/icons/icon-512.png",
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "AT Restaurant POS",
       "installerIcon": "public/icons/icon-512.png",
-      "uninstallerIcon": "public/icons/icon-512.png"
-    }
+      "uninstallerIcon": "public/icons/icon-512.png",
+      "perMachine": true,
+      "include": "build/installer.nsh"
+    },
+    "extraResources": [
+      {
+        "from": "printer-service",
+        "to": "printer-service",
+        "filter": ["**/*", "!node_modules"]
+      }
+    ],
+    "afterPack": "./build/afterPack.js"
   },
   "engines": {
     "node": ">=18.17.0",
