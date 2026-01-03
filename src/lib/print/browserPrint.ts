@@ -5,17 +5,18 @@ export class BrowserPrint {
     static print(receipt: ReceiptData): Promise<boolean> {
         return new Promise((resolve) => {
             try {
-                const printWindow = window.open('', '_blank', 'width=300,height=600')
+                const html = this.formatReceiptHTML(receipt)
+                const blob = new Blob([html], { type: 'text/html' })
+                const url = URL.createObjectURL(blob)
+
+                const printWindow = window.open(url, '_blank', 'width=300,height=600')
 
                 if (!printWindow) {
                     console.error('Popup blocked')
+                    URL.revokeObjectURL(url)
                     resolve(false)
                     return
                 }
-
-                const html = this.formatReceiptHTML(receipt)
-                printWindow.document.write(html)
-                printWindow.document.close()
 
                 printWindow.onload = () => {
                     printWindow.focus()
@@ -23,6 +24,7 @@ export class BrowserPrint {
                         printWindow.print()
                         setTimeout(() => {
                             printWindow.close()
+                            URL.revokeObjectURL(url)
                             resolve(true)
                         }, 1000)
                     }, 500)
@@ -31,6 +33,7 @@ export class BrowserPrint {
                 setTimeout(() => {
                     if (!printWindow.closed) {
                         printWindow.print()
+                        URL.revokeObjectURL(url)
                         resolve(true)
                     }
                 }, 2000)
@@ -52,7 +55,7 @@ export class BrowserPrint {
 
         return `
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -164,15 +167,6 @@ export class BrowserPrint {
         <div class="bold">Thank you for dining with us! 🙏</div>
         <div class="small" style="margin-top: 4px;">Please visit again</div>
         <div class="small" style="margin-top: 8px; color: #666;">Powered by AT Restaurant POS</div>
-    </div>
-
-    <div class="no-print" style="margin-top: 20px; padding: 15px; background: #e3f2fd; border: 1px solid #2196F3; border-radius: 4px;">
-        <div class="bold" style="color: #1976D2; margin-bottom: 8px;">📱 Print Instructions:</div>
-        <ul style="margin-left: 20px; line-height: 1.8;">
-            <li><strong>Android:</strong> Tap print → Select printer</li>
-            <li><strong>iOS:</strong> Use AirPrint from Safari</li>
-            <li><strong>Desktop:</strong> Press Ctrl+P (Cmd+P on Mac)</li>
-        </ul>
     </div>
 
     <script>

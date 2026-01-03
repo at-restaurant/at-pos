@@ -1,9 +1,11 @@
-// src/lib/print/thermalPrinter.ts - WINDOWS ONLY VERSION
-import { ReceiptData, PrintResponse, PrinterStatus } from '@/types'
+// src/lib/print/thermalPrinter.ts - CLEAN VERSION
+import { ReceiptData, PrintResponse, } from '@/types'
 import BrowserPrint from './browserPrint'
 
 export class ThermalPrinter {
-    private serviceURL = 'http://localhost:3001'
+    private serviceURL = typeof window !== 'undefined' && (window as any).electron?.isElectron
+        ? 'http://127.0.0.1:3001'
+        : 'http://localhost:3001'
 
     // ✅ MAIN PRINT METHOD - 3 Tier Fallback
     async print(receipt: ReceiptData): Promise<PrintResponse> {
@@ -31,15 +33,14 @@ export class ThermalPrinter {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(receipt),
-                signal: AbortSignal.timeout(5000) // 5 sec timeout
+                signal: AbortSignal.timeout(5000)
             })
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`)
             }
 
-            const result = await response.json()
-            return result
+            return await response.json()
         } catch (error: any) {
             console.error('Printer service error:', error.message)
             return { success: false, error: error.message }
@@ -51,28 +52,34 @@ export class ThermalPrinter {
     // ===================================
     private async autoBrowserPrint(receipt: ReceiptData): Promise<PrintResponse> {
         try {
-            // Create hidden iframe
+            // ✅ Use Blob URL (no doc.write warning)
+            const html = this.generatePrintHTML(receipt)
+            const blob = new Blob([html], { type: 'text/html' })
+            const url = URL.createObjectURL(blob)
+
             const iframe = document.createElement('iframe')
             iframe.style.display = 'none'
+            iframe.style.position = 'absolute'
+            iframe.style.width = '0'
+            iframe.style.height = '0'
+            iframe.style.border = 'none'
+
             document.body.appendChild(iframe)
+            iframe.src = url
 
-            const doc = iframe.contentWindow?.document
-            if (!doc) throw new Error('Cannot access iframe')
+            await new Promise<void>((resolve, reject) => {
+                iframe.onload = () => resolve()
+                iframe.onerror = () => reject(new Error('Failed to load'))
+                setTimeout(() => reject(new Error('Timeout')), 5000)
+            })
 
-            // Write receipt HTML
-            doc.open()
-            doc.write(this.generatePrintHTML(receipt))
-            doc.close()
-
-            // Wait for content to load
-            await new Promise(resolve => setTimeout(resolve, 500))
-
-            // AUTO PRINT - NO USER CLICK NEEDED
             iframe.contentWindow?.print()
 
-            // Cleanup after 2 seconds
             setTimeout(() => {
-                document.body.removeChild(iframe)
+                URL.revokeObjectURL(url)
+                if (document.body.contains(iframe)) {
+                    document.body.removeChild(iframe)
+                }
             }, 2000)
 
             return {
@@ -82,8 +89,6 @@ export class ThermalPrinter {
             }
         } catch (error: any) {
             console.error('Browser print error:', error)
-
-            // ✅ TIER 3: Manual Browser Print (Fallback)
             const success = await BrowserPrint.print(receipt)
             return {
                 success,
@@ -93,7 +98,7 @@ export class ThermalPrinter {
     }
 
     // ===================================
-    // HTML GENERATOR (For Browser Print)
+    // HTML GENERATOR
     // ===================================
     private generatePrintHTML(data: ReceiptData): string {
         const grouped: Record<string, typeof data.items> = {}
@@ -105,9 +110,10 @@ export class ThermalPrinter {
 
         return `
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Receipt ${data.orderNumber}</title>
     <style>
         @page { 
@@ -213,67 +219,15 @@ export class ThermalPrinter {
 
     <script>
         window.onload = () => {
-            // Auto print after 500ms
-            setTimeout(() => {
-                window.print();
-            }, 500);
+            setTimeout(() => window.print(), 500);
         };
-        
-        // Close after printing
         window.onafterprint = () => {
-            setTimeout(() => {
-                window.close();
-            }, 1000);
+            setTimeout(() => window.close(), 1000);
         };
     </script>
 </body>
 </html>
         `
-    }
-
-    // ===================================
-    // STATUS CHECK
-    // ===================================
-    async checkStatus(): Promise<PrinterStatus> {
-        try {
-            const response = await fetch(`${this.serviceURL}/api/health`, {
-                signal: AbortSignal.timeout(3000)
-            })
-
-            if (!response.ok) throw new Error('Offline')
-            return await response.json()
-        } catch {
-            return {
-                status: 'offline',
-                printer: 'not configured',
-                platform: 'windows'
-            }
-        }
-    }
-
-    // ===================================
-    // TEST PRINT
-    // ===================================
-    async testPrint(): Promise<PrintResponse> {
-        const testReceipt: ReceiptData = {
-            restaurantName: 'AT RESTAURANT',
-            tagline: 'Test Print',
-            address: 'Sooter Mills Rd, Lahore',
-            orderNumber: 'TEST-' + Date.now().toString().slice(-6),
-            date: new Date().toLocaleString(),
-            orderType: 'dine-in',
-            tableNumber: 1,
-            waiter: 'Test Waiter',
-            items: [
-                { name: 'Test Item 1', quantity: 2, price: 100, total: 200, category: '🧪 Test' },
-                { name: 'Test Item 2', quantity: 1, price: 150, total: 150, category: '🧪 Test' }
-            ],
-            subtotal: 350,
-            tax: 35,
-            total: 385,
-            paymentMethod: 'cash'
-        }
-        return this.print(testReceipt)
     }
 }
 

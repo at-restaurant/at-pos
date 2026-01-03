@@ -39,6 +39,12 @@ logs
 *.log
 .idea
 
-
 # OS
 Thumbs.db
+
+# Electron (NEW)
+dist/
+out/
+*.exe
+*.dmg
+*.AppImage

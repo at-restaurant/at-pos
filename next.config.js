@@ -2,8 +2,12 @@
 const nextConfig = {
     reactStrictMode: true,
 
-    // ✅ Image optimization - Turbopack compatible and secure
+    // ✅ NEW: Export as static for Electron
+    output: process.env.BUILD_ELECTRON ? 'export' : undefined,
+
+    // ✅ UPDATED: Image optimization
     images: {
+        unoptimized: process.env.BUILD_ELECTRON === 'true', // ✅ NEW
         remotePatterns: [
             {
                 protocol: 'https',
@@ -15,6 +19,9 @@ const nextConfig = {
         formats: ['image/avif', 'image/webp'],
         minimumCacheTTL: 60,
     },
+
+    // ✅ NEW: Trailing slash for better Electron routing
+    trailingSlash: process.env.BUILD_ELECTRON === 'true',
 
     // ✅ Experimental features
     experimental: {
