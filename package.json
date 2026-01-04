@@ -14,13 +14,13 @@
     "printer": "node printer-service/server.js",
     "dev:all": "concurrently -k -n PRINTER,NEXT -c magenta,cyan \"node printer-service/server.js\" \"next dev\"",
     "clean": "rm -rf .next node_modules/.cache dist out",
-    "postinstall": "electron-builder install-app-deps",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c cyan,blue \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "cross-env BUILD_ELECTRON=true next build && electron-builder",
     "electron:build:x64": "cross-env BUILD_ELECTRON=true next build && electron-builder --x64",
     "electron:build:ia32": "cross-env BUILD_ELECTRON=true next build && electron-builder --ia32",
     "electron:build:all": "cross-env BUILD_ELECTRON=true next build && electron-builder --x64 --ia32",
     "electron:start": "electron .",
+    "electron:install": "electron-builder install-app-deps",
     "rebuild:printer:x64": "electron-rebuild -f -w printer --arch=x64",
     "rebuild:printer:ia32": "electron-rebuild -f -w printer --arch=ia32"
   },
@@ -37,7 +37,6 @@
     "html2canvas": "^1.4.1",
     "lucide-react": "^0.561.0",
     "next": "16.0.10",
-    "printer": "^0.4.0",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "recharts": "^3.6.0",
@@ -55,12 +54,15 @@
     "babel-plugin-react-compiler": "1.0.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
-    "electron": "^39.2.7",
-    "electron-builder": "^26.0.12",
-    "electron-rebuild": "^3.2.9",
     "tailwindcss": "^4.0.0",
     "typescript": "^5",
     "wait-on": "^9.0.3"
+  },
+  "optionalDependencies": {
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
+    "electron-rebuild": "^3.2.9",
+    "printer": "^0.4.0"
   },
   "build": {
     "appId": "com.atrestaurant.pos",

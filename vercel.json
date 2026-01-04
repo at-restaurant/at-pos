@@ -2,7 +2,7 @@
   "version": 2,
   "buildCommand": "pnpm build",
   "devCommand": "pnpm dev",
-  "installCommand": "pnpm install",
+  "installCommand": "pnpm install --ignore-scripts",
   "framework": "nextjs",
   "regions": ["sin1"],
   "build": {
