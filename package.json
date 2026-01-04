@@ -13,13 +13,13 @@
     "type-check": "tsc --noEmit",
     "printer": "node printer-service/server.js",
     "dev:all": "concurrently -k -n PRINTER,NEXT -c magenta,cyan \"node printer-service/server.js\" \"next dev\"",
-    "clean": "rm -rf .next node_modules/.cache dist",
+    "clean": "rm -rf .next node_modules/.cache dist out",
     "postinstall": "electron-builder install-app-deps",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c cyan,blue \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "cross-env BUILD_ELECTRON=true next build && next export && electron-builder",
-    "electron:build:x64": "cross-env BUILD_ELECTRON=true next build && next export && electron-builder --x64",
-    "electron:build:ia32": "cross-env BUILD_ELECTRON=true next build && next export && electron-builder --ia32",
-    "electron:build:all": "cross-env BUILD_ELECTRON=true next build && next export && electron-builder --x64 --ia32",
+    "electron:build": "cross-env BUILD_ELECTRON=true next build && electron-builder",
+    "electron:build:x64": "cross-env BUILD_ELECTRON=true next build && electron-builder --x64",
+    "electron:build:ia32": "cross-env BUILD_ELECTRON=true next build && electron-builder --ia32",
+    "electron:build:all": "cross-env BUILD_ELECTRON=true next build && electron-builder --x64 --ia32",
     "electron:start": "electron .",
     "rebuild:printer:x64": "electron-rebuild -f -w printer --arch=x64",
     "rebuild:printer:ia32": "electron-rebuild -f -w printer --arch=ia32"
@@ -84,10 +84,6 @@
           "arch": ["x64", "ia32"]
         },
         {
-          "target": "portable",
-          "arch": ["x64", "ia32"]
-        },
-        {
           "target": "zip",
           "arch": ["x64", "ia32"]
         }
@@ -108,9 +104,6 @@
       "perMachine": true,
       "artifactName": "${productName}-Setup-${arch}.${ext}",
       "deleteAppDataOnUninstall": false
-    },
-    "portable": {
-      "artifactName": "${productName}-Portable-${arch}.${ext}"
     },
     "extraResources": [
       {

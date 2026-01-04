@@ -1,72 +1,37 @@
-// build/afterPack.js - Handle native modules after packaging
+// build/afterPack.js
 const fs = require('fs');
 const path = require('path');
 
 exports.default = async function(context) {
+    const { appOutDir, packager, electronPlatformName } = context;
+
     console.log('🔧 Running afterPack script...');
+    console.log(`   Platform: ${electronPlatformName}`);
+    console.log(`   Output: ${appOutDir}`);
 
-    const { appOutDir, electronPlatformName } = context;
+    // Windows-specific fixes
+    if (electronPlatformName === 'win32') {
+        const resourcesPath = path.join(appOutDir, 'resources');
 
-    if (electronPlatformName !== 'win32') {
-        console.log('⚠️ Skipping: Not Windows platform');
-        return;
-    }
+        // Ensure printer-service exists
+        const printerServiceSrc = path.join(packager.projectDir, 'printer-service');
+        const printerServiceDest = path.join(resourcesPath, 'printer-service');
 
-    try {
-        // Path to the packaged app's node_modules
-        const appNodeModules = path.join(appOutDir, 'resources', 'app', 'node_modules');
-        const printerModulePath = path.join(appNodeModules, 'printer');
-
-        if (fs.existsSync(printerModulePath)) {
-            console.log('✅ Printer module found:', printerModulePath);
-
-            // Check for .node files
-            const nodeFiles = fs.readdirSync(printerModulePath, { recursive: true })
-                .filter(f => f.endsWith('.node'));
-
-            if (nodeFiles.length > 0) {
-                console.log('✅ Found .node files:', nodeFiles);
-            } else {
-                console.warn('⚠️ No .node files found in printer module');
-            }
-        } else {
-            console.warn('⚠️ Printer module not found at:', printerModulePath);
+        if (fs.existsSync(printerServiceSrc) && !fs.existsSync(printerServiceDest)) {
+            console.log('   ✅ Copying printer-service to resources...');
+            fs.cpSync(printerServiceSrc, printerServiceDest, { recursive: true });
         }
 
-        // Copy printer-service with dependencies
-        const printerServiceSrc = path.join(context.appDir, 'printer-service');
-        const printerServiceDest = path.join(appOutDir, 'resources', 'printer-service');
+        // Copy node_modules/printer to resources
+        const printerModuleSrc = path.join(packager.projectDir, 'node_modules', 'printer');
+        const printerModuleDest = path.join(resourcesPath, 'app', 'node_modules', 'printer');
 
-        if (fs.existsSync(printerServiceSrc)) {
-            console.log('📦 Copying printer-service...');
-            copyRecursiveSync(printerServiceSrc, printerServiceDest);
-            console.log('✅ Printer service copied');
+        if (fs.existsSync(printerModuleSrc)) {
+            console.log('   ✅ Copying printer module...');
+            fs.mkdirSync(path.dirname(printerModuleDest), { recursive: true });
+            fs.cpSync(printerModuleSrc, printerModuleDest, { recursive: true });
         }
-
-        console.log('✅ afterPack completed successfully');
-    } catch (error) {
-        console.error('❌ afterPack error:', error);
     }
+
+    console.log('✅ afterPack completed successfully');
 };
-
-function copyRecursiveSync(src, dest) {
-    const exists = fs.existsSync(src);
-    const stats = exists && fs.statSync(src);
-    const isDirectory = exists && stats.isDirectory();
-
-    if (isDirectory) {
-        if (!fs.existsSync(dest)) {
-            fs.mkdirSync(dest, { recursive: true });
-        }
-        fs.readdirSync(src).forEach(childItemName => {
-            if (childItemName !== 'node_modules') { // Skip node_modules
-                copyRecursiveSync(
-                    path.join(src, childItemName),
-                    path.join(dest, childItemName)
-                );
-            }
-        });
-    } else {
-        fs.copyFileSync(src, dest);
-    }
-}

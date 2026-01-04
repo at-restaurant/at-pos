@@ -22,24 +22,29 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Windows Build Tools
-        run: |
-          npm install --global --production windows-build-tools
-          npm config set msvs_version 2019
-        continue-on-error: true
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
           version: 9
 
-      - name: Setup Python
+      - name: Setup Python for node-gyp
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      - name: Setup MSBuild (for native modules)
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Configure node-gyp
+        run: |
+          npm config set python python3
+          npm config set msvs_version 2022
+        shell: pwsh
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --shamefully-hoist
+        run: pnpm install --frozen-lockfile
+        env:
+          npm_config_arch: x64
 
       - name: Rebuild native modules (x64)
         run: pnpm exec electron-rebuild -f -w printer --arch=x64
@@ -49,20 +54,21 @@ jobs:
         run: pnpm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
+          BUILD_ELECTRON: true
 
       - name: Build Electron App (x64)
         run: pnpm run electron:build -- --x64
         env:
-          BUILD_ELECTRON: 'true'
-          ARCH: 'x64'
+          BUILD_ELECTRON: true
+          ARCH: x64
 
       - name: Upload x64 Installer
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64-installer
           path: |
-            dist/*-x64.exe
-            dist/*-x64.zip
+            dist/*.exe
+            dist/*.zip
           retention-days: 30
 
   # ====================================
@@ -79,26 +85,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          architecture: 'x86'  # ✅ 32-bit Node.js
-
-      - name: Install Windows Build Tools
-        run: |
-          npm install --global --production windows-build-tools
-          npm config set msvs_version 2019
-        continue-on-error: true
+          architecture: 'x86'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
           version: 9
 
-      - name: Setup Python
+      - name: Setup Python for node-gyp
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      - name: Setup MSBuild (for native modules)
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Configure node-gyp
+        run: |
+          npm config set python python3
+          npm config set msvs_version 2022
+        shell: pwsh
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --shamefully-hoist
+        run: pnpm install --frozen-lockfile
+        env:
+          npm_config_arch: ia32
 
       - name: Rebuild native modules (ia32)
         run: pnpm exec electron-rebuild -f -w printer --arch=ia32
@@ -108,20 +119,21 @@ jobs:
         run: pnpm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
+          BUILD_ELECTRON: true
 
       - name: Build Electron App (ia32)
         run: pnpm run electron:build -- --ia32
         env:
-          BUILD_ELECTRON: 'true'
-          ARCH: 'ia32'
+          BUILD_ELECTRON: true
+          ARCH: ia32
 
       - name: Upload ia32 Installer
         uses: actions/upload-artifact@v4
         with:
           name: windows-ia32-installer
           path: |
-            dist/*-ia32.exe
-            dist/*-ia32.zip
+            dist/*.exe
+            dist/*.zip
           retention-days: 30
 
   # ====================================
