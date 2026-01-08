@@ -89,7 +89,7 @@ npm install printer --build-from-source --target_arch=x64
 
 ```cmd
 cd C:\at-restaurant-pos\printer-service
-node server.js
+node serverRaw.js
 ```
 
 **You should see:**
@@ -120,7 +120,7 @@ Create file: `C:\at-restaurant-pos\printer-service\start-service.bat`
 @echo off
 title AT Restaurant Printer Service
 cd /d C:\at-restaurant-pos\printer-service
-node server.js
+node serverRaw.js
 pause
 ```
 
@@ -152,7 +152,7 @@ Create file: `C:\at-restaurant-pos\printer-service\start-hidden.vbs`
 
 ```vbscript
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run "cmd /c cd /d C:\at-restaurant-pos\printer-service && node server.js", 0, False
+WshShell.Run "cmd /c cd /d C:\at-restaurant-pos\printer-service && node serverRaw.js", 0, False
 ```
 
 **Step 2: Add to Startup**
@@ -272,7 +272,7 @@ netstat -ano | findstr :3002
 :: Kill process (replace 1234 with actual PID)
 taskkill /PID 1234 /F
 
-:: Or change port in server.js
+:: Or change port in server-raw.js
 ```
 
 ---
@@ -317,7 +317,7 @@ Logs appear in console
 **Save to file:**
 ```cmd
 cd C:\at-restaurant-pos\printer-service
-node server.js > logs.txt 2>&1
+node serverRaw.js > logs.txt 2>&1
 ```
 
 Then check `logs.txt`
@@ -330,7 +330,7 @@ Then check `logs.txt`
 
 ```cmd
 cd C:\at-restaurant-pos\printer-service
-node server.js
+node serverRaw.js
 ```
 
 ### Stopping Service
@@ -342,7 +342,7 @@ Press `Ctrl + C` in service window
 ```cmd
 taskkill /IM node.exe /F
 cd C:\at-restaurant-pos\printer-service
-node server.js
+node serverRaw.js
 ```
 
 ---
@@ -363,7 +363,7 @@ cd printer-service
 npm install
 
 :: Start service
-node server.js
+node server-raw.js
 ```
 
 ---
@@ -398,7 +398,7 @@ Monthly:
 1. **Check printer power** - Turn off/on
 2. **Check USB cable** - Reconnect
 3. **Check Windows** - Printer shows "Ready"?
-4. **Restart service** - `Ctrl+C` then `node server.js`
+4. **Restart service** - `Ctrl+C` then `node serverRaw.js`
 5. **Restart PC** - Last resort
 
 ### If Service Crashes
@@ -408,7 +408,7 @@ Service has auto-recovery, but if needed:
 ```cmd
 taskkill /IM node.exe /F
 cd C:\at-restaurant-pos\printer-service
-node server.js
+node server-raw.js
 ```
 
 ### If Web App Can't Connect
@@ -502,7 +502,7 @@ Each PC is independent! Web app URL is same for all: `https://your-app.vercel.ap
 ```cmd
 :: Start service
 cd C:\at-restaurant-pos\printer-service
-node server.js
+node serverRaw.js
 
 :: Check if running
 tasklist | findstr node

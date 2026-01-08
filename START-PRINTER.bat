@@ -24,8 +24,8 @@ node --version
 echo.
 
 :: Check if in correct directory
-if not exist "printer-service\server.js" (
-    echo [ERROR] Cannot find printer-service\server.js
+if not exist "printer-service\server-raw.js" (
+    echo [ERROR] Cannot find printer-service\server-raw.js
     echo.
     echo Make sure you're in the project root folder!
     echo Current: %CD%
@@ -58,7 +58,7 @@ echo.
 echo ========================================
 echo.
 
-node printer-service\server.js
+node printer-service\server-raw.js
 
 :: If service crashes
 echo.

@@ -1,4 +1,4 @@
-// src/lib/print/thermalPrinter.ts - FINAL PRODUCTION VERSION
+// src/lib/print/thermalPrinter.ts - COMPATIBLE WITH RAW PRINTER SERVICE
 import { ReceiptData, PrintResponse } from '@/types'
 import BrowserPrint from './browserPrint'
 
@@ -7,7 +7,7 @@ export class ThermalPrinter {
     private reconnectTimeout: NodeJS.Timeout | null = null
     private messageHandlers: Map<string, (data: any) => void> = new Map()
     private connectionAttempts = 0
-    private maxReconnectAttempts = 5
+    private maxReconnectAttempts = 3 // Reduced for faster fallback
     private isManualDisconnect = false
 
     // Always localhost - printer service runs on client PC
@@ -64,7 +64,7 @@ export class ThermalPrinter {
 
                 if (!this.isManualDisconnect && this.connectionAttempts < this.maxReconnectAttempts) {
                     this.connectionAttempts++
-                    const delay = Math.min(1000 * Math.pow(2, this.connectionAttempts - 1), 10000)
+                    const delay = Math.min(1000 * this.connectionAttempts, 3000) // Max 3s delay
 
                     console.log(`🔄 Reconnecting in ${delay / 1000}s (attempt ${this.connectionAttempts}/${this.maxReconnectAttempts})`)
 
@@ -80,7 +80,7 @@ export class ThermalPrinter {
         }
     }
 
-    private waitForConnection(timeout: number = 5000): Promise<void> {
+    private waitForConnection(timeout: number = 3000): Promise<void> {
         return new Promise((resolve, reject) => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 resolve()
@@ -88,7 +88,7 @@ export class ThermalPrinter {
             }
 
             let attempts = 0
-            const maxAttempts = Math.floor(timeout / 500)
+            const maxAttempts = Math.floor(timeout / 300)
 
             const checkConnection = () => {
                 if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -97,7 +97,7 @@ export class ThermalPrinter {
                     reject(new Error('Printer service not available'))
                 } else {
                     attempts++
-                    setTimeout(checkConnection, 500)
+                    setTimeout(checkConnection, 300)
                 }
             }
 
@@ -106,25 +106,30 @@ export class ThermalPrinter {
     }
 
     // ===================================
-    // MAIN PRINT METHOD
+    // MAIN PRINT METHOD - FAST FALLBACK
     // ===================================
     async print(receipt: ReceiptData): Promise<PrintResponse> {
         console.log('🖨️ Print job started:', receipt.orderNumber)
 
-        // Try WebSocket first
+        // Quick check - if not connected, fallback immediately
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.log('⚡ Service offline - Using browser print immediately')
+            return await this.printViaBrowser(receipt)
+        }
+
+        // Try WebSocket with short timeout (3s)
         try {
-            await this.waitForConnection()
-
-            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-                throw new Error('WebSocket not connected')
-            }
-
-            const result = await this.printViaWebSocket(receipt)
+            const result = await Promise.race([
+                this.printViaWebSocket(receipt),
+                new Promise<PrintResponse>((_, reject) =>
+                    setTimeout(() => reject(new Error('Print timeout')), 3000)
+                )
+            ])
 
             if (result.success) {
                 return result
             } else {
-                throw new Error(result.error || 'WebSocket print failed')
+                throw new Error(result.error || 'Print failed')
             }
         } catch (error: any) {
             console.warn('⚠️ WebSocket print failed:', error.message)
@@ -146,10 +151,10 @@ export class ThermalPrinter {
                 console.log('⏱️ Print timeout')
                 resolve({
                     success: false,
-                    error: 'Print timeout (30s)',
+                    error: 'Print timeout',
                     orderNumber: receipt.orderNumber
                 })
-            }, 30000)
+            }, 10000)
 
             // Success handler
             this.messageHandlers.set('PRINT_SUCCESS', (data) => {
@@ -159,7 +164,7 @@ export class ThermalPrinter {
                 console.log('✅ Print successful:', data.message)
                 resolve({
                     success: true,
-                    message: data.message,
+                    message: data.message || 'Print completed',
                     orderNumber: receipt.orderNumber
                 })
             })
@@ -172,7 +177,7 @@ export class ThermalPrinter {
                 console.error('❌ Print error:', data.error)
                 resolve({
                     success: false,
-                    error: data.error,
+                    error: data.error || 'Print failed',
                     orderNumber: receipt.orderNumber
                 })
             })
@@ -183,7 +188,7 @@ export class ThermalPrinter {
                     type: 'PRINT_RECEIPT',
                     payload: { receiptData: receipt }
                 }))
-                console.log('📤 Print command sent')
+                console.log('📤 Print command sent to raw printer service')
             } catch (error: any) {
                 clearTimeout(timeout)
                 this.messageHandlers.delete('PRINT_SUCCESS')
@@ -226,7 +231,7 @@ export class ThermalPrinter {
         console.log('🧪 Test print requested for:', printerName)
 
         try {
-            await this.waitForConnection()
+            await this.waitForConnection(2000) // 2s timeout
 
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
                 return {
@@ -243,7 +248,7 @@ export class ThermalPrinter {
                         success: false,
                         error: 'Test print timeout'
                     })
-                }, 30000)
+                }, 10000)
 
                 this.messageHandlers.set('PRINT_SUCCESS', (data) => {
                     clearTimeout(timeout)
@@ -251,7 +256,7 @@ export class ThermalPrinter {
                     this.messageHandlers.delete('PRINT_ERROR')
                     resolve({
                         success: true,
-                        message: data.message
+                        message: data.message || 'Test print completed'
                     })
                 })
 
@@ -261,7 +266,7 @@ export class ThermalPrinter {
                     this.messageHandlers.delete('PRINT_ERROR')
                     resolve({
                         success: false,
-                        error: data.error
+                        error: data.error || 'Test print failed'
                     })
                 })
 
@@ -283,7 +288,7 @@ export class ThermalPrinter {
     // ===================================
     async getPrinters(): Promise<any[]> {
         try {
-            await this.waitForConnection(3000)
+            await this.waitForConnection(2000) // 2s timeout
 
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
                 console.log('⚠️ Printer service not connected')
@@ -380,7 +385,7 @@ export class ThermalPrinter {
             const timeout = setTimeout(() => {
                 this.messageHandlers.delete('PONG')
                 resolve(false)
-            }, 5000)
+            }, 3000)
 
             this.messageHandlers.set('PONG', () => {
                 clearTimeout(timeout)

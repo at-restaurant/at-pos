@@ -346,7 +346,7 @@ rt-restaurant/
 │   ├── lib/
 │   │   ├── supabase/                # Supabase clients
 │   │   │   ├── client.ts
-│   │   │   └── server.ts
+│   │   │   └── serverRaw.ts
 │   │   ├── hooks/                   # Custom React hooks
 │   │   │   ├── useSupabase.ts
 │   │   │   ├── useOrders.ts

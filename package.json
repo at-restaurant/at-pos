@@ -12,7 +12,7 @@
     "lint": "biome check",
     "format": "biome format --write",
     "type-check": "tsc --noEmit",
-    "printer": "node printer-service/server.js",
+    "printer": "node printer-service/server-raw.js",
     "dev:all": "concurrently -k -n PRINTER,NEXT -c magenta,cyan \"node printer-service/server.js\" \"next dev\"",
     "clean": "rm -rf .next node_modules/.cache dist out"
   },
