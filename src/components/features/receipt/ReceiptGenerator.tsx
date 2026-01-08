@@ -1,10 +1,10 @@
-// src/components/features/receipt/ReceiptGenerator.tsx - SIMPLIFIED
+// src/components/features/receipt/ReceiptGenerator.tsx - TEXT FILE MODE
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Printer, Download, X, AlertCircle, CheckCircle } from 'lucide-react'
+import { Printer, Download, X, AlertCircle, CheckCircle, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { thermalPrinter } from '@/lib/print/thermalPrinter'
+import { textFilePrinter } from '@/lib/print/textFilePrinter'
 import { ReceiptData } from '@/types'
 
 type ReceiptProps = {
@@ -54,11 +54,13 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         setCategories(data || [])
     }
 
-    // ✅ FIXED: Direct printer service call
+    // ===================================
+    // TEXT FILE PRINT (Main Method)
+    // ===================================
     const handlePrint = async () => {
         setPrinting(true)
         setPrintStatus('idle')
-        setStatusMessage('Printing...')
+        setStatusMessage('Creating print file...')
 
         try {
             // Build receipt data
@@ -97,20 +99,15 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 notes: order.notes
             }
 
-            // ✅ Direct call to thermalPrinter
-            const result = await thermalPrinter.print(receiptData)
+            // Print using text file printer
+            const result = await textFilePrinter.print(receiptData)
 
             if (result.success) {
                 setPrintStatus('success')
-                setStatusMessage('✅ Receipt printed successfully!')
-
-                // Auto-close after 2 seconds
-                setTimeout(() => {
-                    onClose()
-                }, 2000)
+                setStatusMessage('✅ Receipt file ready! Check your downloads.')
             } else {
                 setPrintStatus('error')
-                setStatusMessage('❌ Print failed: ' + (result.error || 'Unknown error'))
+                setStatusMessage('❌ Failed to create print file')
             }
         } catch (error: any) {
             console.error('Print error:', error)
@@ -121,6 +118,9 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         }
     }
 
+    // ===================================
+    // DOWNLOAD AS IMAGE (Optional)
+    // ===================================
     const handleDownload = async () => {
         setDownloading(true)
         try {
@@ -191,9 +191,9 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
             <div className="fixed inset-0 flex items-center justify-center p-4 z-50 bg-black/70">
                 <div className="rounded-xl w-full max-w-md border bg-white max-h-[90vh] overflow-y-auto">
                     {/* Header */}
-                    <div className="sticky top-0 flex items-center justify-between p-6 border-b bg-white">
+                    <div className="sticky top-0 flex items-center justify-between p-6 border-b bg-white z-10">
                         <div className="flex items-center gap-3">
-                            <Printer className="w-6 h-6 text-blue-600" />
+                            <FileText className="w-6 h-6 text-blue-600" />
                             <div>
                                 <h3 className="text-xl font-bold text-gray-900">Receipt</h3>
                                 <p className="text-xs text-gray-600 mt-1">Order #{order.id.slice(0, 8).toUpperCase()}</p>
@@ -224,8 +224,19 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                         </div>
                     )}
 
+                    {/* Info Banner */}
+                    <div className="mx-6 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="flex items-start gap-2">
+                            <FileText className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                            <div className="text-xs text-blue-700">
+                                <p className="font-semibold mb-1">📄 Text File Printing</p>
+                                <p>Receipt will download as a <strong>.txt</strong> file. Open it and press <kbd className="px-1 py-0.5 bg-white rounded border">Ctrl+P</kbd> to print.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Receipt Content */}
-                    <div ref={receiptRef} className="p-6 font-mono bg-white" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                    <div ref={receiptRef} className="p-6 font-mono bg-white" style={{ maxHeight: '50vh', overflowY: 'auto' }}>
                         <div className="text-center mb-6">
                             <h2 className="text-2xl font-bold mb-1 text-gray-900">AT Restaurant</h2>
                             <p className="text-sm text-gray-600">Delicious Food, Memorable Moments</p>
@@ -349,7 +360,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             ) : (
                                 <Download className="w-4 h-4" />
                             )}
-                            {downloading ? 'Downloading...' : 'Download'}
+                            {downloading ? 'Downloading...' : 'Save Image'}
                         </button>
 
                         <button
@@ -360,9 +371,9 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             {printing ? (
                                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                             ) : (
-                                <Printer className="w-4 h-4" />
+                                <FileText className="w-4 h-4" />
                             )}
-                            {printing ? 'Printing...' : 'Print'}
+                            {printing ? 'Creating...' : 'Print (Text File)'}
                         </button>
                     </div>
                 </div>
