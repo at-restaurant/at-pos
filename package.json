@@ -1,0 +1,64 @@
+{
+  "name": "at-restaurant-pos",
+  "version": "2.0.0",
+  "description": "Universal Restaurant POS with WebSocket Printing",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:electron": "cross-env BUILD_ELECTRON=true NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 next build",
+    "start": "next start",
+    "lint": "biome check",
+    "format": "biome format --write",
+    "type-check": "tsc --noEmit",
+    "printer": "node printer-service/server.js",
+    "dev:all": "concurrently -k -n PRINTER,NEXT -c magenta,cyan \"node printer-service/server.js\" \"next dev\"",
+    "clean": "rm -rf .next node_modules/.cache dist out"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.87.1",
+    "bcryptjs": "^3.0.3",
+    "body-parser": "^2.2.1",
+    "cloudinary": "^2.8.0",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "html2canvas": "^1.4.1",
+    "lucide-react": "^0.561.0",
+    "next": "15.1.11",
+    "package.json": "^2.0.1",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "recharts": "^3.6.0",
+    "ws": "^8.18.0",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.0",
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/bcryptjs": "^3.0.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/ws": "^8.5.13",
+    "babel-plugin-react-compiler": "1.0.0",
+    "concurrently": "^9.2.1",
+    "critters": "^0.0.25",
+    "cross-env": "^10.1.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5",
+    "wait-on": "^9.0.3"
+  },
+  "optionalDependencies": {
+    "printer": "^0.4.0"
+  },
+  "engines": {
+    "node": ">=18.17.0",
+    "npm": ">=9.0.0"
+  }
+}

@@ -1,0 +1,16 @@
+// src/app/api/jobs/archive-old-data/route.ts - COMPLETE VERSION
+import { NextResponse } from 'next/server'
+import { archiveOldData } from '@/lib/utils/dbOptimizer'
+
+// ✅ Required for static export
+export const dynamic = 'force-static'
+export const revalidate = false
+
+export async function POST() {
+    try {
+        const result = await archiveOldData(90) // Keep 90 days
+        return NextResponse.json(result)
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+}

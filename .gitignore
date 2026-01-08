@@ -1,0 +1,58 @@
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+
+# testing
+coverage
+
+# next.js
+.next
+out
+node_modules/.cache
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# logs
+logs
+*.log
+.idea
+
+# OS
+Thumbs.db
+
+# Electron (NEW)
+dist/
+out/
+*.exe
+*.dmg
+*.AppImage
+
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
