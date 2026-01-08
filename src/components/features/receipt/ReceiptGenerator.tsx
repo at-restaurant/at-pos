@@ -1,10 +1,9 @@
-// src/components/features/receipt/ReceiptGenerator.tsx - TEXT FILE MODE
+// src/components/features/receipt/ReceiptGenerator.tsx - CLEAN VERSION (No API calls)
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Printer, Download, X, AlertCircle, CheckCircle, FileText } from 'lucide-react'
+import { Download, X, AlertCircle, CheckCircle, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { textFilePrinter } from '@/lib/print/textFilePrinter'
 import { ReceiptData } from '@/types'
 
 type ReceiptProps = {
@@ -55,12 +54,12 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
     }
 
     // ===================================
-    // TEXT FILE PRINT (Main Method)
+    // TEXT FILE PRINT - PURE CLIENT SIDE
     // ===================================
     const handlePrint = async () => {
         setPrinting(true)
         setPrintStatus('idle')
-        setStatusMessage('Creating print file...')
+        setStatusMessage('Creating receipt file...')
 
         try {
             // Build receipt data
@@ -75,7 +74,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 }
             })
 
-            const receiptData: ReceiptData = {
+            const receiptData = {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
                 address: 'Sooter Mills Rd, Lahore',
@@ -89,7 +88,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 subtotal: order.subtotal,
                 tax: order.tax,
                 total: order.total_amount,
-                paymentMethod: order.payment_method as 'cash' | 'online' | 'card' | undefined,
+                paymentMethod: order.payment_method,
                 customerName: order.customer_name,
                 customerPhone: order.customer_phone,
                 deliveryAddress: order.delivery_address,
@@ -99,16 +98,20 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 notes: order.notes
             }
 
-            // Print using text file printer
-            const result = await textFilePrinter.print(receiptData)
+            // Format receipt text
+            const receiptText = formatReceiptText(receiptData)
 
-            if (result.success) {
-                setPrintStatus('success')
-                setStatusMessage('✅ Receipt file ready! Check your downloads.')
-            } else {
-                setPrintStatus('error')
-                setStatusMessage('❌ Failed to create print file')
-            }
+            // Download as text file
+            downloadTextFile(receiptText, order.id.slice(0, 8).toUpperCase())
+
+            setPrintStatus('success')
+            setStatusMessage('✅ Receipt file downloaded! Open it and press Ctrl+P to print.')
+
+            // Show instructions
+            setTimeout(() => {
+                showPrintInstructions(order.id.slice(0, 8).toUpperCase())
+            }, 500)
+
         } catch (error: any) {
             console.error('Print error:', error)
             setPrintStatus('error')
@@ -119,7 +122,199 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
     }
 
     // ===================================
-    // DOWNLOAD AS IMAGE (Optional)
+    // DOWNLOAD TEXT FILE
+    // ===================================
+    const downloadTextFile = (text: string, orderNumber: string) => {
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `receipt-${orderNumber}.txt`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        setTimeout(() => URL.revokeObjectURL(url), 100)
+    }
+
+    // ===================================
+    // FORMAT RECEIPT TEXT
+    // ===================================
+    const formatReceiptText = (data: any): string => {
+        const W = 42
+        const line = '-'.repeat(W)
+        const doubleLine = '='.repeat(W)
+
+        let receipt = '\n'
+
+        // Header
+        receipt += center(data.restaurantName, W) + '\n'
+        receipt += center(data.tagline, W) + '\n'
+        receipt += line + '\n'
+        receipt += center(data.address, W) + '\n'
+        receipt += doubleLine + '\n\n'
+
+        // Order Info
+        receipt += `Order #: ${data.orderNumber}\n`
+        receipt += `Date: ${data.date}\n`
+        receipt += `Type: ${data.orderType === 'delivery' ? 'DELIVERY' : 'DINE-IN'}\n`
+        if (data.tableNumber) receipt += `Table: #${data.tableNumber}\n`
+        if (data.waiter) receipt += `Waiter: ${data.waiter}\n`
+        receipt += line + '\n\n'
+
+        // Delivery Details
+        if (data.orderType === 'delivery' && (data.customerName || data.customerPhone)) {
+            receipt += 'DELIVERY DETAILS\n' + line + '\n'
+            if (data.customerName) receipt += `Name: ${data.customerName}\n`
+            if (data.customerPhone) receipt += `Phone: ${data.customerPhone}\n`
+            if (data.deliveryAddress) receipt += `Address: ${data.deliveryAddress}\n`
+            receipt += line + '\n\n'
+        }
+
+        // Items (Grouped)
+        receipt += 'ORDER ITEMS\n' + line + '\n'
+        const grouped: Record<string, any[]> = {}
+        data.items.forEach((item: any) => {
+            const cat = item.category || 'Other'
+            if (!grouped[cat]) grouped[cat] = []
+            grouped[cat].push(item)
+        })
+
+        Object.entries(grouped).forEach(([category, items]) => {
+            receipt += `\n${category}\n`
+            items.forEach(item => {
+                const itemLine = `${item.quantity}x ${item.name}`
+                const price = `PKR ${item.total.toFixed(2)}`
+                receipt += leftRight(itemLine, price, W) + '\n'
+                receipt += `   @ PKR ${item.price.toFixed(2)} each\n`
+            })
+        })
+
+        // Totals
+        receipt += '\n' + doubleLine + '\n'
+        receipt += leftRight('Subtotal:', `PKR ${data.subtotal.toFixed(2)}`, W) + '\n'
+        receipt += leftRight('Tax:', `PKR ${data.tax.toFixed(2)}`, W) + '\n'
+        if (data.deliveryCharges && data.deliveryCharges > 0) {
+            receipt += leftRight('Delivery:', `PKR ${data.deliveryCharges.toFixed(2)}`, W) + '\n'
+        }
+        receipt += line + '\n'
+        receipt += leftRight('TOTAL:', `PKR ${data.total.toFixed(2)}`, W) + '\n'
+
+        // Payment
+        if (data.paymentMethod) {
+            receipt += '\n' + center(`Payment: ${data.paymentMethod.toUpperCase()}`, W) + '\n'
+        }
+
+        // Notes
+        if (data.notes) {
+            receipt += '\n' + line + '\n'
+            receipt += 'Special Instructions:\n'
+            receipt += data.notes + '\n'
+        }
+
+        // Footer
+        receipt += '\n' + doubleLine + '\n'
+        receipt += center('Thank you for dining with us!', W) + '\n'
+        receipt += center('Please visit again', W) + '\n\n'
+        receipt += center('Powered by AT Restaurant POS', W) + '\n\n\n'
+
+        return receipt
+    }
+
+    const center = (text: string, width: number): string => {
+        const pad = Math.max(0, Math.floor((width - text.length) / 2))
+        return ' '.repeat(pad) + text
+    }
+
+    const leftRight = (left: string, right: string, width: number): string => {
+        const spaces = width - left.length - right.length
+        return left + ' '.repeat(Math.max(1, spaces)) + right
+    }
+
+    // ===================================
+    // SHOW PRINT INSTRUCTIONS
+    // ===================================
+    const showPrintInstructions = (orderNumber: string) => {
+        const modal = document.createElement('div')
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            backdrop-filter: blur(4px);
+        `
+
+        const content = document.createElement('div')
+        content.style.cssText = `
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        `
+
+        content.innerHTML = `
+            <div style="font-size: 64px; margin-bottom: 16px;">🖨️</div>
+            <h2 style="font-size: 24px; font-weight: bold; color: #1f2937; margin-bottom: 12px;">
+                Receipt Downloaded!
+            </h2>
+            <p style="font-size: 14px; color: #6b7280; margin-bottom: 24px;">
+                File: <strong>receipt-${orderNumber}.txt</strong>
+            </p>
+            
+            <div style="background: #f3f4f6; border-radius: 12px; padding: 20px; margin-bottom: 24px; text-align: left;">
+                <h3 style="font-size: 16px; font-weight: 600; color: #1f2937; margin-bottom: 12px;">
+                    📋 How to Print:
+                </h3>
+                <ol style="font-size: 14px; color: #4b5563; line-height: 1.8; padding-left: 20px; margin: 0;">
+                    <li>Open <strong>receipt-${orderNumber}.txt</strong> from Downloads</li>
+                    <li>Press <strong>Ctrl+P</strong> (or right-click → Print)</li>
+                    <li>Select <strong>"Generic / Text Only"</strong> printer</li>
+                    <li>Click <strong>"Print"</strong></li>
+                </ol>
+            </div>
+
+            <button id="closeInstructionsBtn" style="
+                width: 100%;
+                padding: 14px;
+                background: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 10px;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s;
+            ">
+                Got it!
+            </button>
+        `
+
+        modal.appendChild(content)
+        document.body.appendChild(modal)
+
+        const closeBtn = content.querySelector('#closeInstructionsBtn')
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                document.body.removeChild(modal)
+            })
+        }
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                document.body.removeChild(modal)
+            }
+        })
+    }
+
+    // ===================================
+    // DOWNLOAD AS IMAGE
     // ===================================
     const handleDownload = async () => {
         setDownloading(true)
@@ -230,12 +425,12 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             <FileText className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
                             <div className="text-xs text-blue-700">
                                 <p className="font-semibold mb-1">📄 Text File Printing</p>
-                                <p>Receipt will download as a <strong>.txt</strong> file. Open it and press <kbd className="px-1 py-0.5 bg-white rounded border">Ctrl+P</kbd> to print.</p>
+                                <p>Receipt downloads as .txt file. Open and press Ctrl+P to print on any printer.</p>
                             </div>
                         </div>
                     </div>
 
-                    {/* Receipt Content */}
+                    {/* Receipt Preview */}
                     <div ref={receiptRef} className="p-6 font-mono bg-white" style={{ maxHeight: '50vh', overflowY: 'auto' }}>
                         <div className="text-center mb-6">
                             <h2 className="text-2xl font-bold mb-1 text-gray-900">AT Restaurant</h2>
@@ -360,7 +555,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             ) : (
                                 <Download className="w-4 h-4" />
                             )}
-                            {downloading ? 'Downloading...' : 'Save Image'}
+                            {downloading ? 'Saving...' : 'Save Image'}
                         </button>
 
                         <button
@@ -373,7 +568,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             ) : (
                                 <FileText className="w-4 h-4" />
                             )}
-                            {printing ? 'Creating...' : 'Print (Text File)'}
+                            {printing ? 'Creating...' : 'Print Receipt'}
                         </button>
                     </div>
                 </div>
