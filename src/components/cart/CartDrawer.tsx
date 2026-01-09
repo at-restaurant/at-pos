@@ -1,4 +1,4 @@
-// src/components/cart/CartDrawer.tsx - AUTO COMPLETE DELIVERY ORDERS
+// src/components/cart/CartDrawer.tsx - COMPLETE FULL FILE WITH ALL FIXES
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -7,6 +7,8 @@ import { Plus, Minus, X, CheckCircle, Truck, Home, CreditCard, Banknote, Chevron
 import { useOrderManagement } from '@/lib/hooks'
 import ReceiptModal from '@/components/features/receipt/ReceiptGenerator'
 import { createClient } from '@/lib/supabase/client'
+import { productionPrinter } from '@/lib/print/ProductionPrinter' // ✅ ADDED
+import { ReceiptData } from '@/types' // ✅ ADDED
 
 interface CartDrawerProps {
     isOpen: boolean
@@ -147,6 +149,12 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         return (cart.subtotal() * percent) / 100
     }
 
+    // ✅ FIXED: Type-safe payment method validation
+    const validatePaymentMethod = (method: 'cash' | 'online'): 'cash' | 'online' | 'card' => {
+        if (method === 'cash' || method === 'online') return method
+        return 'cash'
+    }
+
     const placeOrder = async () => {
         if (cart.items.length === 0) return
         if (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId)) return
@@ -163,16 +171,14 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
         const orderData: any = {
             waiter_id: cart.waiterId || null,
-            // ✅ AUTO COMPLETE: Set status to 'completed' for delivery orders
-            status: orderType === 'delivery' ? 'completed' : 'pending',
+            status: 'pending', // ✅ FIXED: All orders start pending
             subtotal,
             tax,
             total_amount: total,
             notes: cart.notes || null,
             order_type: orderType,
             payment_method: orderType === 'delivery' ? paymentMethod : null,
-            // ✅ AUTO PRINT: Mark receipt as printed for delivery orders
-            receipt_printed: orderType === 'delivery' ? true : false
+            receipt_printed: false // ✅ FIXED: Will be marked after print
         }
 
         if (orderType === 'dine-in') {
@@ -187,6 +193,49 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         const result = await createOrder(orderData, cart.items)
 
         if (result.success && result.order) {
+            // ✅ AUTO-PRINT FOR DELIVERY ORDERS
+            if (orderType === 'delivery') {
+                console.log('🚚 Delivery order - auto-printing receipt')
+
+                const receiptData: ReceiptData = {
+                    restaurantName: 'AT RESTAURANT',
+                    tagline: 'Delicious Food, Memorable Moments',
+                    address: 'Sooter Mills Rd, Lahore',
+                    orderNumber: result.order.id.slice(0, 8).toUpperCase(),
+                    date: new Date(result.order.created_at).toLocaleString('en-PK'),
+                    orderType: 'delivery',
+                    customerName: details.customer_name,
+                    customerPhone: details.customer_phone,
+                    deliveryAddress: details.delivery_address,
+                    deliveryCharges: details.delivery_charges,
+                    items: cart.items.map(i => {
+                        const category = menuCategories[i.id]
+                        return {
+                            name: i.name,
+                            quantity: i.quantity,
+                            price: i.price,
+                            total: i.price * i.quantity,
+                            category: category
+                                ? `${category.icon} ${category.name}`
+                                : '📋 Uncategorized'
+                        }
+                    }),
+                    subtotal,
+                    tax,
+                    total,
+                    paymentMethod: validatePaymentMethod(paymentMethod),
+                    notes: cart.notes
+                }
+
+                const printResult = await productionPrinter.print(receiptData)
+
+                if (printResult.success) {
+                    console.log('✅ Delivery receipt printed')
+                } else {
+                    console.warn('⚠️ Print queued for retry')
+                }
+            }
+
             const waiter = waiters.find(w => w.id === cart.waiterId)
             const table = tables.find(t => t.id === cart.tableId)
 
@@ -230,7 +279,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             <div className="fixed inset-0 bg-black/60 z-50 backdrop-blur-sm" onClick={onClose} />
             <div className="fixed right-0 top-0 h-full w-full sm:max-w-md bg-[var(--card)] border-l border-[var(--border)] z-50 flex flex-col shadow-2xl">
 
-                {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-[var(--border)] bg-[var(--card)]">
                     <div>
                         <h2 className="text-xl font-bold text-[var(--fg)]">Your Order</h2>
@@ -241,9 +289,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                     </button>
                 </div>
 
-                {/* Content */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[var(--card)]">
-                    {/* Order Type */}
                     <div className="grid grid-cols-2 gap-2">
                         <button
                             onClick={() => {
@@ -276,16 +322,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         </button>
                     </div>
 
-                    {/* ✅ AUTO COMPLETE INFO for Delivery */}
-                    {orderType === 'delivery' && (
-                        <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                            <p className="text-xs text-green-600 font-medium">
-                                ✅ Delivery orders will be automatically marked as completed and printed
-                            </p>
-                        </div>
-                    )}
-
-                    {/* Payment Method - Only for Delivery */}
                     {orderType === 'delivery' && (
                         <div className="space-y-2">
                             <label className="block text-sm font-medium text-[var(--fg)]">
@@ -322,7 +358,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         </div>
                     )}
 
-                    {/* Dine-In Fields */}
                     {orderType === 'dine-in' && (
                         <div className="space-y-3">
                             <div>
@@ -404,7 +439,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         </div>
                     )}
 
-                    {/* Delivery Details */}
                     {orderType === 'delivery' && (
                         <>
                             <button
@@ -455,7 +489,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         </>
                     )}
 
-                    {/* Cart Items GROUPED BY CATEGORY */}
                     {cart.items.length > 0 && (
                         <div className="space-y-4">
                             <h3 className="text-sm font-semibold text-[var(--fg)] px-1">Order Items by Category</h3>
@@ -530,7 +563,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         </div>
                     )}
 
-                    {/* Empty Cart */}
                     {cart.items.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-12">
                             <div className="text-6xl mb-4">🛒</div>
@@ -540,7 +572,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                     )}
                 </div>
 
-                {/* Footer */}
                 {cart.items.length > 0 && (
                     <div className="border-t border-[var(--border)] p-4 bg-[var(--card)]">
                         <div className="space-y-2 mb-4">
@@ -605,18 +636,12 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                             ) : (
                                 <CheckCircle className="w-5 h-5" />
                             )}
-                            {loading ? 'Placing...' : orderType === 'delivery' ? 'Place & Complete Order' : 'Place Order'}
+                            {loading ? 'Placing...' : orderType === 'delivery' ? 'Place Delivery Order' : 'Place Order'}
                         </button>
 
                         {orderType === 'dine-in' && (
                             <p className="text-xs text-center text-[var(--muted)] mt-2">
                                 💡 Payment method will be selected when completing the order
-                            </p>
-                        )}
-
-                        {orderType === 'delivery' && (
-                            <p className="text-xs text-center text-green-600 mt-2">
-                                ✅ This order will be automatically completed after placement
                             </p>
                         )}
                     </div>

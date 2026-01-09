@@ -1,4 +1,5 @@
-// src/lib/hooks/useOrderManagement.ts - UUID FIX
+// src/lib/hooks/useOrderManagement.ts - COMPLETE FILE
+// ✅ Fixed with ProductionPrinter integration
 
 import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -6,8 +7,9 @@ import { useToast } from '@/components/ui/Toast'
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { addToQueue } from '@/lib/db/syncQueue'
+import { productionPrinter } from '@/lib/print/ProductionPrinter' // ✅ NEW IMPORT
+import { ReceiptData } from '@/types' // ✅ NEW IMPORT
 
-// ✅ FIX: Generate proper UUID
 function generateUUID(): string {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
         const r = Math.random() * 16 | 0
@@ -91,6 +93,9 @@ export function useOrderManagement() {
         }
     }, [supabase])
 
+    // ============================================
+    // ✅ FIXED: printAndComplete with actual printing
+    // ============================================
     const printAndComplete = useCallback(async (
         orderId: string,
         tableId?: string,
@@ -98,8 +103,71 @@ export function useOrderManagement() {
     ) => {
         setLoading(true)
         try {
+            // ✅ STEP 1: Get order data
+            const { data: order, error: fetchError } = await supabase
+                .from('orders')
+                .select(`
+                    *,
+                    restaurant_tables(table_number),
+                    waiters(name),
+                    order_items(*, menu_items(name, price, category_id))
+                `)
+                .eq('id', orderId)
+                .single()
+
+            if (fetchError || !order) throw new Error('Order not found')
+
+            // ✅ STEP 2: Get categories for grouping
+            const { data: categories } = await supabase
+                .from('menu_categories')
+                .select('id, name, icon')
+
+            // ✅ STEP 3: Build receipt data
+            const receiptData: ReceiptData = {
+                restaurantName: 'AT RESTAURANT',
+                tagline: 'Delicious Food, Memorable Moments',
+                address: 'Sooter Mills Rd, Lahore',
+                orderNumber: orderId.slice(0, 8).toUpperCase(),
+                date: new Date(order.created_at).toLocaleString('en-PK'),
+                orderType: order.order_type || 'dine-in',
+                tableNumber: order.restaurant_tables?.table_number,
+                waiter: order.waiters?.name,
+                customerName: order.customer_name,
+                customerPhone: order.customer_phone,
+                deliveryAddress: order.delivery_address,
+                deliveryCharges: order.delivery_charges,
+                items: order.order_items.map((item: any) => {
+                    const category = categories?.find(c => c.id === item.menu_items.category_id)
+                    return {
+                        name: item.menu_items.name,
+                        quantity: item.quantity,
+                        price: item.menu_items.price,
+                        total: item.total_price,
+                        category: category ? `${category.icon} ${category.name}` : '📋 Other'
+                    }
+                }),
+                subtotal: order.subtotal,
+                tax: order.tax,
+                total: order.total_amount,
+                paymentMethod: order.payment_method,
+                notes: order.notes
+            }
+
+            // ✅ STEP 4: PRINT FIRST (most important!)
+            const printResult = await productionPrinter.print(receiptData)
+
+            if (!printResult.success) {
+                toast.add('warning', '⚠️ Print queued - will retry automatically')
+            } else {
+                toast.add('success', '✅ Receipt printed!')
+            }
+
+            // ✅ STEP 5: Mark as printed
             await markPrinted(orderId)
+
+            // ✅ STEP 6: Complete order
             const result = await completeOrder(orderId, tableId, orderType)
+
             return result
         } catch (error: any) {
             toast.add('error', `❌ ${error.message}`)
@@ -107,8 +175,11 @@ export function useOrderManagement() {
         } finally {
             setLoading(false)
         }
-    }, [markPrinted, completeOrder, toast])
+    }, [markPrinted, completeOrder, toast, supabase])
 
+    // ============================================
+    // createOrder - UNCHANGED
+    // ============================================
     const createOrder = useCallback(async (orderData: any, items: any[]) => {
         const idempotencyKey = orderData.idempotencyKey ||
             `order_${orderData.table_id || 'delivery'}_${Date.now()}`
@@ -125,7 +196,6 @@ export function useOrderManagement() {
                 const isOnline = navigator.onLine
 
                 if (isOnline) {
-                    // ✅ Online: Check for duplicates
                     const { data: existingOrder } = await supabase
                         .from('orders')
                         .select('id')
@@ -143,7 +213,6 @@ export function useOrderManagement() {
                         }
                     }
 
-                    // ✅ Create order online
                     const { data: order, error: orderError } = await supabase
                         .from('orders')
                         .insert(orderData)
@@ -188,7 +257,6 @@ export function useOrderManagement() {
                     toast.add('success', '✅ Order created!')
                     return { success: true, order }
                 } else {
-                    // ✅ OFFLINE: Use proper UUID format
                     const existingOffline = await db.get(STORES.ORDERS, idempotencyKey)
                     if (existingOffline) {
                         console.log('⚠️ Duplicate offline order prevented')
@@ -199,13 +267,12 @@ export function useOrderManagement() {
                         }
                     }
 
-                    // ✅ Generate UUID for offline order
                     const orderId = generateUUID()
 
                     const offlineOrder = {
                         ...orderData,
-                        id: orderId, // ✅ UUID format
-                        offline_id: `offline_${Date.now()}`, // ✅ Keep offline marker
+                        id: orderId,
+                        offline_id: `offline_${Date.now()}`,
                         idempotencyKey,
                         created_at: new Date().toISOString(),
                         synced: false
@@ -214,7 +281,7 @@ export function useOrderManagement() {
                     await db.put(STORES.ORDERS, offlineOrder)
 
                     const orderItems = items.map(item => ({
-                        id: generateUUID(), // ✅ UUID for items too
+                        id: generateUUID(),
                         order_id: orderId,
                         menu_item_id: item.id,
                         quantity: item.quantity,
@@ -265,7 +332,7 @@ export function useOrderManagement() {
         completeOrder,
         cancelOrder,
         markPrinted,
-        printAndComplete,
+        printAndComplete, // ✅ Now with actual printing
         createOrder,
         loading
     }

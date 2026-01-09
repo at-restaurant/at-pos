@@ -1,10 +1,11 @@
-// src/components/features/receipt/ReceiptGenerator.tsx - CLEAN VERSION (No API calls)
+// src/components/features/receipt/ReceiptGenerator.tsx - COMPLETE FIXED FILE
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { Download, X, AlertCircle, CheckCircle, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { ReceiptData } from '@/types'
+import { productionPrinter } from '@/lib/print/ProductionPrinter'
 
 type ReceiptProps = {
     order: {
@@ -53,42 +54,44 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         setCategories(data || [])
     }
 
-    // ===================================
-    // TEXT FILE PRINT - PURE CLIENT SIDE
-    // ===================================
+    // ✅ FIXED: Type-safe payment method validation
+    const validatePaymentMethod = (method?: string): 'cash' | 'online' | 'card' | undefined => {
+        if (!method) return undefined
+        if (method === 'cash' || method === 'online' || method === 'card') {
+            return method
+        }
+        return 'cash' // default fallback
+    }
+
     const handlePrint = async () => {
         setPrinting(true)
         setPrintStatus('idle')
-        setStatusMessage('Creating receipt file...')
+        setStatusMessage('Printing receipt...')
 
         try {
-            // Build receipt data
             const itemsWithCategories = order.order_items.map(item => {
                 const category = categories.find(c => c.id === item.menu_items.category_id)
                 return {
-                    name: item.menu_items.name,
+                    name: item.menu_items?.name,
                     quantity: item.quantity,
-                    price: item.menu_items.price,
+                    price: item.menu_items?.price,
                     total: item.total_price,
                     category: category ? `${category.icon} ${category.name}` : '📋 Other'
                 }
             })
 
-            const receiptData = {
+            const receiptData: ReceiptData = {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
                 address: 'Sooter Mills Rd, Lahore',
                 orderNumber: order.id.slice(0, 8).toUpperCase(),
-                date: new Date(order.created_at).toLocaleString('en-PK', {
-                    dateStyle: 'medium',
-                    timeStyle: 'short'
-                }),
+                date: new Date(order.created_at).toLocaleString('en-PK'),
                 orderType: order.order_type || 'dine-in',
                 items: itemsWithCategories,
                 subtotal: order.subtotal,
                 tax: order.tax,
                 total: order.total_amount,
-                paymentMethod: order.payment_method,
+                paymentMethod: validatePaymentMethod(order.payment_method), // ✅ FIXED
                 customerName: order.customer_name,
                 customerPhone: order.customer_phone,
                 deliveryAddress: order.delivery_address,
@@ -98,19 +101,15 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 notes: order.notes
             }
 
-            // Format receipt text
-            const receiptText = formatReceiptText(receiptData)
+            const result = await productionPrinter.print(receiptData)
 
-            // Download as text file
-            downloadTextFile(receiptText, order.id.slice(0, 8).toUpperCase())
-
-            setPrintStatus('success')
-            setStatusMessage('✅ Receipt file downloaded! Open it and press Ctrl+P to print.')
-
-            // Show instructions
-            setTimeout(() => {
-                showPrintInstructions(order.id.slice(0, 8).toUpperCase())
-            }, 500)
+            if (result.success) {
+                setPrintStatus('success')
+                setStatusMessage('✅ Receipt printed successfully!')
+            } else {
+                setPrintStatus('error')
+                setStatusMessage(`❌ ${result.error || 'Print failed'}`)
+            }
 
         } catch (error: any) {
             console.error('Print error:', error)
@@ -121,201 +120,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         }
     }
 
-    // ===================================
-    // DOWNLOAD TEXT FILE
-    // ===================================
-    const downloadTextFile = (text: string, orderNumber: string) => {
-        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `receipt-${orderNumber}.txt`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        setTimeout(() => URL.revokeObjectURL(url), 100)
-    }
-
-    // ===================================
-    // FORMAT RECEIPT TEXT
-    // ===================================
-    const formatReceiptText = (data: any): string => {
-        const W = 42
-        const line = '-'.repeat(W)
-        const doubleLine = '='.repeat(W)
-
-        let receipt = '\n'
-
-        // Header
-        receipt += center(data.restaurantName, W) + '\n'
-        receipt += center(data.tagline, W) + '\n'
-        receipt += line + '\n'
-        receipt += center(data.address, W) + '\n'
-        receipt += doubleLine + '\n\n'
-
-        // Order Info
-        receipt += `Order #: ${data.orderNumber}\n`
-        receipt += `Date: ${data.date}\n`
-        receipt += `Type: ${data.orderType === 'delivery' ? 'DELIVERY' : 'DINE-IN'}\n`
-        if (data.tableNumber) receipt += `Table: #${data.tableNumber}\n`
-        if (data.waiter) receipt += `Waiter: ${data.waiter}\n`
-        receipt += line + '\n\n'
-
-        // Delivery Details
-        if (data.orderType === 'delivery' && (data.customerName || data.customerPhone)) {
-            receipt += 'DELIVERY DETAILS\n' + line + '\n'
-            if (data.customerName) receipt += `Name: ${data.customerName}\n`
-            if (data.customerPhone) receipt += `Phone: ${data.customerPhone}\n`
-            if (data.deliveryAddress) receipt += `Address: ${data.deliveryAddress}\n`
-            receipt += line + '\n\n'
-        }
-
-        // Items (Grouped)
-        receipt += 'ORDER ITEMS\n' + line + '\n'
-        const grouped: Record<string, any[]> = {}
-        data.items.forEach((item: any) => {
-            const cat = item.category || 'Other'
-            if (!grouped[cat]) grouped[cat] = []
-            grouped[cat].push(item)
-        })
-
-        Object.entries(grouped).forEach(([category, items]) => {
-            receipt += `\n${category}\n`
-            items.forEach(item => {
-                const itemLine = `${item.quantity}x ${item.name}`
-                const price = `PKR ${item.total.toFixed(2)}`
-                receipt += leftRight(itemLine, price, W) + '\n'
-                receipt += `   @ PKR ${item.price.toFixed(2)} each\n`
-            })
-        })
-
-        // Totals
-        receipt += '\n' + doubleLine + '\n'
-        receipt += leftRight('Subtotal:', `PKR ${data.subtotal.toFixed(2)}`, W) + '\n'
-        receipt += leftRight('Tax:', `PKR ${data.tax.toFixed(2)}`, W) + '\n'
-        if (data.deliveryCharges && data.deliveryCharges > 0) {
-            receipt += leftRight('Delivery:', `PKR ${data.deliveryCharges.toFixed(2)}`, W) + '\n'
-        }
-        receipt += line + '\n'
-        receipt += leftRight('TOTAL:', `PKR ${data.total.toFixed(2)}`, W) + '\n'
-
-        // Payment
-        if (data.paymentMethod) {
-            receipt += '\n' + center(`Payment: ${data.paymentMethod.toUpperCase()}`, W) + '\n'
-        }
-
-        // Notes
-        if (data.notes) {
-            receipt += '\n' + line + '\n'
-            receipt += 'Special Instructions:\n'
-            receipt += data.notes + '\n'
-        }
-
-        // Footer
-        receipt += '\n' + doubleLine + '\n'
-        receipt += center('Thank you for dining with us!', W) + '\n'
-        receipt += center('Please visit again', W) + '\n\n'
-        receipt += center('Powered by AT Restaurant POS', W) + '\n\n\n'
-
-        return receipt
-    }
-
-    const center = (text: string, width: number): string => {
-        const pad = Math.max(0, Math.floor((width - text.length) / 2))
-        return ' '.repeat(pad) + text
-    }
-
-    const leftRight = (left: string, right: string, width: number): string => {
-        const spaces = width - left.length - right.length
-        return left + ' '.repeat(Math.max(1, spaces)) + right
-    }
-
-    // ===================================
-    // SHOW PRINT INSTRUCTIONS
-    // ===================================
-    const showPrintInstructions = (orderNumber: string) => {
-        const modal = document.createElement('div')
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 99999;
-            backdrop-filter: blur(4px);
-        `
-
-        const content = document.createElement('div')
-        content.style.cssText = `
-            background: white;
-            border-radius: 16px;
-            padding: 32px;
-            max-width: 500px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            text-align: center;
-        `
-
-        content.innerHTML = `
-            <div style="font-size: 64px; margin-bottom: 16px;">🖨️</div>
-            <h2 style="font-size: 24px; font-weight: bold; color: #1f2937; margin-bottom: 12px;">
-                Receipt Downloaded!
-            </h2>
-            <p style="font-size: 14px; color: #6b7280; margin-bottom: 24px;">
-                File: <strong>receipt-${orderNumber}.txt</strong>
-            </p>
-            
-            <div style="background: #f3f4f6; border-radius: 12px; padding: 20px; margin-bottom: 24px; text-align: left;">
-                <h3 style="font-size: 16px; font-weight: 600; color: #1f2937; margin-bottom: 12px;">
-                    📋 How to Print:
-                </h3>
-                <ol style="font-size: 14px; color: #4b5563; line-height: 1.8; padding-left: 20px; margin: 0;">
-                    <li>Open <strong>receipt-${orderNumber}.txt</strong> from Downloads</li>
-                    <li>Press <strong>Ctrl+P</strong> (or right-click → Print)</li>
-                    <li>Select <strong>"Generic / Text Only"</strong> printer</li>
-                    <li>Click <strong>"Print"</strong></li>
-                </ol>
-            </div>
-
-            <button id="closeInstructionsBtn" style="
-                width: 100%;
-                padding: 14px;
-                background: #3b82f6;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                font-size: 16px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.2s;
-            ">
-                Got it!
-            </button>
-        `
-
-        modal.appendChild(content)
-        document.body.appendChild(modal)
-
-        const closeBtn = content.querySelector('#closeInstructionsBtn')
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => {
-                document.body.removeChild(modal)
-            })
-        }
-
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                document.body.removeChild(modal)
-            }
-        })
-    }
-
-    // ===================================
-    // DOWNLOAD AS IMAGE
-    // ===================================
     const handleDownload = async () => {
         setDownloading(true)
         try {
@@ -385,7 +189,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         <>
             <div className="fixed inset-0 flex items-center justify-center p-4 z-50 bg-black/70">
                 <div className="rounded-xl w-full max-w-md border bg-white max-h-[90vh] overflow-y-auto">
-                    {/* Header */}
                     <div className="sticky top-0 flex items-center justify-between p-6 border-b bg-white z-10">
                         <div className="flex items-center gap-3">
                             <FileText className="w-6 h-6 text-blue-600" />
@@ -399,7 +202,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                         </button>
                     </div>
 
-                    {/* Status Messages */}
                     {printStatus !== 'idle' && (
                         <div className={`mx-6 mt-4 p-4 rounded-lg flex items-center gap-3 ${
                             printStatus === 'success'
@@ -419,18 +221,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                         </div>
                     )}
 
-                    {/* Info Banner */}
-                    <div className="mx-6 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div className="flex items-start gap-2">
-                            <FileText className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                            <div className="text-xs text-blue-700">
-                                <p className="font-semibold mb-1">📄 Text File Printing</p>
-                                <p>Receipt downloads as .txt file. Open and press Ctrl+P to print on any printer.</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Receipt Preview */}
                     <div ref={receiptRef} className="p-6 font-mono bg-white" style={{ maxHeight: '50vh', overflowY: 'auto' }}>
                         <div className="text-center mb-6">
                             <h2 className="text-2xl font-bold mb-1 text-gray-900">AT Restaurant</h2>
@@ -538,12 +328,11 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                         <div className="border-t-2 border-dashed my-4 border-gray-300"></div>
 
                         <div className="text-center text-sm text-gray-600">
-                            <p className="mb-1 font-bold">Thank you for dining with us!</p>
+                            <p className="mb-1 font-bold">Thank you for dining with us! 🙏</p>
                             <p className="text-xs text-gray-500 mt-3">Powered by AT Restaurant POS</p>
                         </div>
                     </div>
 
-                    {/* Actions */}
                     <div className="sticky bottom-0 flex gap-3 p-6 border-t bg-white">
                         <button
                             onClick={handleDownload}
@@ -568,7 +357,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                             ) : (
                                 <FileText className="w-4 h-4" />
                             )}
-                            {printing ? 'Creating...' : 'Print Receipt'}
+                            {printing ? 'Printing...' : 'Print Receipt'}
                         </button>
                     </div>
                 </div>
