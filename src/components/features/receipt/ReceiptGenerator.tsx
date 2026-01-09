@@ -1,10 +1,10 @@
-// src/components/features/receipt/ReceiptGenerator.tsx - COMPLETE FIXED FILE
+// src/components/features/receipt/ReceiptGenerator.tsx - COMPLETE FIXED
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Download, X, AlertCircle, CheckCircle, FileText } from 'lucide-react'
+import { X, AlertCircle, CheckCircle, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { ReceiptData } from '@/types'
+import type { ReceiptData } from '@/types'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
 
 type ReceiptProps = {
@@ -31,11 +31,11 @@ type ReceiptProps = {
         }>
     }
     onClose: () => void
+    hideDownload?: boolean  // ✅ NEW: Optional prop to hide download
 }
 
-export default function ReceiptModal({ order, onClose }: ReceiptProps) {
+export default function ReceiptModal({ order, onClose, hideDownload = false }: ReceiptProps) {
     const [categories, setCategories] = useState<any[]>([])
-    const [downloading, setDownloading] = useState(false)
     const [printing, setPrinting] = useState(false)
     const [statusMessage, setStatusMessage] = useState('')
     const [printStatus, setPrintStatus] = useState<'idle' | 'success' | 'error'>('idle')
@@ -54,13 +54,12 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
         setCategories(data || [])
     }
 
-    // ✅ FIXED: Type-safe payment method validation
     const validatePaymentMethod = (method?: string): 'cash' | 'online' | 'card' | undefined => {
         if (!method) return undefined
         if (method === 'cash' || method === 'online' || method === 'card') {
             return method
         }
-        return 'cash' // default fallback
+        return 'cash'
     }
 
     const handlePrint = async () => {
@@ -91,7 +90,7 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                 subtotal: order.subtotal,
                 tax: order.tax,
                 total: order.total_amount,
-                paymentMethod: validatePaymentMethod(order.payment_method), // ✅ FIXED
+                paymentMethod: validatePaymentMethod(order.payment_method),
                 customerName: order.customer_name,
                 customerPhone: order.customer_phone,
                 deliveryAddress: order.delivery_address,
@@ -117,36 +116,6 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
             setStatusMessage('❌ Error: ' + error.message)
         } finally {
             setPrinting(false)
-        }
-    }
-
-    const handleDownload = async () => {
-        setDownloading(true)
-        try {
-            const html2canvas = (await import('html2canvas')).default
-            if (!receiptRef.current) return
-
-            const canvas = await html2canvas(receiptRef.current, {
-                backgroundColor: '#ffffff',
-                scale: 2,
-                logging: false
-            })
-
-            canvas.toBlob((blob) => {
-                if (!blob) return
-                const url = URL.createObjectURL(blob)
-                const a = document.createElement('a')
-                a.href = url
-                a.download = `receipt-${order.id.slice(0, 8)}.png`
-                document.body.appendChild(a)
-                a.click()
-                document.body.removeChild(a)
-                URL.revokeObjectURL(url)
-            }, 'image/png')
-        } catch (error) {
-            console.error('Download failed:', error)
-        } finally {
-            setDownloading(false)
         }
     }
 
@@ -333,24 +302,12 @@ export default function ReceiptModal({ order, onClose }: ReceiptProps) {
                         </div>
                     </div>
 
+                    {/* ✅ Footer with conditional download button */}
                     <div className="sticky bottom-0 flex gap-3 p-6 border-t bg-white">
-                        <button
-                            onClick={handleDownload}
-                            disabled={downloading}
-                            className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-gray-100 text-gray-900 hover:bg-gray-200 disabled:opacity-50 text-sm"
-                        >
-                            {downloading ? (
-                                <div className="w-4 h-4 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                                <Download className="w-4 h-4" />
-                            )}
-                            {downloading ? 'Saving...' : 'Save Image'}
-                        </button>
-
                         <button
                             onClick={handlePrint}
                             disabled={printing}
-                            className="flex-1 px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 text-sm"
+                            className="w-full px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 text-sm"
                         >
                             {printing ? (
                                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

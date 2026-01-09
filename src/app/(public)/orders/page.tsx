@@ -1,4 +1,4 @@
-// src/app/(public)/orders/page.tsx - UPDATED WITH OFFLINE SUPPORT
+// src/app/(public)/orders/page.tsx - COMPLETE WITH PRINT QUEUE
 "use client"
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +18,7 @@ import { createClient } from '@/lib/supabase/client'
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
+import { productionPrinter } from '@/lib/print/ProductionPrinter'
 
 export default function OrdersPage() {
     const [filter, setFilter] = useState('active')

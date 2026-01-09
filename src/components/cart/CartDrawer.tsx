@@ -1,4 +1,4 @@
-// src/components/cart/CartDrawer.tsx - COMPLETE FULL FILE WITH ALL FIXES
+// src/components/cart/CartDrawer.tsx - COMPLETE FIXED FILE
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -7,8 +7,8 @@ import { Plus, Minus, X, CheckCircle, Truck, Home, CreditCard, Banknote, Chevron
 import { useOrderManagement } from '@/lib/hooks'
 import ReceiptModal from '@/components/features/receipt/ReceiptGenerator'
 import { createClient } from '@/lib/supabase/client'
-import { productionPrinter } from '@/lib/print/ProductionPrinter' // ✅ ADDED
-import { ReceiptData } from '@/types' // ✅ ADDED
+import { productionPrinter } from '@/lib/print/ProductionPrinter'
+import type { ReceiptData } from '@/types'
 
 interface CartDrawerProps {
     isOpen: boolean
@@ -149,7 +149,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         return (cart.subtotal() * percent) / 100
     }
 
-    // ✅ FIXED: Type-safe payment method validation
     const validatePaymentMethod = (method: 'cash' | 'online'): 'cash' | 'online' | 'card' => {
         if (method === 'cash' || method === 'online') return method
         return 'cash'
@@ -171,14 +170,14 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
         const orderData: any = {
             waiter_id: cart.waiterId || null,
-            status: 'pending', // ✅ FIXED: All orders start pending
+            status: 'pending',
             subtotal,
             tax,
             total_amount: total,
             notes: cart.notes || null,
             order_type: orderType,
             payment_method: orderType === 'delivery' ? paymentMethod : null,
-            receipt_printed: false // ✅ FIXED: Will be marked after print
+            receipt_printed: false
         }
 
         if (orderType === 'dine-in') {
@@ -193,49 +192,48 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         const result = await createOrder(orderData, cart.items)
 
         if (result.success && result.order) {
-            // ✅ AUTO-PRINT FOR DELIVERY ORDERS
-            if (orderType === 'delivery') {
-                console.log('🚚 Delivery order - auto-printing receipt')
+            // ✅ AUTO-PRINT FOR ALL ORDERS (Browser dialog)
+            console.log('🖨️ Auto-printing receipt...')
 
-                const receiptData: ReceiptData = {
-                    restaurantName: 'AT RESTAURANT',
-                    tagline: 'Delicious Food, Memorable Moments',
-                    address: 'Sooter Mills Rd, Lahore',
-                    orderNumber: result.order.id.slice(0, 8).toUpperCase(),
-                    date: new Date(result.order.created_at).toLocaleString('en-PK'),
-                    orderType: 'delivery',
-                    customerName: details.customer_name,
-                    customerPhone: details.customer_phone,
-                    deliveryAddress: details.delivery_address,
-                    deliveryCharges: details.delivery_charges,
-                    items: cart.items.map(i => {
-                        const category = menuCategories[i.id]
-                        return {
-                            name: i.name,
-                            quantity: i.quantity,
-                            price: i.price,
-                            total: i.price * i.quantity,
-                            category: category
-                                ? `${category.icon} ${category.name}`
-                                : '📋 Uncategorized'
-                        }
-                    }),
-                    subtotal,
-                    tax,
-                    total,
-                    paymentMethod: validatePaymentMethod(paymentMethod),
-                    notes: cart.notes
-                }
-
-                const printResult = await productionPrinter.print(receiptData)
-
-                if (printResult.success) {
-                    console.log('✅ Delivery receipt printed')
-                } else {
-                    console.warn('⚠️ Print queued for retry')
-                }
+            const receiptData: ReceiptData = {
+                restaurantName: 'AT RESTAURANT',
+                tagline: 'Delicious Food, Memorable Moments',
+                address: 'Sooter Mills Rd, Lahore',
+                orderNumber: result.order.id.slice(0, 8).toUpperCase(),
+                date: new Date(result.order.created_at).toLocaleString('en-PK'),
+                orderType,
+                customerName: orderType === 'delivery' ? details.customer_name : undefined,
+                customerPhone: orderType === 'delivery' ? details.customer_phone : undefined,
+                deliveryAddress: orderType === 'delivery' ? details.delivery_address : undefined,
+                deliveryCharges: orderType === 'delivery' ? details.delivery_charges : undefined,
+                tableNumber: orderType === 'dine-in' ? tables.find(t => t.id === cart.tableId)?.table_number : undefined,
+                waiter: waiters.find(w => w.id === cart.waiterId)?.name,
+                items: cart.items.map(i => {
+                    const category = menuCategories[i.id]
+                    return {
+                        name: i.name,
+                        quantity: i.quantity,
+                        price: i.price,
+                        total: i.price * i.quantity,
+                        category: category
+                            ? `${category.icon} ${category.name}`
+                            : '📋 Uncategorized'
+                    }
+                }),
+                subtotal,
+                tax,
+                total,
+                paymentMethod: orderType === 'delivery' ? validatePaymentMethod(paymentMethod) : undefined,
+                notes: cart.notes
             }
 
+            // Auto-print (browser dialog will open)
+            await productionPrinter.print(receiptData)
+
+            // Auto-print (browser dialog will open)
+            await productionPrinter.print(receiptData)
+
+            // Show success receipt modal
             const waiter = waiters.find(w => w.id === cart.waiterId)
             const table = tables.find(t => t.id === cart.tableId)
 
@@ -648,7 +646,16 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 )}
             </div>
 
-            {showReceipt && <ReceiptModal order={showReceipt} onClose={() => { setShowReceipt(null); onClose() }} />}
+            {showReceipt && (
+                <ReceiptModal
+                    order={showReceipt}
+                    onClose={() => {
+                        setShowReceipt(null)
+                        onClose()
+                    }}
+                    hideDownload={true}  // ✅ Hide download button
+                />
+            )}
         </>
     )
 }
