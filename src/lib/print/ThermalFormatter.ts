@@ -16,6 +16,10 @@ export class ThermalFormatter {
     format(data: ReceiptData): string {
         let receipt = ''
 
+        // ✅ ESC/POS Paper Size Commands
+        receipt += '\x1B\x40'           // ESC @ - Initialize printer
+        receipt += '\x1D\x50\x50\x00'   // GS P 80 0 - Set 80mm width
+
         // Header (minimal spacing)
         receipt += this.formatHeader(data)
 
@@ -43,8 +47,8 @@ export class ThermalFormatter {
             receipt += this.formatNotes(data.notes)
         }
 
-        // Footer (NO extra lines)
-        receipt += this.formatFooter()
+        // Footer (order type aware)
+        receipt += this.formatFooter(data.orderType)
 
         return receipt
     }
@@ -72,7 +76,7 @@ export class ThermalFormatter {
     }
 
     private formatOrderInfo(data: ReceiptData): string {
-        let text = ''
+        let text = '\n'
 
         text += this.leftRight('Order #:', data.orderNumber)
         text += this.leftRight('Date:', data.date)
@@ -87,13 +91,12 @@ export class ThermalFormatter {
         }
 
         text += this.line('-')
-        text += '\n'
 
         return text
     }
 
     private formatDeliveryDetails(data: ReceiptData): string {
-        let text = 'DELIVERY DETAILS\n'
+        let text = '\nDELIVERY DETAILS\n'
         text += this.line('-')
 
         if (data.customerName) {
@@ -108,20 +111,19 @@ export class ThermalFormatter {
         }
 
         text += this.line('-')
-        text += '\n'
 
         return text
     }
 
     private formatItems(data: ReceiptData): string {
-        let text = 'ORDER ITEMS\n'
+        let text = '\nORDER ITEMS\n'
         text += this.line('-')
 
         const grouped = this.groupByCategory(data.items)
 
         Object.entries(grouped).forEach(([category, items]) => {
             if (category && category !== 'Other' && category !== 'Uncategorized') {
-                text += '\n' + category + '\n'
+                text += category + '\n'
             }
 
             items.forEach(item => {
@@ -132,12 +134,11 @@ export class ThermalFormatter {
             })
         })
 
-        text += '\n'
         return text
     }
 
     private formatTotals(data: ReceiptData): string {
-        let text = this.line('=')
+        let text = '\n' + this.line('=')
 
         text += this.leftRight('Subtotal:', `PKR ${data.subtotal.toFixed(2)}`)
         text += this.leftRight('Tax:', `PKR ${data.tax.toFixed(2)}`)
@@ -152,7 +153,7 @@ export class ThermalFormatter {
 
         text += this.line('-')
         text += this.leftRight('TOTAL:', `PKR ${data.total.toFixed(2)}`)
-        text += '\n'
+
         return text
     }
 
@@ -162,30 +163,36 @@ export class ThermalFormatter {
                 method === 'card' ? 'CARD PAYMENT' :
                     method.toUpperCase()
 
-        let text = this.center(`Payment: ${display}`)
-        text += '\n'
+        let text = '\n' + this.center(`Payment: ${display}`)
+
         return text
     }
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // NOTES SECTION
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatNotes(notes: string): string {
-        let text = this.line('-')
+        let text = '\n' + this.line('-')
         text += 'Special Instructions:\n'
         text += this.wrapText(notes, this.width)
-        text += '\n'
         return text
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // FOOTER - NO COMMANDS (Printer driver handles cut)
+    // FOOTER - Order type aware message
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private formatFooter(): string {
-        let text = this.line('=')
-        text += this.center('Thank you for dining with us!')
-        text += '\n'
-        text += this.center('Please visit again')
-        text += '\n'
-        text += this.center('Powered by AT Restaurant POS')
-        text += '\n'
+    private formatFooter(orderType?: 'dine-in' | 'delivery'): string {
+        let text = '\n' + this.line('=')
+
+        if (orderType === 'delivery') {
+            text += this.center('Thank you for your order!')
+            text += '\n'
+            text += this.center('Order again soon!')
+        } else {
+            text += this.center('Thank you for dining with us!')
+            text += '\n'
+            text += this.center('Visit us again!')
+        }
 
         return text
     }
