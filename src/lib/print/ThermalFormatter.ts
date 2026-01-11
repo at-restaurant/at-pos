@@ -174,7 +174,7 @@ export class ThermalFormatter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // FOOTER - NO EXTRA NEWLINES (Fixed!)
+    // FOOTER - ESC/POS AUTO-CUT (Windows Optimized)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatFooter(): string {
         let text = this.line('=')
@@ -183,8 +183,11 @@ export class ThermalFormatter {
         text += this.center('Please visit again')
         text += '\n'
         text += this.center('Powered by AT Restaurant POS')
-        // ✅ NO EXTRA \n\n HERE - Just one newline for cut command
         text += '\n'
+
+        // ✅ ESC/POS Commands for Windows thermal printers
+        text += '\x1B\x64\x02'      // ESC d 2 - Feed 2 lines
+        text += '\x1D\x56\x41\x00'  // GS V A 0 - Partial cut
 
         return text
     }

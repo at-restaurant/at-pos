@@ -1,5 +1,5 @@
-// src/lib/print/ThermalPrinter.ts
-// ✅ FIXED: Single browser dialog, proper ESC/POS, no duplicate receipts
+// src/lib/print/ThermalPrinter.ts - FIXED
+// ✅ Proper browser dialog size, NO extra spacing, NO feedLines
 
 import { ReceiptData, PrintResponse } from '@/types'
 import ThermalFormatter from './ThermalFormatter'
@@ -8,7 +8,6 @@ interface PrinterConfig {
     width: number
     printerName: string
     autoCut: boolean
-    feedLines: number
 }
 
 export class ThermalPrinter {
@@ -22,7 +21,6 @@ export class ThermalPrinter {
             width: 42,
             printerName: 'Generic / Text Only',
             autoCut: true,
-            feedLines: 5,
             ...config
         }
 
@@ -31,11 +29,10 @@ export class ThermalPrinter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MAIN PRINT METHOD - SINGLE BROWSER DIALOG
+    // MAIN PRINT METHOD
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     async print(receipt: ReceiptData): Promise<PrintResponse> {
         if (this.isPrinting) {
-            console.warn('⚠️ Print already in progress')
             return {
                 success: false,
                 error: 'Printer is busy',
@@ -43,24 +40,20 @@ export class ThermalPrinter {
             }
         }
 
-        console.log('🖨️ Starting print:', receipt.orderNumber)
+        console.log('🖨️ Printing:', receipt.orderNumber)
 
         try {
             this.isPrinting = true
 
-            // Close any existing print window
             if (this.printWindow && !this.printWindow.closed) {
                 this.printWindow.close()
             }
 
-            // Format receipt with ESC/POS
             const receiptText = this.formatter.format(receipt)
-
-            // Print once via new window
             const success = await this.printViaWindow(receiptText)
 
             if (success) {
-                console.log('✅ Print completed:', receipt.orderNumber)
+                console.log('✅ Print completed')
                 return {
                     success: true,
                     message: 'Receipt printed',
@@ -83,72 +76,64 @@ export class ThermalPrinter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // PRINT VIA NEW WINDOW (Single Dialog)
+    // PRINT VIA IFRAME - NO LOCALHOST FETCH
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private async printViaWindow(receiptText: string): Promise<boolean> {
         return new Promise((resolve) => {
             try {
-                // Open new window with specific name (reuses same window)
-                this.printWindow = window.open('', 'ThermalPrint', 'width=1,height=1')
+                // ✅ Create hidden iframe
+                const iframe = document.createElement('iframe')
+                iframe.style.position = 'fixed'
+                iframe.style.right = '0'
+                iframe.style.bottom = '0'
+                iframe.style.width = '0'
+                iframe.style.height = '0'
+                iframe.style.border = 'none'
+                document.body.appendChild(iframe)
 
-                if (!this.printWindow) {
-                    console.error('❌ Failed to open print window (popup blocked?)')
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
+                if (!iframeDoc) {
+                    console.error('❌ Cannot access iframe document')
                     resolve(false)
                     return
                 }
 
-                const doc = this.printWindow.document
+                // Write HTML to iframe
+                iframeDoc.open()
+                iframeDoc.write(this.generatePrintHTML(receiptText))
+                iframeDoc.close()
 
-                // Write HTML with ESC/POS preserved
-                doc.open()
-                doc.write(this.generatePrintHTML(receiptText))
-                doc.close()
-
-                // Wait for content load
-                this.printWindow.onload = () => {
+                // Wait for content to load
+                setTimeout(() => {
                     try {
-                        this.printWindow!.focus()
+                        // Trigger print dialog
+                        iframe.contentWindow?.focus()
+                        iframe.contentWindow?.print()
 
-                        // Trigger print dialog (opens ONCE)
-                        this.printWindow!.print()
-
-                        // Cleanup after user closes dialog
+                        // Cleanup after print
                         setTimeout(() => {
-                            if (this.printWindow && !this.printWindow.closed) {
-                                this.printWindow.close()
-                            }
+                            document.body.removeChild(iframe)
                             resolve(true)
-                        }, 500)
+                        }, 1000)
 
                     } catch (err) {
-                        console.error('Print dialog error:', err)
-                        if (this.printWindow && !this.printWindow.closed) {
-                            this.printWindow.close()
-                        }
+                        console.error('Print error:', err)
+                        document.body.removeChild(iframe)
                         resolve(false)
                     }
-                }
-
-                // Timeout fallback
-                setTimeout(() => {
-                    if (this.printWindow && !this.printWindow.closed) {
-                        this.printWindow.close()
-                        resolve(false)
-                    }
-                }, 5000)
+                }, 100)
 
             } catch (error) {
-                console.error('Window creation error:', error)
+                console.error('iframe error:', error)
                 resolve(false)
             }
         })
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // HTML FOR RAW ESC/POS PRINTING
+    // HTML - WINDOWS THERMAL PRINTER OPTIMIZED
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private generatePrintHTML(receiptText: string): string {
-        // Keep ESC/POS commands intact in <pre> tag
         return `<!DOCTYPE html>
 <html>
 <head>
@@ -157,12 +142,23 @@ export class ThermalPrinter {
     <style>
         @page {
             size: 80mm auto;
-            margin: 0;
+            margin: 0mm;
         }
         
         @media print {
-            body { margin: 0; padding: 0; }
+            html, body { 
+                margin: 0 !important; 
+                padding: 0 !important;
+                height: auto !important;
+            }
             .no-print { display: none !important; }
+            
+            /* Windows Print Optimization */
+            @page { margin: 0; }
+            body { 
+                margin: 0;
+                padding: 0;
+            }
         }
         
         * {
@@ -171,13 +167,20 @@ export class ThermalPrinter {
             box-sizing: border-box;
         }
         
+        html {
+            margin: 0;
+            padding: 0;
+        }
+        
         body {
-            font-family: 'Courier New', monospace;
+            font-family: 'Courier New', 'Consolas', monospace;
             font-size: 12px;
-            line-height: 1.3;
+            line-height: 1.2;
             width: 80mm;
             background: white;
             color: black;
+            margin: 0;
+            padding: 0;
         }
         
         pre {
@@ -186,6 +189,7 @@ export class ThermalPrinter {
             white-space: pre;
             font-family: inherit;
             font-size: inherit;
+            line-height: inherit;
         }
     </style>
 </head>
@@ -233,9 +237,6 @@ export class ThermalPrinter {
         return this.print(testReceipt)
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // CONFIG
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     setConfig(config: Partial<PrinterConfig>) {
         this.config = { ...this.config, ...config }
         this.formatter.setWidth(this.config.width)
@@ -276,9 +277,6 @@ export class ThermalPrinter {
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SINGLETON
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 let printerInstance: ThermalPrinter | null = null
 
 export const thermalPrinter = (() => {
@@ -287,7 +285,7 @@ export const thermalPrinter = (() => {
             print: async () => ({ success: false, error: 'SSR mode' }),
             testPrint: async () => ({ success: false, error: 'SSR mode' }),
             setConfig: () => {},
-            getConfig: () => ({ width: 42, printerName: '', autoCut: true, feedLines: 5 }),
+            getConfig: () => ({ width: 42, printerName: '', autoCut: true }),
             isPrinterBusy: () => false,
             isAvailable: () => false
         } as any
