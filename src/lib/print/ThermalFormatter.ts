@@ -174,7 +174,7 @@ export class ThermalFormatter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // FOOTER - ESC/POS AUTO-CUT (Windows Optimized)
+    // FOOTER - NO COMMANDS (Printer driver handles cut)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatFooter(): string {
         let text = this.line('=')
@@ -184,10 +184,6 @@ export class ThermalFormatter {
         text += '\n'
         text += this.center('Powered by AT Restaurant POS')
         text += '\n'
-
-        // ✅ ESC/POS Commands for Windows thermal printers
-        text += '\x1B\x64\x02'      // ESC d 2 - Feed 2 lines
-        text += '\x1D\x56\x41\x00'  // GS V A 0 - Partial cut
 
         return text
     }
