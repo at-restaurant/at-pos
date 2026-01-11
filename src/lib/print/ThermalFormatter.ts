@@ -1,5 +1,5 @@
-// src/lib/print/ThermalFormatter.ts - COMPLETE FIX
-// ✅ Perfect formatting with proper alignment and categorization
+// src/lib/print/ThermalFormatter.ts - FIXED: No extra spacing
+// ✅ Minimal top space, NO bottom space wastage
 
 import type { ReceiptData } from '@/types'
 
@@ -10,9 +10,6 @@ export class ThermalFormatter {
         this.width = width
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MAIN FORMATTING METHOD
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     format(data: ReceiptData): string {
         let receipt = ''
 
@@ -43,47 +40,35 @@ export class ThermalFormatter {
             receipt += this.formatNotes(data.notes)
         }
 
-        // Footer
+        // Footer (NO EXTRA NEWLINES)
         receipt += this.formatFooter()
 
         return receipt
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // HEADER SECTION
+    // HEADER - Minimal top space
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatHeader(data: ReceiptData): string {
         let text = ''
 
-        // Restaurant Name (Centered + Large)
         text += this.center(data.restaurantName || 'AT RESTAURANT', true)
         text += '\n'
-
-        // Tagline (Centered)
         text += this.center(data.tagline || 'Delicious Food, Memorable Moments')
         text += '\n'
-
-        // Line
         text += this.line('-')
-
-        // Address (Centered)
         text += this.center(data.address || 'Sooter Mills Rd, Lahore')
         text += '\n'
         if (data.phone) {
             text += this.center(data.phone)
             text += '\n'
         }
-
-        // Double line
         text += this.line('=')
         text += '\n'
 
         return text
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ORDER INFO SECTION
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatOrderInfo(data: ReceiptData): string {
         let text = ''
 
@@ -105,9 +90,6 @@ export class ThermalFormatter {
         return text
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // DELIVERY DETAILS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatDeliveryDetails(data: ReceiptData): string {
         let text = 'DELIVERY DETAILS\n'
         text += this.line('-')
@@ -129,29 +111,21 @@ export class ThermalFormatter {
         return text
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ITEMS SECTION (Grouped by Category)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatItems(data: ReceiptData): string {
         let text = 'ORDER ITEMS\n'
         text += this.line('-')
 
-        // Group by category
         const grouped = this.groupByCategory(data.items)
 
         Object.entries(grouped).forEach(([category, items]) => {
-            // Category header (only if category exists)
             if (category && category !== 'Other' && category !== 'Uncategorized') {
                 text += '\n' + category + '\n'
             }
 
             items.forEach(item => {
-                // Item line: "2x Item Name           PKR 500"
                 const itemLine = `${item.quantity}x ${item.name}`
                 const price = `PKR ${item.total.toFixed(2)}`
                 text += this.leftRight(itemLine, price)
-
-                // Price per unit: "   @ PKR 250 each"
                 text += `   @ PKR ${item.price.toFixed(2)} each\n`
             })
         })
@@ -160,9 +134,6 @@ export class ThermalFormatter {
         return text
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // TOTALS SECTION
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatTotals(data: ReceiptData): string {
         let text = this.line('=')
 
@@ -178,17 +149,11 @@ export class ThermalFormatter {
         }
 
         text += this.line('-')
-
-        // Total (Bold effect with uppercase)
         text += this.leftRight('TOTAL:', `PKR ${data.total.toFixed(2)}`)
-
         text += '\n'
         return text
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // PAYMENT METHOD
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatPaymentMethod(method: string): string {
         const display = method === 'cash' ? 'CASH PAYMENT' :
             method === 'online' ? 'ONLINE PAYMENT' :
@@ -197,13 +162,9 @@ export class ThermalFormatter {
 
         let text = this.center(`Payment: ${display}`)
         text += '\n'
-
         return text
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // NOTES SECTION
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatNotes(notes: string): string {
         let text = this.line('-')
         text += 'Special Instructions:\n'
@@ -213,17 +174,16 @@ export class ThermalFormatter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // FOOTER SECTION
+    // FOOTER - NO EXTRA NEWLINES (Fixed!)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatFooter(): string {
         let text = this.line('=')
         text += this.center('Thank you for dining with us!')
         text += '\n'
         text += this.center('Please visit again')
-        text += '\n\n'
-        text += this.center('Powered by AT Restaurant POS')
         text += '\n'
-        text += this.center(new Date().toLocaleDateString('en-PK'))
+        text += this.center('Powered by AT Restaurant POS')
+        // ✅ NO EXTRA \n\n HERE - Just one newline for cut command
         text += '\n'
 
         return text
@@ -232,42 +192,25 @@ export class ThermalFormatter {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // UTILITY METHODS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Format left-right aligned text
-     * Example: "Item Name              PKR 250"
-     */
     private leftRight(left: string, right: string): string {
         const maxLeft = this.width - right.length - 1
-
         const truncatedLeft = left.length > maxLeft
             ? left.substring(0, maxLeft - 3) + '...'
             : left
-
         const spaces = this.width - truncatedLeft.length - right.length
         const padding = ' '.repeat(Math.max(1, spaces))
-
         return truncatedLeft + padding + right + '\n'
     }
 
-    /**
-     * Center text within width
-     */
     private center(text: string, large: boolean = false): string {
         const pad = Math.max(0, Math.floor((this.width - text.length) / 2))
         return ' '.repeat(pad) + text
     }
 
-    /**
-     * Create line separator
-     */
     private line(char: string): string {
         return char.repeat(this.width) + '\n'
     }
 
-    /**
-     * Wrap text to width
-     */
     private wrapText(text: string, width: number): string {
         const words = text.split(' ')
         const lines: string[] = []
@@ -286,9 +229,6 @@ export class ThermalFormatter {
         return lines.join('\n') + '\n'
     }
 
-    /**
-     * Group items by category (clean version)
-     */
     private groupByCategory(items: any[]): Record<string, any[]> {
         const grouped: Record<string, any[]> = {}
 
@@ -296,9 +236,7 @@ export class ThermalFormatter {
             let category = 'Other'
 
             if (item.category) {
-                // Clean category: remove emoji if exists
                 category = item.category.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim()
-                // If empty after removing emoji, use original
                 if (!category) {
                     category = item.category
                 }
@@ -313,16 +251,10 @@ export class ThermalFormatter {
         return grouped
     }
 
-    /**
-     * Change printer width
-     */
     setWidth(width: number) {
         this.width = width
     }
 
-    /**
-     * Get current width
-     */
     getWidth(): number {
         return this.width
     }

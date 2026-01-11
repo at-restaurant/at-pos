@@ -1,4 +1,6 @@
-// src/app/(public)/orders/page.tsx - COMPLETE WITH PRINT QUEUE
+// src/app/(public)/orders/page.tsx - NO RECEIPT MODAL
+// ✅ Direct print only, modal removed
+
 "use client"
 export const dynamic = 'force-dynamic'
 
@@ -8,7 +10,6 @@ import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import UniversalModal from '@/components/ui/UniversalModal'
-import ReceiptModal from '@/components/features/receipt/ReceiptGenerator'
 import SplitBillModal from '@/components/features/split-bill/SplitBillModal'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -19,15 +20,16 @@ import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
+import type { ReceiptData } from '@/types'
 
 export default function OrdersPage() {
     const [filter, setFilter] = useState('active')
     const [selectedOrder, setSelectedOrder] = useState<any>(null)
-    const [showReceipt, setShowReceipt] = useState<any>(null)
     const [showSplitBill, setShowSplitBill] = useState<any>(null)
     const [showPaymentModal, setShowPaymentModal] = useState<any>(null)
     const [orders, setOrders] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
 
     const { printAndComplete, cancelOrder, loading: actionLoading } = useOrderManagement()
     const { isOnline, pendingCount } = useOfflineStatus()
@@ -35,37 +37,53 @@ export default function OrdersPage() {
 
     useEffect(() => {
         loadOrders()
+        loadMenuCategories()
         const interval = setInterval(loadOrders, 5000)
         return () => clearInterval(interval)
     }, [isOnline])
+
+    const loadMenuCategories = async () => {
+        const { data } = await supabase
+            .from('menu_items')
+            .select('id, menu_categories(name, icon)')
+
+        if (data) {
+            const categoryMap: { [key: string]: { name: string; icon: string } } = {}
+            data.forEach((item: any) => {
+                if (item.menu_categories) {
+                    categoryMap[item.id] = {
+                        name: item.menu_categories.name,
+                        icon: item.menu_categories.icon || '📋'
+                    }
+                }
+            })
+            setMenuCategories(categoryMap)
+        }
+    }
 
     const loadOrders = async () => {
         setLoading(true)
         try {
             let allOrders: any[] = []
 
-            // ✅ Load online orders
             if (isOnline) {
                 const { data: onlineOrders } = await supabase
                     .from('orders')
-                    .select('*, restaurant_tables(table_number), waiters(name), order_items(*, menu_items(name, price))')
+                    .select('*, restaurant_tables(table_number), waiters(name), order_items(*, menu_items(name, price, category_id))')
                     .order('created_at', { ascending: false })
                     .limit(100)
 
                 allOrders = onlineOrders || []
             }
 
-            // ✅ Load offline orders
             const offlineOrders = await db.getAll(STORES.ORDERS) as any[]
             const pendingOffline = offlineOrders.filter(o => !o.synced && o.id.startsWith('offline_'))
 
-            // Load items for offline orders
             for (const order of pendingOffline) {
                 const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
                 order.order_items = items.filter((i: any) => i.order_id === order.id)
             }
 
-            // ✅ Merge orders (offline first)
             allOrders = [...pendingOffline, ...allOrders]
 
             setOrders(allOrders)
@@ -110,6 +128,15 @@ export default function OrdersPage() {
         ]
     }, [orders, filter])
 
+    const validatePaymentMethod = (method?: string): 'cash' | 'online' | 'card' | undefined => {
+        if (!method) return undefined
+        if (method === 'cash' || method === 'online' || method === 'card') {
+            return method
+        }
+        return 'cash'
+    }
+
+    // ✅ FIXED: Direct print, NO modal
     const handlePrintAndComplete = async (paymentMethod: 'cash' | 'online') => {
         if (!showPaymentModal) return
 
@@ -120,7 +147,38 @@ export default function OrdersPage() {
                 .eq('id', showPaymentModal.id)
         }
 
-        setShowReceipt(showPaymentModal)
+        // ✅ Direct print immediately
+        const receiptData: ReceiptData = {
+            restaurantName: 'AT RESTAURANT',
+            tagline: 'Delicious Food, Memorable Moments',
+            address: 'Sooter Mills Rd, Lahore',
+            orderNumber: showPaymentModal.id.slice(0, 8).toUpperCase(),
+            date: new Date(showPaymentModal.created_at).toLocaleString('en-PK'),
+            orderType: showPaymentModal.order_type || 'dine-in',
+            customerName: showPaymentModal.customer_name,
+            customerPhone: showPaymentModal.customer_phone,
+            deliveryAddress: showPaymentModal.delivery_address,
+            deliveryCharges: showPaymentModal.delivery_charges,
+            tableNumber: showPaymentModal.restaurant_tables?.table_number,
+            waiter: showPaymentModal.waiters?.name,
+            items: showPaymentModal.order_items.map((item: any) => {
+                const category = menuCategories[item.menu_items?.id]
+                return {
+                    name: item.menu_items?.name,
+                    quantity: item.quantity,
+                    price: item.menu_items?.price,
+                    total: item.total_price,
+                    category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
+                }
+            }),
+            subtotal: showPaymentModal.subtotal,
+            tax: showPaymentModal.tax,
+            total: showPaymentModal.total_amount,
+            paymentMethod: validatePaymentMethod(paymentMethod),
+            notes: showPaymentModal.notes
+        }
+
+        await productionPrinter.print(receiptData)
 
         await printAndComplete(
             showPaymentModal.id,
@@ -257,14 +315,46 @@ export default function OrdersPage() {
                                                 if (selectedOrder.order_type === 'dine-in' && !selectedOrder.payment_method) {
                                                     setShowPaymentModal(selectedOrder)
                                                 } else {
-                                                    setShowReceipt(selectedOrder)
-                                                    printAndComplete(
-                                                        selectedOrder.id,
-                                                        selectedOrder.table_id,
-                                                        selectedOrder.order_type
-                                                    ).then(() => {
-                                                        setSelectedOrder(null)
-                                                        loadOrders()
+                                                    // ✅ Direct print for delivery orders
+                                                    const receiptData: ReceiptData = {
+                                                        restaurantName: 'AT RESTAURANT',
+                                                        tagline: 'Delicious Food, Memorable Moments',
+                                                        address: 'Sooter Mills Rd, Lahore',
+                                                        orderNumber: selectedOrder.id.slice(0, 8).toUpperCase(),
+                                                        date: new Date(selectedOrder.created_at).toLocaleString('en-PK'),
+                                                        orderType: selectedOrder.order_type || 'dine-in',
+                                                        customerName: selectedOrder.customer_name,
+                                                        customerPhone: selectedOrder.customer_phone,
+                                                        deliveryAddress: selectedOrder.delivery_address,
+                                                        deliveryCharges: selectedOrder.delivery_charges,
+                                                        tableNumber: selectedOrder.restaurant_tables?.table_number,
+                                                        waiter: selectedOrder.waiters?.name,
+                                                        items: selectedOrder.order_items.map((item: any) => {
+                                                            const category = menuCategories[item.menu_items?.id]
+                                                            return {
+                                                                name: item.menu_items?.name,
+                                                                quantity: item.quantity,
+                                                                price: item.menu_items?.price,
+                                                                total: item.total_price,
+                                                                category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
+                                                            }
+                                                        }),
+                                                        subtotal: selectedOrder.subtotal,
+                                                        tax: selectedOrder.tax,
+                                                        total: selectedOrder.total_amount,
+                                                        paymentMethod: validatePaymentMethod(selectedOrder.payment_method),
+                                                        notes: selectedOrder.notes
+                                                    }
+
+                                                    productionPrinter.print(receiptData).then(() => {
+                                                        printAndComplete(
+                                                            selectedOrder.id,
+                                                            selectedOrder.table_id,
+                                                            selectedOrder.order_type
+                                                        ).then(() => {
+                                                            setSelectedOrder(null)
+                                                            loadOrders()
+                                                        })
                                                     })
                                                 }
                                             }}
@@ -350,7 +440,6 @@ export default function OrdersPage() {
                     </div>
                 )}
 
-                {showReceipt && <ReceiptModal order={showReceipt} onClose={() => setShowReceipt(null)} />}
                 {showSplitBill && <SplitBillModal order={showSplitBill} onClose={() => setShowSplitBill(null)} />}
             </div>
         </ErrorBoundary>

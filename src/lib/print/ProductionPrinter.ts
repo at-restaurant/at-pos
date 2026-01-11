@@ -1,63 +1,51 @@
-// src/lib/print/ProductionPrinter.ts - SIMPLE BROWSER PRINT
-// ✅ Direct browser print dialog (no WebUSB, no queue)
+// src/lib/print/ProductionPrinter.ts
+// ✅ Uses local Node.js service for auto-cut support
 
 import { ReceiptData, PrintResponse } from '@/types'
-import { thermalPrinter } from './ThermalPrinter'
 
-interface PrinterConfig {
-    name: string
-    width: number
-    enabled: boolean
-    autoPrint: boolean
-}
-
-interface PrintJob {
-    receipt: ReceiptData
-    timestamp: number
-    retries: number
-}
+const PRINTER_SERVICE_URL = 'http://localhost:8000'
 
 export class ProductionPrinter {
-    private config: PrinterConfig
-    private printQueue: ReceiptData[] = []
-    private isPrinting: boolean = false
-
-    constructor() {
-        if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('printer_config')
-            this.config = saved ? JSON.parse(saved) : this.getDefaultConfig()
-        } else {
-            this.config = this.getDefaultConfig()
-        }
-    }
-
-    private getDefaultConfig(): PrinterConfig {
-        return {
-            name: 'Generic / Text Only',
-            width: 42,
-            enabled: true,
-            autoPrint: true
-        }
-    }
-
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MAIN PRINT METHOD (Direct browser print)
+    // MAIN PRINT METHOD (Direct to Node service)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     async print(receipt: ReceiptData): Promise<PrintResponse> {
-        console.log('🖨️ Browser print:', receipt.orderNumber)
+        console.log('🖨️ Sending to printer service:', receipt.orderNumber)
 
         try {
-            // Direct print via browser dialog
-            const result = await thermalPrinter.print(receipt)
+            const response = await fetch(`${PRINTER_SERVICE_URL}/print`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(receipt)
+            })
+
+            const result = await response.json()
 
             if (result.success) {
                 console.log('✅ Print successful:', receipt.orderNumber)
+                return {
+                    success: true,
+                    message: 'Receipt printed successfully',
+                    orderNumber: receipt.orderNumber
+                }
+            } else {
+                throw new Error(result.error || 'Print failed')
             }
-
-            return result
 
         } catch (error: any) {
             console.error('❌ Print error:', error)
+
+            // Check if service is offline
+            if (error.message.includes('fetch')) {
+                return {
+                    success: false,
+                    error: 'Printer service offline. Please start: npm run printer',
+                    orderNumber: receipt.orderNumber
+                }
+            }
+
             return {
                 success: false,
                 error: error.message,
@@ -71,29 +59,69 @@ export class ProductionPrinter {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     async testPrint(): Promise<PrintResponse> {
         console.log('🧪 Running test print...')
-        return thermalPrinter.testPrint()
+
+        const testReceipt: ReceiptData = {
+            restaurantName: 'AT RESTAURANT',
+            tagline: '🖨️ TEST PRINT - Auto-Cut Enabled',
+            address: 'Sooter Mills Rd, Lahore',
+            phone: '+92-XXX-XXXXXXX',
+            orderNumber: 'TEST-' + Date.now().toString().slice(-6),
+            date: new Date().toLocaleString('en-PK'),
+            orderType: 'dine-in',
+            tableNumber: 5,
+            waiter: 'Test Waiter',
+            items: [
+                {
+                    name: 'Test Item 1',
+                    quantity: 2,
+                    price: 150,
+                    total: 300,
+                    category: '🍕 Main Course'
+                },
+                {
+                    name: 'Test Beverage',
+                    quantity: 1,
+                    price: 100,
+                    total: 100,
+                    category: '🥤 Drinks'
+                }
+            ],
+            subtotal: 400,
+            tax: 20,
+            total: 420,
+            paymentMethod: 'cash',
+            notes: 'Test print with auto-cut functionality'
+        }
+
+        return this.print(testReceipt)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // UTILITY METHODS
+    // CHECK SERVICE STATUS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private isPrinterAvailable(): boolean {
-        return typeof window !== 'undefined' &&
-            !!window.print &&
-            this.config.enabled &&
-            navigator.onLine
-    }
-
-    getQueueStatus() {
-        return {
-            current: this.printQueue.length,
-            offline: 0,
-            isPrinting: this.isPrinting
+    async checkStatus(): Promise<boolean> {
+        try {
+            const response = await fetch(`${PRINTER_SERVICE_URL}/health`, {
+                method: 'GET'
+            })
+            return response.ok
+        } catch (error) {
+            return false
         }
     }
 
-    clearQueue() {
-        this.printQueue = []
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // GET AVAILABLE PRINTERS
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    async getAvailablePrinters(): Promise<string[]> {
+        try {
+            const response = await fetch(`${PRINTER_SERVICE_URL}/printers`)
+            const result = await response.json()
+            return result.printers || []
+        } catch (error) {
+            console.error('Failed to get printers:', error)
+            return []
+        }
     }
 }
 
@@ -107,10 +135,8 @@ export const productionPrinter = (() => {
         return {
             print: async () => ({ success: false, error: 'SSR mode' }),
             testPrint: async () => ({ success: false, error: 'SSR mode' }),
-            setConfig: () => {},
-            getConfig: () => ({ name: '', width: 42, enabled: false, autoPrint: false }),
-            getQueueStatus: () => ({ current: 0, offline: 0, isPrinting: false }),
-            clearQueue: () => {}
+            checkStatus: async () => false,
+            getAvailablePrinters: async () => []
         } as any
     }
 

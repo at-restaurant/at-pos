@@ -1,5 +1,5 @@
 // src/components/cart/CartDrawer.tsx
-// ✅ FIXED: No receipt modal after auto-print, single browser dialog
+// ✅ FIXED: Direct print, NO receipt modal
 
 'use client'
 
@@ -154,6 +154,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         return 'cash'
     }
 
+    // ✅ FIXED: Direct print, NO modal
     const placeOrder = async () => {
         if (cart.items.length === 0) return
         if (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId)) return
@@ -224,6 +225,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 notes: cart.notes
             }
 
+            // ✅ Direct print - NO modal
             await productionPrinter.print(receiptData)
 
             cart.clearCart()
