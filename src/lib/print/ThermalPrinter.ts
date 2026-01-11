@@ -6,21 +6,16 @@ import ThermalFormatter from './ThermalFormatter'
 
 interface PrinterConfig {
     width: number
-    printerName: string
-    autoCut: boolean
 }
 
 export class ThermalPrinter {
     private config: PrinterConfig
     private formatter: ThermalFormatter
     private isPrinting: boolean = false
-    private printWindow: Window | null = null
 
     constructor(config?: Partial<PrinterConfig>) {
         this.config = {
             width: 42,
-            printerName: 'Generic / Text Only',
-            autoCut: true,
             ...config
         }
 
@@ -44,10 +39,6 @@ export class ThermalPrinter {
 
         try {
             this.isPrinting = true
-
-            if (this.printWindow && !this.printWindow.closed) {
-                this.printWindow.close()
-            }
 
             const receiptText = this.formatter.format(receipt)
             const success = await this.printViaWindow(receiptText)
@@ -110,18 +101,18 @@ export class ThermalPrinter {
                         iframe.contentWindow?.focus()
                         iframe.contentWindow?.print()
 
-                        // Cleanup after print
+                        // Cleanup after print (reduced delay)
                         setTimeout(() => {
                             document.body.removeChild(iframe)
                             resolve(true)
-                        }, 1000)
+                        }, 500)
 
                     } catch (err) {
                         console.error('Print error:', err)
                         document.body.removeChild(iframe)
                         resolve(false)
                     }
-                }, 100)
+                }, 50)
 
             } catch (error) {
                 console.error('iframe error:', error)
@@ -131,9 +122,13 @@ export class ThermalPrinter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // HTML - WINDOWS THERMAL PRINTER OPTIMIZED
+    // HTML - ULTRA TIGHT SPACING (No extra space)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private generatePrintHTML(receiptText: string): string {
+        // Calculate approximate height based on line count
+        const lineCount = receiptText.split('\n').length
+        const approximateHeight = Math.ceil(lineCount * 4.5) // 4.5mm per line
+
         return `<!DOCTYPE html>
 <html>
 <head>
@@ -141,7 +136,7 @@ export class ThermalPrinter {
     <title>Receipt</title>
     <style>
         @page {
-            size: 80mm auto;
+            size: 80mm ${approximateHeight}mm;
             margin: 0mm;
         }
         
@@ -149,53 +144,44 @@ export class ThermalPrinter {
             html, body { 
                 margin: 0 !important; 
                 padding: 0 !important;
-                height: auto !important;
+                height: ${approximateHeight}mm !important;
+                overflow: hidden !important;
             }
             .no-print { display: none !important; }
-            
-            /* Windows Print Optimization */
-            @page { margin: 0; }
-            body { 
-                margin: 0;
-                padding: 0;
-            }
         }
         
         * {
-            margin: 0;
-            padding: 0;
+            margin: 0 !important;
+            padding: 0 !important;
             box-sizing: border-box;
         }
         
         html {
-            margin: 0;
-            padding: 0;
+            height: ${approximateHeight}mm;
+            overflow: hidden;
         }
         
         body {
             font-family: 'Courier New', 'Consolas', monospace;
             font-size: 12px;
-            line-height: 1.2;
+            line-height: 1.1;
             width: 80mm;
+            height: ${approximateHeight}mm;
             background: white;
             color: black;
-            margin: 0;
-            padding: 0;
+            overflow: hidden;
         }
         
         pre {
-            margin: 0;
-            padding: 0;
             white-space: pre;
             font-family: inherit;
             font-size: inherit;
             line-height: inherit;
+            display: block;
         }
     </style>
 </head>
-<body>
-    <pre>${receiptText}</pre>
-</body>
+<body><pre>${receiptText}</pre></body>
 </html>`
     }
 
@@ -285,7 +271,7 @@ export const thermalPrinter = (() => {
             print: async () => ({ success: false, error: 'SSR mode' }),
             testPrint: async () => ({ success: false, error: 'SSR mode' }),
             setConfig: () => {},
-            getConfig: () => ({ width: 42, printerName: '', autoCut: true }),
+            getConfig: () => ({ width: 42 }),
             isPrinterBusy: () => false,
             isAvailable: () => false
         } as any

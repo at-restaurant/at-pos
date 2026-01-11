@@ -10,10 +10,13 @@ export class ThermalFormatter {
         this.width = width
     }
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MAIN FORMATTING METHOD
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     format(data: ReceiptData): string {
         let receipt = ''
 
-        // Header
+        // Header (minimal spacing)
         receipt += this.formatHeader(data)
 
         // Order Info
@@ -40,14 +43,14 @@ export class ThermalFormatter {
             receipt += this.formatNotes(data.notes)
         }
 
-        // Footer (NO EXTRA NEWLINES)
+        // Footer (NO extra lines)
         receipt += this.formatFooter()
 
         return receipt
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // HEADER - Minimal top space
+    // HEADER - Minimal spacing
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatHeader(data: ReceiptData): string {
         let text = ''
@@ -64,7 +67,6 @@ export class ThermalFormatter {
             text += '\n'
         }
         text += this.line('=')
-        text += '\n'
 
         return text
     }
