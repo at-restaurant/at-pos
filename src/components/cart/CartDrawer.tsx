@@ -171,14 +171,14 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
         const orderData: any = {
             waiter_id: cart.waiterId || null,
-            status: 'pending',
+            status: orderType === 'delivery' ? 'completed' : 'pending', // ✅ Auto-complete delivery
             subtotal,
             tax,
             total_amount: total,
             notes: cart.notes || null,
             order_type: orderType,
             payment_method: orderType === 'delivery' ? paymentMethod : null,
-            receipt_printed: false
+            receipt_printed: true // ✅ Mark as printed
         }
 
         if (orderType === 'dine-in') {
@@ -225,7 +225,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 notes: cart.notes
             }
 
-            // ✅ Direct print - NO modal
+            // ✅ Print receipt
             await productionPrinter.print(receiptData)
 
             cart.clearCart()
