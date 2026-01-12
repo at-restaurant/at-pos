@@ -1,8 +1,7 @@
-// src/lib/hooks/useDataLoader.ts - WITH OFFLINE FALLBACK
+// src/lib/hooks/useDataLoader.ts - DEXIE VERSION
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { offlineManager } from '@/lib/db/offlineManager'
-import { STORES } from '@/lib/db/schema'
+import { db } from '@/lib/db/dexie'
 
 interface LoaderOptions<T> {
     table: string
@@ -19,30 +18,38 @@ export function useDataLoader<T = any>(options: LoaderOptions<T>) {
     const [error, setError] = useState<string | null>(null)
     const supabase = createClient()
 
-    const getStoreName = (tableName: string) => {
-        const map: Record<string, string> = {
-            'restaurant_tables': 'restaurant_tables',
-            'waiters': 'waiters',
-            'menu_items': STORES.MENU_ITEMS,
-            'menu_categories': STORES.MENU_CATEGORIES,
-            'orders': STORES.ORDERS
-        }
-        return map[tableName] || tableName
-    }
-
     const load = useCallback(async () => {
         setLoading(true)
         setError(null)
 
         try {
-            // ✅ Try offline first
-            const storeName = getStoreName(options.table)
-            let offlineData = await offlineManager.getOfflineData(storeName)
+            // Try Dexie first for supported tables
+            const dexieTables = ['menu_items', 'menu_categories', 'restaurant_tables', 'waiters', 'orders']
 
-            if (Array.isArray(offlineData) && offlineData.length > 0) {
+            if (dexieTables.includes(options.table)) {
+                let dexieData: any[] = []
+
+                switch (options.table) {
+                    case 'menu_items':
+                        dexieData = await db.menu_items.toArray()
+                        break
+                    case 'menu_categories':
+                        dexieData = await db.menu_categories.toArray()
+                        break
+                    case 'restaurant_tables':
+                        dexieData = await db.restaurant_tables.toArray()
+                        break
+                    case 'waiters':
+                        dexieData = await db.waiters.toArray()
+                        break
+                    case 'orders':
+                        dexieData = await db.orders.toArray()
+                        break
+                }
+
                 // Apply filters
-                if (options.filter) {
-                    offlineData = offlineData.filter(item =>
+                if (options.filter && dexieData.length > 0) {
+                    dexieData = dexieData.filter(item =>
                         Object.entries(options.filter!).every(([key, value]) =>
                             (item as any)[key] === value
                         )
@@ -50,8 +57,8 @@ export function useDataLoader<T = any>(options: LoaderOptions<T>) {
                 }
 
                 // Apply sorting
-                if (options.order) {
-                    offlineData.sort((a, b) => {
+                if (options.order && dexieData.length > 0) {
+                    dexieData.sort((a, b) => {
                         const aVal = (a as any)[options.order!.column]
                         const bVal = (b as any)[options.order!.column]
                         const direction = options.order!.ascending ?? true ? 1 : -1
@@ -62,15 +69,16 @@ export function useDataLoader<T = any>(options: LoaderOptions<T>) {
                     })
                 }
 
-                // Apply transform
-                const finalData = options.transform
-                    ? options.transform(offlineData)
-                    : (offlineData as T[])
+                if (dexieData.length > 0) {
+                    const finalData = options.transform
+                        ? options.transform(dexieData)
+                        : (dexieData as T[])
 
-                setData(finalData)
+                    setData(finalData)
+                }
             }
 
-            // ✅ Try online update (background)
+            // Try online update (background)
             if (navigator.onLine) {
                 let query = supabase
                     .from(options.table)
@@ -96,13 +104,13 @@ export function useDataLoader<T = any>(options: LoaderOptions<T>) {
 
                 const { data: result, error: err } = await query
 
-                if (err) throw err
+                if (!err && result) {
+                    const finalData = options.transform && result
+                        ? options.transform(result)
+                        : (result as T[] || [])
 
-                const finalData = options.transform && result
-                    ? options.transform(result)
-                    : (result as T[] || [])
-
-                setData(finalData)
+                    setData(finalData)
+                }
             }
         } catch (err: any) {
             const errorMsg = err.message || 'Failed to load data'

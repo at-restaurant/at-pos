@@ -1,19 +1,15 @@
 {
   "name": "at-restaurant-pos",
   "version": "2.0.0",
-  "description": "Universal Restaurant POS with WebSocket Printing",
+  "description": "AT Restaurant POS",
   "private": true,
-  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "build:electron": "cross-env BUILD_ELECTRON=true NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 next build",
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write",
     "type-check": "tsc --noEmit",
-    "printer": "node printer-service/server-raw.js",
-    "dev:all": "concurrently -k -n PRINTER,NEXT -c magenta,cyan \"node printer-service/server.js\" \"next dev\"",
     "clean": "rm -rf .next node_modules/.cache dist out"
   },
   "dependencies": {
@@ -21,15 +17,16 @@
     "@supabase/supabase-js": "^2.87.1",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.1",
+    "browser-image-compression": "^2.0.2",
     "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
+    "dexie": "^4.2.1",
+    "dexie-react-hooks": "^4.2.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
-    "html2canvas": "^1.4.1",
     "lucide-react": "^0.561.0",
     "next": "15.1.11",
-    "package.json": "^2.0.1",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "recharts": "^3.6.0",
@@ -54,11 +51,9 @@
     "typescript": "^5",
     "wait-on": "^9.0.3"
   },
-  "optionalDependencies": {
-    "printer": "^0.4.0"
-  },
   "engines": {
     "node": ">=18.17.0",
     "npm": ">=9.0.0"
-  }
+  },
+  "packageManager": "pnpm@10.28.0"
 }

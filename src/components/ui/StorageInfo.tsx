@@ -1,28 +1,14 @@
-// src/components/ui/StorageInfo.tsx - COMPLETE FIXED VERSION
+// src/components/ui/StorageInfo.tsx - DEXIE VERSION
 'use client'
 
 import { useState, useEffect } from 'react'
 import { Database, Trash2, X, HardDrive, Image, ShoppingCart, RefreshCw } from 'lucide-react'
-import { offlineManager } from '@/lib/db/offlineManager'
+import { syncManager } from '@/lib/db/syncManager'
+import { db, dbHelpers } from '@/lib/db/dexie'
 import { useToast } from '@/components/ui/Toast'
 
-interface StorageData {
-    used: number
-    limit: number
-    percentage: number
-    hasData: boolean
-    ordersCount: number
-    menuItemsCount: number
-    breakdown: {
-        menu: number
-        orders: number
-        images: number
-        total: number
-    }
-}
-
 export default function StorageInfo({ open, onClose }: { open: boolean; onClose: () => void }) {
-    const [info, setInfo] = useState<StorageData | null>(null)
+    const [info, setInfo] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [clearing, setClearing] = useState(false)
     const [syncing, setSyncing] = useState(false)
@@ -35,7 +21,7 @@ export default function StorageInfo({ open, onClose }: { open: boolean; onClose:
     const loadInfo = async () => {
         setLoading(true)
         try {
-            const data = await offlineManager.getStorageInfo()
+            const data = await dbHelpers.getStorageInfo()
             setInfo(data)
         } catch (error) {
             console.error('Failed to load storage info:', error)
@@ -44,13 +30,13 @@ export default function StorageInfo({ open, onClose }: { open: boolean; onClose:
     }
 
     const handleClear = async () => {
-        if (!confirm('🗑️ Clear order history? (Menu will be preserved)')) return
+        if (!confirm('🗑️ Clear old completed orders? (Menu will be preserved)')) return
 
         setClearing(true)
         try {
-            await offlineManager.clearAllData(false)
+            await dbHelpers.cleanOldOrders()
             await loadInfo()
-            toast.add('success', '✅ History cleared!')
+            toast.add('success', '✅ Old orders cleared!')
         } catch (error) {
             console.error('Failed to clear data:', error)
             toast.add('error', '❌ Failed to clear data')
@@ -66,15 +52,13 @@ export default function StorageInfo({ open, onClose }: { open: boolean; onClose:
 
         setSyncing(true)
         try {
-            // Clear all cached data and force fresh download
-            await offlineManager.clearAllData(true)
-            const result = await offlineManager.downloadEssentialData(true)
+            const result = await syncManager.downloadEssentialData()
 
             if (result.success) {
                 await loadInfo()
                 toast.add('success', '✅ Data synced from server!')
             } else {
-                toast.add('error', '❌ Sync failed: ' + (result.error || 'Unknown error'))
+                toast.add('error', '❌ Sync failed')
             }
         } catch (error) {
             console.error('Sync failed:', error)
@@ -84,6 +68,8 @@ export default function StorageInfo({ open, onClose }: { open: boolean; onClose:
     }
 
     if (!open) return null
+
+    const hasData = info?.counts?.items > 0
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -136,61 +122,39 @@ export default function StorageInfo({ open, onClose }: { open: boolean; onClose:
                                 </p>
                             </div>
 
-                            {/* Storage Breakdown */}
-                            <div className="space-y-2">
-                                <h4 className="text-sm font-semibold text-[var(--fg)]">Storage Breakdown</h4>
-
-                                <div className="flex items-center justify-between p-3 bg-[var(--bg)] rounded-lg">
-                                    <div className="flex items-center gap-2">
-                                        <HardDrive className="w-4 h-4 text-blue-600" />
-                                        <span className="text-sm text-[var(--fg)]">Menu Data</span>
-                                    </div>
-                                    <span className="text-sm font-bold text-blue-600">
-                                        {info.breakdown.menu} KB
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center justify-between p-3 bg-[var(--bg)] rounded-lg">
-                                    <div className="flex items-center gap-2">
-                                        <ShoppingCart className="w-4 h-4 text-green-600" />
-                                        <span className="text-sm text-[var(--fg)]">Orders</span>
-                                    </div>
-                                    <span className="text-sm font-bold text-green-600">
-                                        {info.breakdown.orders} KB
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center justify-between p-3 bg-[var(--bg)] rounded-lg">
-                                    <div className="flex items-center gap-2">
-                                        <Image className="w-4 h-4 text-purple-600" />
-                                        <span className="text-sm text-[var(--fg)]">Images</span>
-                                    </div>
-                                    <span className="text-sm font-bold text-purple-600">
-                                        {info.breakdown.images} KB
-                                    </span>
-                                </div>
-                            </div>
-
                             {/* Data Stats */}
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-3 gap-3">
                                 <div className="p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
-                                    <p className="text-xs text-[var(--muted)] mb-1">Menu Items</p>
-                                    <p className="text-2xl font-bold text-[var(--fg)]">{info.menuItemsCount}</p>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <HardDrive className="w-3 h-3 text-blue-600" />
+                                        <p className="text-xs text-[var(--muted)]">Menu</p>
+                                    </div>
+                                    <p className="text-xl font-bold text-[var(--fg)]">{info.counts.items}</p>
                                 </div>
                                 <div className="p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
-                                    <p className="text-xs text-[var(--muted)] mb-1">Orders Cached</p>
-                                    <p className="text-2xl font-bold text-[var(--fg)]">{info.ordersCount}</p>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <ShoppingCart className="w-3 h-3 text-green-600" />
+                                        <p className="text-xs text-[var(--muted)]">Orders</p>
+                                    </div>
+                                    <p className="text-xl font-bold text-[var(--fg)]">{info.counts.orders}</p>
+                                </div>
+                                <div className="p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <Image className="w-3 h-3 text-purple-600" />
+                                        <p className="text-xs text-[var(--muted)]">Tables</p>
+                                    </div>
+                                    <p className="text-xl font-bold text-[var(--fg)]">{info.counts.tables}</p>
                                 </div>
                             </div>
 
                             {/* Status */}
                             <div className={`p-3 rounded-lg border ${
-                                info.hasData
+                                hasData
                                     ? 'bg-green-500/10 border-green-500/30'
                                     : 'bg-yellow-500/10 border-yellow-500/30'
                             }`}>
                                 <p className="text-sm font-medium text-[var(--fg)]">
-                                    {info.hasData ? '✅ Ready for offline use' : '⚠️ No offline data available'}
+                                    {hasData ? '✅ Ready for offline use' : '⚠️ No offline data available'}
                                 </p>
                             </div>
 
@@ -199,11 +163,24 @@ export default function StorageInfo({ open, onClose }: { open: boolean; onClose:
                                 <button
                                     onClick={handleForceSync}
                                     disabled={syncing || !navigator.onLine}
-                                    className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-all active:scale-95" > {syncing ? ( <> <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Syncing... </> ) : ( <> <RefreshCw className="w-4 h-4" /> Force Sync </> )} </button>
+                                    className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-all active:scale-95"
+                                >
+                                    {syncing ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            Syncing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <RefreshCw className="w-4 h-4" />
+                                            Sync
+                                        </>
+                                    )}
+                                </button>
 
                                 <button
                                     onClick={handleClear}
-                                    disabled={clearing || info.ordersCount === 0}
+                                    disabled={clearing || info.counts.orders === 0}
                                     className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-all active:scale-95"
                                 >
                                     {clearing ? (
@@ -211,17 +188,16 @@ export default function StorageInfo({ open, onClose }: { open: boolean; onClose:
                                     ) : (
                                         <Trash2 className="w-4 h-4" />
                                     )}
-                                    {clearing ? 'Clearing...' : 'Clear History'}
+                                    {clearing ? 'Clearing...' : 'Clean'}
                                 </button>
                             </div>
 
                             {/* Info Box */}
                             <div className="text-xs text-[var(--muted)] space-y-1 bg-[var(--bg)] p-3 rounded-lg">
-                                <p className="font-semibold text-[var(--fg)] mb-2">📌 Optimization Info:</p>
-                                <p className="text-[var(--fg)]">• Menu auto-syncs on app load</p>
-                                <p className="text-[var(--fg)]">• Orders kept for 30 days (max 200)</p>
-                                <p className="text-[var(--fg)]">• Images cached on network</p>
-                                <p className="text-[var(--fg)]">• Force sync clears stale data</p>
+                                <p className="font-semibold text-[var(--fg)] mb-2">📌 Info:</p>
+                                <p className="text-[var(--fg)]">• Auto-sync on app load & network restore</p>
+                                <p className="text-[var(--fg)]">• Orders kept (max 200, auto-clean)</p>
+                                <p className="text-[var(--fg)]">• Images compressed for offline</p>
                             </div>
                         </>
                     ) : (

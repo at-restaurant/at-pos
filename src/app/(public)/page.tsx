@@ -1,42 +1,59 @@
-// src/app/(public)/page.tsx - OFFLINE OPTIMIZED MENU
+// src/app/(public)/page.tsx - DEXIE POWERED MENU
 'use client'
 export const dynamic = 'force-dynamic'
 
 import { useState, useMemo, useEffect } from 'react'
-import { ShoppingCart, Plus, WifiOff, Menu } from 'lucide-react'
+import { ShoppingCart, Plus, WifiOff, Menu, Download } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import CartDrawer from '@/components/cart/CartDrawer'
 import { useCart } from '@/lib/store/cart-store'
 import { useHydration } from '@/lib/hooks/useHydration'
-import { useSupabase } from '@/lib/hooks'
-import { offlineManager } from '@/lib/db/offlineManager'
+import { useOfflineFirst } from '@/lib/hooks/useOfflineFirst'
+import { syncManager } from '@/lib/db/syncManager'
+import type { MenuItem, MenuCategory } from '@/lib/db/dexie'
 
 export default function MenuPage() {
-    const { data: categories } = useSupabase('menu_categories', {
+    const { data: categories, isOffline: categoriesOffline } = useOfflineFirst<MenuCategory>({
+        table: 'menu_categories',
         filter: { is_active: true },
-        order: { column: 'display_order' }
+        orderBy: { column: 'display_order', ascending: true }
     })
 
-    const { data: items, loading, isOffline } = useSupabase('menu_items', {
+    const { data: items, loading, isOffline, isSyncing } = useOfflineFirst<MenuItem>({
+        table: 'menu_items',
         filter: { is_available: true },
-        order: { column: 'name' }
+        orderBy: { column: 'name', ascending: true }
     })
 
-    const { data: tables } = useSupabase('restaurant_tables')
-    const { data: waiters } = useSupabase('waiters', { filter: { is_active: true } })
+    const { data: tables } = useOfflineFirst({ table: 'restaurant_tables' })
+    const { data: waiters } = useOfflineFirst({
+        table: 'waiters',
+        filter: { is_active: true }
+    })
 
     const cart = useCart()
     const hydrated = useHydration()
     const [selectedCat, setSelectedCat] = useState('all')
     const [cartOpen, setCartOpen] = useState(false)
     const [sidebarOpen, setSidebarOpen] = useState(false)
+    const [downloading, setDownloading] = useState(false)
 
-    // ✅ Pre-download offline data on mount
+    // Auto-download on first load if online
     useEffect(() => {
         if (navigator.onLine) {
-            offlineManager.downloadEssentialData()
+            syncManager.isOfflineReady().then(ready => {
+                if (!ready) {
+                    handleDownload()
+                }
+            })
         }
     }, [])
+
+    const handleDownload = async () => {
+        setDownloading(true)
+        await syncManager.downloadEssentialData()
+        setDownloading(false)
+    }
 
     const filtered = useMemo(
         () => items.filter(i => selectedCat === 'all' || i.category_id === selectedCat),
@@ -53,15 +70,22 @@ export default function MenuPage() {
         }))
     ], selectedCat, setSelectedCat)
 
-    const handleAddToCart = (item: any) => {
+    const handleAddToCart = (item: MenuItem) => {
         if (!hydrated) return
-
         cart.addItem({
             id: item.id,
             name: item.name,
             price: item.price,
             image_url: item.image_url
         })
+    }
+
+    // Get display image (compressed for offline, original for online)
+    const getItemImage = (item: MenuItem) => {
+        if (isOffline && item.compressed_image) {
+            return item.compressed_image
+        }
+        return item.image_url
     }
 
     return (
@@ -144,11 +168,29 @@ export default function MenuPage() {
                                                 <span className="hidden xs:inline">Offline</span>
                                             </span>
                                         )}
+                                        {isSyncing && (
+                                            <span className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 border border-blue-500/30 rounded-full text-xs font-medium text-blue-600">
+                                                <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                                Syncing
+                                            </span>
+                                        )}
                                     </div>
                                     <p className="text-[10px] sm:text-sm text-[var(--muted)] mt-0.5">
                                         {filtered.length} items
                                     </p>
                                 </div>
+
+                                {/* Download button */}
+                                {navigator.onLine && (
+                                    <button
+                                        onClick={handleDownload}
+                                        disabled={downloading}
+                                        className="p-2 hover:bg-[var(--bg)] rounded-lg transition-colors disabled:opacity-50 shrink-0"
+                                        title="Download for offline"
+                                    >
+                                        <Download className={`w-5 h-5 text-[var(--fg)] ${downloading ? 'animate-bounce' : ''}`} />
+                                    </button>
+                                )}
                             </div>
 
                             <button
@@ -205,7 +247,7 @@ export default function MenuPage() {
                             <div className="text-4xl sm:text-5xl mb-3 sm:mb-4">🍽️</div>
                             <p className="text-[var(--fg)] font-medium mb-2 text-sm sm:text-base">No items found</p>
                             <p className="text-xs sm:text-sm text-[var(--muted)]">
-                                {isOffline ? 'Menu will load when online' : 'Try selecting a different category'}
+                                {isOffline ? 'Go online and download menu first' : 'Try selecting a different category'}
                             </p>
                         </div>
                     ) : (
@@ -215,10 +257,10 @@ export default function MenuPage() {
                                     key={item.id}
                                     className="bg-[var(--card)] border border-[var(--border)] rounded-lg sm:rounded-xl overflow-hidden hover:shadow-xl hover:border-blue-600 transition-all group flex flex-col h-full"
                                 >
-                                    {item.image_url && (
+                                    {getItemImage(item) && (
                                         <div className="relative w-full aspect-square overflow-hidden bg-[var(--bg)]">
                                             <img
-                                                src={item.image_url}
+                                                src={getItemImage(item)}
                                                 alt={item.name}
                                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                                                 loading="lazy"

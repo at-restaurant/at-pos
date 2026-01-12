@@ -1,10 +1,8 @@
-// src/lib/hooks/useSupabase.ts - OFFLINE FIRST HOOK
+// src/lib/hooks/useSupabase.ts - ADMIN ONLY (No Dexie)
 'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { offlineManager } from '@/lib/db/offlineManager'
-import { STORES } from '@/lib/db/schema'
 
 function ensureArray<T>(data: any): T[] {
     if (Array.isArray(data)) return data
@@ -25,116 +23,44 @@ export function useSupabase<T = any>(
     const [data, setData] = useState<T[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [isOffline, setIsOffline] = useState(false)
-    const [isMounted, setIsMounted] = useState(false)
     const supabase = createClient()
 
-    const getStoreName = (tableName: string) => {
-        const map: Record<string, string> = {
-            'menu_items': STORES.MENU_ITEMS,
-            'menu_categories': STORES.MENU_CATEGORIES,
-            'restaurant_tables': 'restaurant_tables',
-            'waiters': 'waiters'
-        }
-        return map[tableName] || tableName
-    }
-
     const load = async () => {
-        if (typeof window === 'undefined') return
-
         setLoading(true)
         setError(null)
 
         try {
-            // ✅ STEP 1: Always load from IndexedDB first (instant)
-            const storeName = getStoreName(table)
-            let offlineData = await offlineManager.getOfflineData(storeName)
-            offlineData = ensureArray<T>(offlineData)
+            let query = supabase.from(table).select(options?.select || '*')
 
-            // Apply filters
-            if (options?.filter && offlineData.length > 0) {
-                offlineData = offlineData.filter(item =>
-                    Object.entries(options.filter!).every(([key, value]) =>
-                        (item as any)[key] === value
-                    )
-                )
-            }
-
-            // Apply sorting
-            if (options?.order && offlineData.length > 0) {
-                offlineData.sort((a, b) => {
-                    const aVal = (a as any)[options.order!.column]
-                    const bVal = (b as any)[options.order!.column]
-                    const direction = options.order!.ascending ?? true ? 1 : -1
-
-                    if (aVal < bVal) return -direction
-                    if (aVal > bVal) return direction
-                    return 0
+            if (options?.filter) {
+                Object.entries(options.filter).forEach(([key, value]) => {
+                    query = query.eq(key, value)
                 })
             }
 
-            // ✅ Show offline data immediately
-            if (offlineData.length > 0) {
-                setData(offlineData)
-                setIsOffline(true)
+            if (options?.order) {
+                query = query.order(options.order.column, {
+                    ascending: options.order.ascending ?? true
+                })
             }
 
-            // ✅ STEP 2: Try to update from online (background)
-            if (navigator.onLine) {
-                try {
-                    let query = supabase.from(table).select(options?.select || '*')
+            const { data: result, error: err } = await query
 
-                    if (options?.filter) {
-                        Object.entries(options.filter).forEach(([key, value]) => {
-                            query = query.eq(key, value)
-                        })
-                    }
+            if (err) throw err
 
-                    if (options?.order) {
-                        query = query.order(options.order.column, {
-                            ascending: options.order.ascending ?? true
-                        })
-                    }
-
-                    const { data: result, error: err } = await query
-
-                    if (!err && result) {
-                        const validData = ensureArray<T>(result)
-
-                        // Only update if we got data
-                        if (validData.length > 0) {
-                            setData(validData)
-                            setIsOffline(false)
-                        }
-                    }
-                } catch (onlineError) {
-                    // Keep offline data, don't throw error
-                    console.log('Using cached data for:', table)
-                }
-            }
-
+            const validData = ensureArray<T>(result)
+            setData(validData)
         } catch (err: any) {
-            console.error('Data load failed:', err)
-            setError('Failed to load data')
+            const errorMsg = err.message || 'Failed to load data'
+            setError(errorMsg)
+            console.error(`Error loading ${table}:`, err)
         } finally {
             setLoading(false)
         }
     }
 
     useEffect(() => {
-        setIsMounted(true)
-        setIsOffline(!navigator.onLine)
-
         load()
-
-        const handleOnline = () => {
-            setIsOffline(false)
-            load()
-        }
-        const handleOffline = () => setIsOffline(true)
-
-        window.addEventListener('online', handleOnline)
-        window.addEventListener('offline', handleOffline)
 
         let channel: any
         if (options?.realtime && navigator.onLine) {
@@ -149,8 +75,6 @@ export function useSupabase<T = any>(
         }
 
         return () => {
-            window.removeEventListener('online', handleOnline)
-            window.removeEventListener('offline', handleOffline)
             if (channel) supabase.removeChannel(channel)
         }
     }, [table, JSON.stringify(options)])
@@ -177,8 +101,8 @@ export function useSupabase<T = any>(
         data,
         loading,
         error,
-        isOffline,
-        isMounted,
+        isOffline: false, // Admin is always online
+        isMounted: true,
         refresh: load,
         insert,
         update,

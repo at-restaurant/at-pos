@@ -1,8 +1,9 @@
-// src/lib/hooks/useOfflineStatus.ts - OFFLINE STATUS HOOK
+// src/lib/hooks/useOfflineStatus.ts - DEXIE VERSION
 'use client'
 
 import { useState, useEffect } from 'react'
-import { realtimeSync } from '@/lib/db/realtimeSync'
+import { syncManager } from '@/lib/db/syncManager'
+import { dbHelpers } from '@/lib/db/dexie'
 
 export function useOfflineStatus() {
     const [isOnline, setIsOnline] = useState(true)
@@ -17,14 +18,14 @@ export function useOfflineStatus() {
         // Update every 5 seconds
         const interval = setInterval(updatePendingCount, 5000)
 
-        // Listen to network events
+        // Network events
         const handleOnline = () => {
             setIsOnline(true)
-            realtimeSync.syncAll()
+            syncManager.syncAll()
         }
         const handleOffline = () => setIsOnline(false)
 
-        // Listen to sync events
+        // Sync events
         const handleSyncStart = () => setSyncing(true)
         const handleSyncComplete = () => {
             setSyncing(false)
@@ -49,13 +50,13 @@ export function useOfflineStatus() {
     }, [])
 
     async function updatePendingCount() {
-        const count = await realtimeSync.getPendingCount()
+        const count = await dbHelpers.getPendingCount()
         setPendingCount(count)
     }
 
     const manualSync = async () => {
         if (!isOnline || syncing) return
-        return await realtimeSync.syncAll()
+        return await syncManager.syncAll()
     }
 
     return { isOnline, syncing, pendingCount, manualSync }

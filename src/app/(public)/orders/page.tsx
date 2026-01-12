@@ -1,6 +1,4 @@
-// src/app/(public)/orders/page.tsx - NO RECEIPT MODAL
-// ✅ Direct print only, modal removed
-
+// src/app/(public)/orders/page.tsx - DEXIE POWERED ORDERS
 "use client"
 export const dynamic = 'force-dynamic'
 
@@ -13,12 +11,11 @@ import UniversalModal from '@/components/ui/UniversalModal'
 import SplitBillModal from '@/components/features/split-bill/SplitBillModal'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { useOrderManagement } from '@/lib/hooks'
+import { useToast } from '@/components/ui/Toast'
 import { getOrderStatusColor } from '@/lib/utils/statusHelpers'
 import { createClient } from '@/lib/supabase/client'
-import { db } from '@/lib/db/indexedDB'
-import { STORES } from '@/lib/db/schema'
-import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
+import { db, dbHelpers } from '@/lib/db/dexie'
+import { syncManager } from '@/lib/db/syncManager'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
 import type { ReceiptData } from '@/types'
 
@@ -29,35 +26,70 @@ export default function OrdersPage() {
     const [showPaymentModal, setShowPaymentModal] = useState<any>(null)
     const [orders, setOrders] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [isOnline, setIsOnline] = useState(true) // Default true for SSR
+    const [pendingCount, setPendingCount] = useState(0)
     const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
 
-    const { printAndComplete, cancelOrder, loading: actionLoading } = useOrderManagement()
-    const { isOnline, pendingCount } = useOfflineStatus()
+    const toast = useToast()
     const supabase = createClient()
 
     useEffect(() => {
+        // Set initial online status
+        if (typeof window !== 'undefined') {
+            setIsOnline(navigator.onLine)
+        }
+
         loadOrders()
         loadMenuCategories()
-        const interval = setInterval(loadOrders, 5000)
-        return () => clearInterval(interval)
-    }, [isOnline])
+        updatePendingCount()
+
+        const interval = setInterval(() => {
+            loadOrders()
+            updatePendingCount()
+        }, 5000)
+
+        const handleOnline = () => {
+            setIsOnline(true)
+            syncManager.syncAll()
+        }
+        const handleOffline = () => setIsOnline(false)
+
+        window.addEventListener('online', handleOnline)
+        window.addEventListener('offline', handleOffline)
+
+        return () => {
+            clearInterval(interval)
+            window.removeEventListener('online', handleOnline)
+            window.removeEventListener('offline', handleOffline)
+        }
+    }, [])
+
+    const updatePendingCount = async () => {
+        const count = await dbHelpers.getPendingCount()
+        setPendingCount(count)
+    }
 
     const loadMenuCategories = async () => {
-        const { data } = await supabase
-            .from('menu_items')
-            .select('id, menu_categories(name, icon)')
+        try {
+            // Load from Dexie
+            const categories = await db.menu_categories.toArray()
+            const items = await db.menu_items.toArray()
 
-        if (data) {
             const categoryMap: { [key: string]: { name: string; icon: string } } = {}
-            data.forEach((item: any) => {
-                if (item.menu_categories) {
+
+            items.forEach((item: any) => {
+                const category = categories.find(c => c.id === item.category_id)
+                if (category) {
                     categoryMap[item.id] = {
-                        name: item.menu_categories.name,
-                        icon: item.menu_categories.icon || '📋'
+                        name: category.name,
+                        icon: category.icon || '📋'
                     }
                 }
             })
+
             setMenuCategories(categoryMap)
+        } catch (error) {
+            console.error('Load categories failed:', error)
         }
     }
 
@@ -66,29 +98,71 @@ export default function OrdersPage() {
         try {
             let allOrders: any[] = []
 
+            // Load from Dexie first
+            const dexieOrders = await db.orders.orderBy('created_at').reverse().limit(100).toArray()
+
+            for (const order of dexieOrders) {
+                const items = await db.order_items.where('order_id').equals(order.id).toArray()
+
+                // Get menu item details
+                const itemsWithDetails = await Promise.all(
+                    items.map(async (item) => {
+                        const menuItem = await db.menu_items.get(item.menu_item_id)
+                        return {
+                            ...item,
+                            menu_items: menuItem ? {
+                                name: menuItem.name,
+                                price: menuItem.price,
+                                category_id: menuItem.category_id
+                            } : null
+                        }
+                    })
+                )
+
+                // Get table and waiter details
+                let tableData = null
+                let waiterData = null
+
+                if (order.table_id) {
+                    tableData = await db.restaurant_tables.get(order.table_id)
+                }
+                if (order.waiter_id) {
+                    waiterData = await db.waiters.get(order.waiter_id)
+                }
+
+                allOrders.push({
+                    ...order,
+                    order_items: itemsWithDetails,
+                    restaurant_tables: tableData ? { table_number: tableData.table_number } : null,
+                    waiters: waiterData ? { name: waiterData.name } : null
+                })
+            }
+
+            // If online, fetch fresh data and merge
             if (isOnline) {
-                const { data: onlineOrders } = await supabase
-                    .from('orders')
-                    .select('*, restaurant_tables(table_number), waiters(name), order_items(*, menu_items(name, price, category_id))')
-                    .order('created_at', { ascending: false })
-                    .limit(100)
+                try {
+                    const { data: onlineOrders } = await supabase
+                        .from('orders')
+                        .select('*, restaurant_tables(table_number), waiters(name), order_items(*, menu_items(name, price, category_id))')
+                        .order('created_at', { ascending: false })
+                        .limit(100)
 
-                allOrders = onlineOrders || []
+                    if (onlineOrders && onlineOrders.length > 0) {
+                        // Merge: prefer online data, but keep unsynced offline orders
+                        const onlineIds = new Set(onlineOrders.map(o => o.id))
+                        const unsyncedOffline = allOrders.filter(o => !o.synced && !onlineIds.has(o.id))
+
+                        allOrders = [...unsyncedOffline, ...onlineOrders]
+                    }
+                } catch (error) {
+                    console.log('Using cached orders')
+                }
             }
-
-            const offlineOrders = await db.getAll(STORES.ORDERS) as any[]
-            const pendingOffline = offlineOrders.filter(o => !o.synced && o.id.startsWith('offline_'))
-
-            for (const order of pendingOffline) {
-                const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
-                order.order_items = items.filter((i: any) => i.order_id === order.id)
-            }
-
-            allOrders = [...pendingOffline, ...allOrders]
 
             setOrders(allOrders)
         } catch (error) {
             console.error('Failed to load orders:', error)
+            toast.add('error', 'Failed to load orders')
         } finally {
             setLoading(false)
         }
@@ -136,75 +210,139 @@ export default function OrdersPage() {
         return 'cash'
     }
 
-    // ✅ FIXED: Direct print, NO modal
     const handlePrintAndComplete = async (paymentMethod: 'cash' | 'online') => {
         if (!showPaymentModal) return
 
-        if (isOnline) {
-            await supabase
-                .from('orders')
-                .update({ payment_method: paymentMethod })
-                .eq('id', showPaymentModal.id)
-        }
+        try {
+            // Update payment method
+            if (isOnline) {
+                await supabase
+                    .from('orders')
+                    .update({ payment_method: paymentMethod })
+                    .eq('id', showPaymentModal.id)
+            } else {
+                await db.orders.update(showPaymentModal.id, { payment_method: paymentMethod })
+            }
 
-        // ✅ Direct print immediately
-        const receiptData: ReceiptData = {
-            restaurantName: 'AT RESTAURANT',
-            tagline: 'Delicious Food, Memorable Moments',
-            address: 'Sooter Mills Rd, Lahore',
-            orderNumber: showPaymentModal.id.slice(0, 8).toUpperCase(),
-            date: new Date(showPaymentModal.created_at).toLocaleString('en-PK'),
-            orderType: showPaymentModal.order_type || 'dine-in',
-            customerName: showPaymentModal.customer_name,
-            customerPhone: showPaymentModal.customer_phone,
-            deliveryAddress: showPaymentModal.delivery_address,
-            deliveryCharges: showPaymentModal.delivery_charges,
-            tableNumber: showPaymentModal.restaurant_tables?.table_number,
-            waiter: showPaymentModal.waiters?.name,
-            items: showPaymentModal.order_items.map((item: any) => {
-                const category = menuCategories[item.menu_items?.id]
-                return {
-                    name: item.menu_items?.name,
-                    quantity: item.quantity,
-                    price: item.menu_items?.price,
-                    total: item.total_price,
-                    category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
+            // Print receipt
+            const receiptData: ReceiptData = {
+                restaurantName: 'AT RESTAURANT',
+                tagline: 'Delicious Food, Memorable Moments',
+                address: 'Sooter Mills Rd, Lahore',
+                orderNumber: showPaymentModal.id.slice(0, 8).toUpperCase(),
+                date: new Date(showPaymentModal.created_at).toLocaleString('en-PK'),
+                orderType: showPaymentModal.order_type || 'dine-in',
+                customerName: showPaymentModal.customer_name,
+                customerPhone: showPaymentModal.customer_phone,
+                deliveryAddress: showPaymentModal.delivery_address,
+                deliveryCharges: showPaymentModal.delivery_charges,
+                tableNumber: showPaymentModal.restaurant_tables?.table_number,
+                waiter: showPaymentModal.waiters?.name,
+                items: showPaymentModal.order_items.map((item: any) => {
+                    const category = menuCategories[item.menu_items?.id]
+                    return {
+                        name: item.menu_items?.name,
+                        quantity: item.quantity,
+                        price: item.menu_items?.price,
+                        total: item.total_price,
+                        category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
+                    }
+                }),
+                subtotal: showPaymentModal.subtotal,
+                tax: showPaymentModal.tax,
+                total: showPaymentModal.total_amount,
+                paymentMethod: validatePaymentMethod(paymentMethod),
+                notes: showPaymentModal.notes
+            }
+
+            await productionPrinter.print(receiptData)
+
+            // Mark as printed and completed
+            if (isOnline) {
+                await supabase
+                    .from('orders')
+                    .update({
+                        receipt_printed: true,
+                        status: 'completed',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', showPaymentModal.id)
+
+                if (showPaymentModal.order_type === 'dine-in' && showPaymentModal.table_id) {
+                    await supabase
+                        .from('restaurant_tables')
+                        .update({
+                            status: 'available',
+                            current_order_id: null,
+                            waiter_id: null
+                        })
+                        .eq('id', showPaymentModal.table_id)
                 }
-            }),
-            subtotal: showPaymentModal.subtotal,
-            tax: showPaymentModal.tax,
-            total: showPaymentModal.total_amount,
-            paymentMethod: validatePaymentMethod(paymentMethod),
-            notes: showPaymentModal.notes
+            } else {
+                await db.orders.update(showPaymentModal.id, {
+                    receipt_printed: true,
+                    status: 'completed',
+                    updated_at: new Date().toISOString()
+                })
+
+                // Queue for sync
+                await dbHelpers.addToQueue('orders', 'update', {
+                    id: showPaymentModal.id,
+                    receipt_printed: true,
+                    status: 'completed'
+                })
+            }
+
+            toast.add('success', '✅ Order completed!')
+            setShowPaymentModal(null)
+            setSelectedOrder(null)
+            loadOrders()
+        } catch (error: any) {
+            toast.add('error', `❌ ${error.message}`)
         }
-
-        await productionPrinter.print(receiptData)
-
-        await printAndComplete(
-            showPaymentModal.id,
-            showPaymentModal.table_id,
-            showPaymentModal.order_type
-        )
-
-        setShowPaymentModal(null)
-        setSelectedOrder(null)
-        loadOrders()
     }
 
     const handleCancel = async (order: any) => {
         if (!confirm('⚠️ Cancel this order?')) return
-        const result = await cancelOrder(order.id, order.table_id, order.order_type)
-        if (result.success) {
+
+        try {
+            if (isOnline) {
+                await supabase
+                    .from('orders')
+                    .update({ status: 'cancelled' })
+                    .eq('id', order.id)
+
+                if (order.order_type === 'dine-in' && order.table_id) {
+                    await supabase
+                        .from('restaurant_tables')
+                        .update({
+                            status: 'available',
+                            current_order_id: null,
+                            waiter_id: null
+                        })
+                        .eq('id', order.table_id)
+                }
+            } else {
+                await db.orders.update(order.id, { status: 'cancelled' })
+                await dbHelpers.addToQueue('orders', 'update', {
+                    id: order.id,
+                    status: 'cancelled'
+                })
+            }
+
+            toast.add('success', '✅ Order cancelled')
             setSelectedOrder(null)
             loadOrders()
+        } catch (error: any) {
+            toast.add('error', `❌ ${error.message}`)
         }
     }
 
     const columns = [
         { key: 'order', label: 'Order', render: (row: any) => (
                 <div className="flex items-center gap-2">
-                    {row.id.startsWith('offline_') && (
-                        <div title="Offline order">
+                    {!row.synced && (
+                        <div title="Pending sync">
                             <WifiOff className="w-4 h-4 text-yellow-600 flex-shrink-0" />
                         </div>
                     )}
@@ -258,7 +396,7 @@ export default function OrdersPage() {
                 <div className="lg:ml-64">
                     <PageHeader
                         title="Orders"
-                        subtitle={`${stats[0].value} active${pendingCount > 0 ? ` • ${pendingCount} pending sync` : ''}`}
+                        subtitle={`${stats[0].value} active${pendingCount > 0 ? ` • ${pendingCount} pending sync` : ''}${!isOnline ? ' • Offline' : ''}`}
                         action={
                             <button onClick={loadOrders} className="p-2 hover:bg-[var(--bg)] rounded-lg active:scale-95 transition-transform">
                                 <RefreshCw className="w-5 h-5 text-[var(--muted)]" />
@@ -267,9 +405,19 @@ export default function OrdersPage() {
                     />
 
                     <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+                        {!isOnline && (
+                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-3">
+                                <WifiOff className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                                <div className="text-sm">
+                                    <p className="font-semibold text-[var(--fg)] mb-1">Offline Mode</p>
+                                    <p className="text-[var(--muted)]">Orders will sync when you're back online.</p>
+                                </div>
+                            </div>
+                        )}
+
                         {pendingCount > 0 && (
-                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                                <p className="text-sm font-medium text-yellow-600">
+                            <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                                <p className="text-sm font-medium text-blue-600">
                                     📴 {pendingCount} orders pending sync. Will upload when online.
                                 </p>
                             </div>
@@ -304,62 +452,14 @@ export default function OrdersPage() {
                                     <>
                                         <button
                                             onClick={() => handleCancel(selectedOrder)}
-                                            disabled={actionLoading}
-                                            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium transition-colors disabled:opacity-50 active:scale-95"
+                                            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium transition-colors active:scale-95"
                                         >
                                             Cancel
                                         </button>
 
                                         <button
-                                            onClick={() => {
-                                                if (selectedOrder.order_type === 'dine-in' && !selectedOrder.payment_method) {
-                                                    setShowPaymentModal(selectedOrder)
-                                                } else {
-                                                    // ✅ Direct print for delivery orders
-                                                    const receiptData: ReceiptData = {
-                                                        restaurantName: 'AT RESTAURANT',
-                                                        tagline: 'Delicious Food, Memorable Moments',
-                                                        address: 'Sooter Mills Rd, Lahore',
-                                                        orderNumber: selectedOrder.id.slice(0, 8).toUpperCase(),
-                                                        date: new Date(selectedOrder.created_at).toLocaleString('en-PK'),
-                                                        orderType: selectedOrder.order_type || 'dine-in',
-                                                        customerName: selectedOrder.customer_name,
-                                                        customerPhone: selectedOrder.customer_phone,
-                                                        deliveryAddress: selectedOrder.delivery_address,
-                                                        deliveryCharges: selectedOrder.delivery_charges,
-                                                        tableNumber: selectedOrder.restaurant_tables?.table_number,
-                                                        waiter: selectedOrder.waiters?.name,
-                                                        items: selectedOrder.order_items.map((item: any) => {
-                                                            const category = menuCategories[item.menu_items?.id]
-                                                            return {
-                                                                name: item.menu_items?.name,
-                                                                quantity: item.quantity,
-                                                                price: item.menu_items?.price,
-                                                                total: item.total_price,
-                                                                category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
-                                                            }
-                                                        }),
-                                                        subtotal: selectedOrder.subtotal,
-                                                        tax: selectedOrder.tax,
-                                                        total: selectedOrder.total_amount,
-                                                        paymentMethod: validatePaymentMethod(selectedOrder.payment_method),
-                                                        notes: selectedOrder.notes
-                                                    }
-
-                                                    productionPrinter.print(receiptData).then(() => {
-                                                        printAndComplete(
-                                                            selectedOrder.id,
-                                                            selectedOrder.table_id,
-                                                            selectedOrder.order_type
-                                                        ).then(() => {
-                                                            setSelectedOrder(null)
-                                                            loadOrders()
-                                                        })
-                                                    })
-                                                }
-                                            }}
-                                            disabled={actionLoading || !isOnline}
-                                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 text-sm font-medium transition-colors disabled:opacity-50 active:scale-95"
+                                            onClick={() => setShowPaymentModal(selectedOrder)}
+                                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 text-sm font-medium transition-colors active:scale-95"
                                         >
                                             <Printer className="w-4 h-4" />
                                             Print & Complete
@@ -397,8 +497,7 @@ export default function OrdersPage() {
                             <div className="p-6 space-y-3">
                                 <button
                                     onClick={() => handlePrintAndComplete('cash')}
-                                    disabled={actionLoading}
-                                    className="w-full p-4 border-2 border-[var(--border)] rounded-lg hover:border-green-600 hover:bg-green-600/10 transition-all group disabled:opacity-50"
+                                    className="w-full p-4 border-2 border-[var(--border)] rounded-lg hover:border-green-600 hover:bg-green-600/10 transition-all group"
                                 >
                                     <div className="flex items-center gap-3">
                                         <div className="w-12 h-12 bg-green-600/20 rounded-lg flex items-center justify-center group-hover:bg-green-600/30 transition-colors">
@@ -413,8 +512,7 @@ export default function OrdersPage() {
 
                                 <button
                                     onClick={() => handlePrintAndComplete('online')}
-                                    disabled={actionLoading}
-                                    className="w-full p-4 border-2 border-[var(--border)] rounded-lg hover:border-blue-600 hover:bg-blue-600/10 transition-all group disabled:opacity-50"
+                                    className="w-full p-4 border-2 border-[var(--border)] rounded-lg hover:border-blue-600 hover:bg-blue-600/10 transition-all group"
                                 >
                                     <div className="flex items-center gap-3">
                                         <div className="w-12 h-12 bg-blue-600/20 rounded-lg flex items-center justify-center group-hover:bg-blue-600/30 transition-colors">

@@ -1,56 +1,69 @@
-// src/app/(public)/attendance/page.tsx - FIXED CLOCK IN/OUT LOGIC
+// src/app/(public)/attendance/page.tsx - DEXIE POWERED
 'use client'
 export const dynamic = 'force-dynamic'
 
 import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { Timer, LogIn, LogOut, AlertCircle, WifiOff, RefreshCw } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { getWaiterStatusColor } from '@/lib/utils/statusHelpers'
-import { db } from '@/lib/db/indexedDB'
-import { STORES } from '@/lib/db/schema'
-import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
+import { db, dbHelpers } from '@/lib/db/dexie'
+import { syncManager } from '@/lib/db/syncManager'
+import { createClient } from '@/lib/supabase/client'
+import type { Waiter } from '@/lib/db/dexie'
 
 export default function AttendancePage() {
-    const [waiters, setWaiters] = useState<any[]>([])
+    const [waiters, setWaiters] = useState<Waiter[]>([])
     const [loading, setLoading] = useState(false)
     const [processingId, setProcessingId] = useState<string | null>(null)
+    const [isOnline, setIsOnline] = useState(true) // Default true for SSR
     const supabase = createClient()
     const toast = useToast()
-    const { isOnline } = useOfflineStatus()
 
     useEffect(() => {
         load()
 
-        // ✅ Auto-refresh every 5 seconds to get latest status
         const interval = setInterval(load, 5000)
-        return () => clearInterval(interval)
-    }, [isOnline])
+
+        const handleOnline = () => {
+            setIsOnline(true)
+            load()
+        }
+        const handleOffline = () => setIsOnline(false)
+
+        window.addEventListener('online', handleOnline)
+        window.addEventListener('offline', handleOffline)
+
+        return () => {
+            clearInterval(interval)
+            window.removeEventListener('online', handleOnline)
+            window.removeEventListener('offline', handleOffline)
+        }
+    }, [])
 
     const load = async () => {
         try {
-            if (isOnline) {
+            // Load from Dexie first
+            const dexieWaiters = await db.waiters
+                .where('is_active')
+                .equals(1)
+                .sortBy('name')
+
+            if (dexieWaiters.length > 0) {
+                setWaiters(dexieWaiters)
+            }
+
+            // Update from Supabase if online
+            if (navigator.onLine) {
                 const { data } = await supabase
                     .from('waiters')
                     .select('*')
                     .eq('is_active', true)
                     .order('name')
 
-                if (data) {
+                if (data && data.length > 0) {
+                    await db.waiters.bulkPut(data)
                     setWaiters(data)
-
-                    // ✅ Cache for offline
-                    await db.put(STORES.SETTINGS, {
-                        key: 'waiters',
-                        value: data
-                    })
-                }
-            } else {
-                // Load from cache
-                const cached = await db.get(STORES.SETTINGS, 'waiters')
-                if (cached && (cached as any).value) {
-                    setWaiters((cached as any).value)
                 }
             }
         } catch (error) {
@@ -71,26 +84,21 @@ export default function AttendancePage() {
             const now = new Date().toISOString()
 
             if (isOnline) {
-                // ✅ FIX: Check if already clocked in (more robust query)
+                // Check if already clocked in
                 const { data: existingShifts, error: checkError } = await supabase
                     .from('waiter_shifts')
                     .select('id, clock_in, clock_out')
                     .eq('waiter_id', waiterId)
                     .is('clock_out', null)
 
-                if (checkError) {
-                    console.error('Check shift error:', checkError)
-                    throw checkError
-                }
+                if (checkError) throw checkError
 
                 if (existingShifts && existingShifts.length > 0) {
                     toast.add('error', '⚠️ Already clocked in!')
-                    setLoading(false)
-                    setProcessingId(null)
                     return
                 }
 
-                // ✅ Create new shift
+                // Create new shift
                 const { error: insertError } = await supabase
                     .from('waiter_shifts')
                     .insert({
@@ -99,47 +107,53 @@ export default function AttendancePage() {
                         clock_out: null
                     })
 
-                if (insertError) {
-                    console.error('Insert shift error:', insertError)
-                    throw insertError
-                }
+                if (insertError) throw insertError
 
-                // ✅ Update waiter status
+                // Update waiter status
                 const { error: updateError } = await supabase
                     .from('waiters')
                     .update({ is_on_duty: true })
                     .eq('id', waiterId)
 
-                if (updateError) {
-                    console.error('Update waiter error:', updateError)
-                    throw updateError
-                }
+                if (updateError) throw updateError
 
                 toast.add('success', '✅ Clocked in!')
-
-                // ✅ Refresh immediately after success
                 await load()
 
             } else {
-                // ✅ Offline clock-in
+                // Offline clock-in
                 const offlineId = `offline_shift_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
-                await db.put('waiter_shifts', {
+                await db.waiter_shifts.add({
                     id: offlineId,
                     waiter_id: waiterId,
                     clock_in: now,
-                    clock_out: null,
+                    clock_out: undefined,
                     synced: false,
                     created_at: now
                 })
 
                 // Update local waiter status
-                const updatedWaiters = waiters.map(w =>
-                    w.id === waiterId ? { ...w, is_on_duty: true } : w
-                )
-                setWaiters(updatedWaiters)
+                await db.waiters.update(waiterId, { is_on_duty: true })
+
+                // Queue for sync
+                await dbHelpers.addToQueue('waiter_shifts', 'create', {
+                    waiter_id: waiterId,
+                    clock_in: now
+                })
+
+                await dbHelpers.addToQueue('waiters', 'update', {
+                    id: waiterId,
+                    is_on_duty: true
+                })
 
                 toast.add('success', '✅ Clocked in offline! Will sync when online.')
+                await load()
+
+                // ✅ INSTANT SYNC
+                if (navigator.onLine) {
+                    syncManager.syncAfterCreate()
+                }
             }
 
         } catch (error: any) {
@@ -164,7 +178,7 @@ export default function AttendancePage() {
             const now = new Date().toISOString()
 
             if (isOnline) {
-                // ✅ FIX: Find the active shift (more robust)
+                // Find the active shift
                 const { data: shifts, error: findError } = await supabase
                     .from('waiter_shifts')
                     .select('id, clock_in')
@@ -173,67 +187,69 @@ export default function AttendancePage() {
                     .order('clock_in', { ascending: false })
                     .limit(1)
 
-                if (findError) {
-                    console.error('Find shift error:', findError)
-                    throw findError
-                }
+                if (findError) throw findError
 
                 if (!shifts || shifts.length === 0) {
                     toast.add('error', '❌ No active shift found!')
-                    setLoading(false)
-                    setProcessingId(null)
                     return
                 }
 
                 const shift = shifts[0]
 
-                // ✅ Update shift with clock_out
+                // Update shift with clock_out
                 const { error: updateShiftError } = await supabase
                     .from('waiter_shifts')
                     .update({ clock_out: now })
                     .eq('id', shift.id)
 
-                if (updateShiftError) {
-                    console.error('Update shift error:', updateShiftError)
-                    throw updateShiftError
-                }
+                if (updateShiftError) throw updateShiftError
 
-                // ✅ Update waiter status
+                // Update waiter status
                 const { error: updateWaiterError } = await supabase
                     .from('waiters')
                     .update({ is_on_duty: false })
                     .eq('id', waiterId)
 
-                if (updateWaiterError) {
-                    console.error('Update waiter error:', updateWaiterError)
-                    throw updateWaiterError
-                }
+                if (updateWaiterError) throw updateWaiterError
 
                 toast.add('success', '✅ Clocked out!')
-
-                // ✅ Refresh immediately after success
                 await load()
 
             } else {
-                // ✅ Offline clock-out
-                const allShifts = await db.getAll('waiter_shifts') as any[]
-                const activeShift = allShifts.find(s =>
-                    s.waiter_id === waiterId && !s.clock_out
-                )
+                // Offline clock-out
+                const allShifts = await db.waiter_shifts
+                    .where('waiter_id')
+                    .equals(waiterId)
+                    .toArray()
+
+                const activeShift = allShifts.find(s => !s.clock_out)
 
                 if (activeShift) {
-                    await db.put('waiter_shifts', {
-                        ...activeShift,
+                    await db.waiter_shifts.update(activeShift.id, {
                         clock_out: now
                     })
 
                     // Update local waiter status
-                    const updatedWaiters = waiters.map(w =>
-                        w.id === waiterId ? { ...w, is_on_duty: false } : w
-                    )
-                    setWaiters(updatedWaiters)
+                    await db.waiters.update(waiterId, { is_on_duty: false })
+
+                    // Queue for sync
+                    await dbHelpers.addToQueue('waiter_shifts', 'update', {
+                        id: activeShift.id,
+                        clock_out: now
+                    })
+
+                    await dbHelpers.addToQueue('waiters', 'update', {
+                        id: waiterId,
+                        is_on_duty: false
+                    })
 
                     toast.add('success', '✅ Clocked out offline! Will sync when online.')
+                    await load()
+
+                    // ✅ INSTANT SYNC
+                    if (navigator.onLine) {
+                        syncManager.syncAfterCreate()
+                    }
                 } else {
                     toast.add('error', '❌ No active shift found!')
                 }
