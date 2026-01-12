@@ -1,6 +1,8 @@
-// src/lib/hooks/useDataLoader.ts - FIXED
+// src/lib/hooks/useDataLoader.ts - WITH OFFLINE FALLBACK
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { offlineManager } from '@/lib/db/offlineManager'
+import { STORES } from '@/lib/db/schema'
 
 interface LoaderOptions<T> {
     table: string
@@ -17,47 +19,95 @@ export function useDataLoader<T = any>(options: LoaderOptions<T>) {
     const [error, setError] = useState<string | null>(null)
     const supabase = createClient()
 
+    const getStoreName = (tableName: string) => {
+        const map: Record<string, string> = {
+            'restaurant_tables': 'restaurant_tables',
+            'waiters': 'waiters',
+            'menu_items': STORES.MENU_ITEMS,
+            'menu_categories': STORES.MENU_CATEGORIES,
+            'orders': STORES.ORDERS
+        }
+        return map[tableName] || tableName
+    }
+
     const load = useCallback(async () => {
         setLoading(true)
         setError(null)
 
         try {
-            let query = supabase
-                .from(options.table)
-                .select(options.select || '*')
+            // ✅ Try offline first
+            const storeName = getStoreName(options.table)
+            let offlineData = await offlineManager.getOfflineData(storeName)
 
-            if (options.filter) {
-                Object.entries(options.filter).forEach(([key, value]) => {
-                    if (value !== undefined && value !== null) {
-                        query = query.eq(key, value)
-                    }
-                })
+            if (Array.isArray(offlineData) && offlineData.length > 0) {
+                // Apply filters
+                if (options.filter) {
+                    offlineData = offlineData.filter(item =>
+                        Object.entries(options.filter!).every(([key, value]) =>
+                            (item as any)[key] === value
+                        )
+                    )
+                }
+
+                // Apply sorting
+                if (options.order) {
+                    offlineData.sort((a, b) => {
+                        const aVal = (a as any)[options.order!.column]
+                        const bVal = (b as any)[options.order!.column]
+                        const direction = options.order!.ascending ?? true ? 1 : -1
+
+                        if (aVal < bVal) return -direction
+                        if (aVal > bVal) return direction
+                        return 0
+                    })
+                }
+
+                // Apply transform
+                const finalData = options.transform
+                    ? options.transform(offlineData)
+                    : (offlineData as T[])
+
+                setData(finalData)
             }
 
-            if (options.order) {
-                query = query.order(options.order.column, {
-                    ascending: options.order.ascending ?? true
-                })
+            // ✅ Try online update (background)
+            if (navigator.onLine) {
+                let query = supabase
+                    .from(options.table)
+                    .select(options.select || '*')
+
+                if (options.filter) {
+                    Object.entries(options.filter).forEach(([key, value]) => {
+                        if (value !== undefined && value !== null) {
+                            query = query.eq(key, value)
+                        }
+                    })
+                }
+
+                if (options.order) {
+                    query = query.order(options.order.column, {
+                        ascending: options.order.ascending ?? true
+                    })
+                }
+
+                if (options.limit) {
+                    query = query.limit(options.limit)
+                }
+
+                const { data: result, error: err } = await query
+
+                if (err) throw err
+
+                const finalData = options.transform && result
+                    ? options.transform(result)
+                    : (result as T[] || [])
+
+                setData(finalData)
             }
-
-            if (options.limit) {
-                query = query.limit(options.limit)
-            }
-
-            const { data: result, error: err } = await query
-
-            if (err) throw err
-
-            const finalData = options.transform && result
-                ? options.transform(result)
-                : (result as T[] || [])
-
-            setData(finalData)
         } catch (err: any) {
             const errorMsg = err.message || 'Failed to load data'
             setError(errorMsg)
             console.error(`Error loading ${options.table}:`, err)
-            setData([])
         } finally {
             setLoading(false)
         }
@@ -68,57 +118,4 @@ export function useDataLoader<T = any>(options: LoaderOptions<T>) {
     }, [load])
 
     return { data, loading, error, refresh: load }
-}
-
-export function useInventoryItems(filter?: Record<string, any>) {
-    return useDataLoader({
-        table: 'inventory_items',
-        select: '*, inventory_categories(name, icon)',
-        filter: filter || { is_active: true },
-        order: { column: 'created_at', ascending: false },
-        transform: (items) => items.map(item => ({
-            ...item,
-            total_value: (Number(item.quantity) || 0) * (Number(item.purchase_price) || 0)
-        }))
-    })
-}
-
-export function useOrders(filter?: Record<string, any>) {
-    return useDataLoader({
-        table: 'orders',
-        select: `
-            *,
-            restaurant_tables!orders_table_id_fkey(id, table_number),
-            waiters(id, name),
-            order_items(*, menu_items(name, price, category_id))
-        `,
-        filter,
-        order: { column: 'created_at', ascending: false }
-    })
-}
-
-export function useTables() {
-    return useDataLoader({
-        table: 'restaurant_tables',
-        select: '*',
-        order: { column: 'table_number' }
-    })
-}
-
-export function useWaiters(filter?: Record<string, any>) {
-    return useDataLoader({
-        table: 'waiters',
-        select: '*',
-        filter: filter || { is_active: true },
-        order: { column: 'name' }
-    })
-}
-
-export function useMenuItems(filter?: Record<string, any>) {
-    return useDataLoader({
-        table: 'menu_items',
-        select: '*, menu_categories(name, icon)',
-        filter: filter || { is_available: true },
-        order: { column: 'created_at', ascending: false }
-    })
 }

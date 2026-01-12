@@ -1,41 +1,28 @@
-// src/lib/db/offlineManager.ts - PRODUCTION CLEAN VERSION
+// src/lib/db/offlineManager.ts - COMPLETE OFFLINE MANAGER
 import { createClient } from '@/lib/supabase/client'
 import { db } from './indexedDB'
 import { STORES } from './schema'
+import { imageCompressor } from './imageCompressor'
 
 const dispatchSyncEvent = (type: string, detail: any) => {
     if (typeof window === 'undefined') return
     window.dispatchEvent(new CustomEvent(type, { detail }))
 }
 
-interface DownloadResult {
-    success: boolean
-    message?: string
-    counts?: { categories: number; items: number; tables: number; waiters: number }
-    error?: string
-}
-
 class OfflineManager {
     private isDownloading = false
     private syncInProgress = false
-    private autoCleanupInterval: NodeJS.Timeout | null = null
+    private autoSyncInterval: NodeJS.Timeout | null = null
 
     constructor() {
         if (typeof window !== 'undefined') {
-            this.initAutoCleanup()
             this.initAutoSync()
         }
     }
 
-    private initAutoCleanup() {
-        this.cleanupOldData()
-        this.autoCleanupInterval = setInterval(() => {
-            this.cleanupOldData()
-        }, 24 * 60 * 60 * 1000)
-    }
-
+    // ✅ Auto-sync every 5 minutes when online
     private initAutoSync() {
-        if (typeof navigator !== 'undefined' && navigator.onLine) {
+        if (navigator.onLine) {
             this.downloadEssentialData()
         }
 
@@ -44,23 +31,42 @@ class OfflineManager {
             this.syncPendingOrders()
         })
 
-        setInterval(() => {
-            if (typeof navigator !== 'undefined' && navigator.onLine) {
+        this.autoSyncInterval = setInterval(() => {
+            if (navigator.onLine) {
                 this.downloadEssentialData()
+                this.syncPendingOrders()
             }
-        }, 15 * 60 * 1000)
+        }, 5 * 60 * 1000) // 5 minutes
     }
 
-    async downloadEssentialData(force = false): Promise<DownloadResult> {
+    // ✅ Check if offline data exists
+    async isOfflineReady(): Promise<boolean> {
+        try {
+            const [categories, items] = await Promise.all([
+                db.getAll(STORES.MENU_CATEGORIES),
+                db.getAll(STORES.MENU_ITEMS)
+            ])
+
+            return (
+                Array.isArray(categories) && categories.length > 0 &&
+                Array.isArray(items) && items.length > 0
+            )
+        } catch (error) {
+            return false
+        }
+    }
+
+    // ✅ Download essential data with image compression
+    async downloadEssentialData(force = false): Promise<{ success: boolean; counts?: any }> {
         if (this.isDownloading) {
-            return { success: false, message: 'Already downloading...' }
+            return { success: false }
         }
 
         const lastSync = localStorage.getItem('menu_last_sync')
         const oneHour = 60 * 60 * 1000
 
         if (!force && lastSync && Date.now() - parseInt(lastSync) < oneHour) {
-            return { success: true, message: 'Menu is fresh' }
+            return { success: true }
         }
 
         this.isDownloading = true
@@ -73,90 +79,79 @@ class OfflineManager {
                 message: 'Downloading menu data...'
             })
 
-            const [categoriesResult, itemsResult, tablesResult, waitersResult] =
-                await Promise.allSettled([
-                    supabase
-                        .from('menu_categories')
-                        .select('*')
-                        .eq('is_active', true)
-                        .order('display_order'),
-                    supabase
-                        .from('menu_items')
-                        .select('*')
-                        .eq('is_available', true)
-                        .order('name'),
-                    supabase
-                        .from('restaurant_tables')
-                        .select('*')
-                        .order('table_number'),
-                    supabase
-                        .from('waiters')
-                        .select('*')
-                        .eq('is_active', true)
-                        .order('name')
-                ])
+            // ✅ Fetch all data
+            const [categoriesResult, itemsResult, tablesResult, waitersResult] = await Promise.allSettled([
+                supabase.from('menu_categories').select('*').eq('is_active', true).order('display_order'),
+                supabase.from('menu_items').select('*').eq('is_available', true).order('name'),
+                supabase.from('restaurant_tables').select('*').order('table_number'),
+                supabase.from('waiters').select('*').eq('is_active', true).order('name')
+            ])
 
-            const categoriesData =
-                categoriesResult.status === 'fulfilled' &&
-                Array.isArray(categoriesResult.value.data)
-                    ? categoriesResult.value.data
-                    : []
+            const categoriesData = categoriesResult.status === 'fulfilled' && Array.isArray(categoriesResult.value.data)
+                ? categoriesResult.value.data : []
+            const itemsData = itemsResult.status === 'fulfilled' && Array.isArray(itemsResult.value.data)
+                ? itemsResult.value.data : []
+            const tablesData = tablesResult.status === 'fulfilled' && Array.isArray(tablesResult.value.data)
+                ? tablesResult.value.data : []
+            const waitersData = waitersResult.status === 'fulfilled' && Array.isArray(waitersResult.value.data)
+                ? waitersResult.value.data : []
 
-            const itemsData =
-                itemsResult.status === 'fulfilled' &&
-                Array.isArray(itemsResult.value.data)
-                    ? itemsResult.value.data
-                    : []
-
-            const tablesData =
-                tablesResult.status === 'fulfilled' &&
-                Array.isArray(tablesResult.value.data)
-                    ? tablesResult.value.data
-                    : []
-
-            const waitersData =
-                waitersResult.status === 'fulfilled' &&
-                Array.isArray(waitersResult.value.data)
-                    ? waitersResult.value.data
-                    : []
-
-            let progress = 0
-            const updateProgress = (current: number) => {
-                progress = Math.round((current / 4) * 100)
-                dispatchSyncEvent('sync-progress', {
-                    progress,
-                    current,
-                    total: 4,
-                    message: `Downloaded ${current}/4 datasets...`
-                })
-            }
-
+            // ✅ Save categories
             if (categoriesData.length > 0) {
                 await db.clear(STORES.MENU_CATEGORIES)
                 await db.bulkPut(STORES.MENU_CATEGORIES, categoriesData)
-                await db.put(STORES.SETTINGS, {
-                    key: 'categories_version',
-                    value: Date.now()
+                dispatchSyncEvent('sync-progress', {
+                    progress: 25,
+                    current: 1,
+                    total: 4,
+                    message: 'Saved categories...'
                 })
-                updateProgress(1)
             }
 
+            // ✅ Compress and save menu items with images
             if (itemsData.length > 0) {
                 await db.clear(STORES.MENU_ITEMS)
-                await db.bulkPut(STORES.MENU_ITEMS, itemsData)
-                await db.put(STORES.SETTINGS, {
-                    key: 'menu_version',
-                    value: Date.now()
+
+                const compressedItems = await Promise.all(
+                    itemsData.map(async (item) => {
+                        if (item.image_url && !item.image_url.startsWith('data:')) {
+                            try {
+                                const compressed = await imageCompressor.compressImage(item.image_url)
+                                return {
+                                    ...item,
+                                    image_url_original: item.image_url, // Keep original for online mode
+                                    image_url: compressed || item.image_url // Use compressed for offline
+                                }
+                            } catch (error) {
+                                return item
+                            }
+                        }
+                        return item
+                    })
+                )
+
+                await db.bulkPut(STORES.MENU_ITEMS, compressedItems)
+
+                dispatchSyncEvent('sync-progress', {
+                    progress: 50,
+                    current: 2,
+                    total: 4,
+                    message: `Compressed ${compressedItems.length} menu items...`
                 })
-                updateProgress(2)
             }
 
+            // ✅ Save tables and waiters
             if (tablesData.length > 0) {
                 await db.put(STORES.SETTINGS, {
                     key: 'restaurant_tables',
                     value: tablesData
                 })
-                updateProgress(3)
+                dispatchSyncEvent('sync-progress', {
+                    progress: 75,
+                    current: 3,
+                    total: 4,
+                    message: 'Saved tables...'
+                })
             }
 
             if (waitersData.length > 0) {
@@ -164,18 +159,11 @@ class OfflineManager {
                     key: 'waiters',
                     value: waitersData
                 })
-                updateProgress(4)
-            }
-
-            const imageUrls = itemsData
-                .map(i => i.image_url)
-                .filter(Boolean)
-                .slice(0, 30)
-
-            if (imageUrls.length > 0 && navigator.serviceWorker?.controller) {
-                navigator.serviceWorker.controller.postMessage({
-                    type: 'CACHE_IMAGES',
-                    urls: imageUrls
+                dispatchSyncEvent('sync-progress', {
+                    progress: 100,
+                    current: 4,
+                    total: 4,
+                    message: 'Saved waiters...'
                 })
             }
 
@@ -200,68 +188,15 @@ class OfflineManager {
             }
         } catch (error: any) {
             dispatchSyncEvent('sync-error', { error: error.message })
-            return { success: false, error: error.message }
+            return { success: false }
         } finally {
             this.isDownloading = false
         }
     }
 
-    async cleanupOldData(): Promise<number> {
-        try {
-            const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
-            const ordersData = await db.getAll(STORES.ORDERS)
-
-            if (!Array.isArray(ordersData) || ordersData.length === 0) {
-                return 0
-            }
-
-            const orders = ordersData as Array<{
-                id: string
-                created_at: string
-                status: string
-            }>
-
-            const oldOrders = orders.filter(o => {
-                const orderTime = new Date(o.created_at).getTime()
-                return orderTime < sevenDaysAgo && o.status === 'completed'
-            })
-
-            const sortedOrders = orders
-                .filter(o => o.status === 'completed')
-                .sort(
-                    (a, b) =>
-                        new Date(b.created_at).getTime() -
-                        new Date(a.created_at).getTime()
-                )
-
-            const ordersToDelete = sortedOrders.slice(200)
-            const allDeletes = [...new Set([...oldOrders, ...ordersToDelete])]
-
-            for (const order of allDeletes) {
-                await db.delete(STORES.ORDERS, order.id)
-
-                const itemsData = await db.getAll(STORES.ORDER_ITEMS)
-                if (Array.isArray(itemsData)) {
-                    const items = itemsData as Array<{ id: string; order_id: string }>
-                    const orderItems = items.filter(i => i.order_id === order.id)
-                    for (const item of orderItems) {
-                        await db.delete(STORES.ORDER_ITEMS, item.id)
-                    }
-                }
-            }
-
-            return allDeletes.length
-        } catch (error) {
-            return 0
-        }
-    }
-
+    // ✅ Sync pending orders to server
     async syncPendingOrders(): Promise<{ success: boolean; synced: number }> {
-        if (
-            this.syncInProgress ||
-            typeof navigator === 'undefined' ||
-            !navigator.onLine
-        ) {
+        if (this.syncInProgress || !navigator.onLine) {
             return { success: false, synced: 0 }
         }
 
@@ -270,68 +205,121 @@ class OfflineManager {
 
         try {
             const ordersData = await db.getAll(STORES.ORDERS)
-
             if (!Array.isArray(ordersData)) {
                 return { success: false, synced: 0 }
             }
 
-            const orders = ordersData as Array<any>
-            const pendingOrders = orders.filter(o => !o.synced)
+            const pendingOrders = ordersData.filter(o => !o.synced && o.id.startsWith('offline_'))
 
-            if (pendingOrders.length > 0) {
-                dispatchSyncEvent('sync-start', {
-                    direction: 'upload',
-                    total: pendingOrders.length,
-                    message: 'Uploading pending orders...'
-                })
+            if (pendingOrders.length === 0) {
+                return { success: true, synced: 0 }
             }
+
+            dispatchSyncEvent('sync-start', {
+                direction: 'upload',
+                total: pendingOrders.length,
+                message: 'Syncing orders...'
+            })
 
             const supabase = createClient()
 
             for (let i = 0; i < pendingOrders.length; i++) {
                 const order = pendingOrders[i]
                 try {
-                    const { error } = await supabase.from('orders').insert(order)
-
-                    if (!error) {
-                        await db.put(STORES.ORDERS, { ...order, synced: true })
-                        syncedCount++
-
-                        const progress = Math.round(
-                            ((i + 1) / pendingOrders.length) * 100
-                        )
-                        dispatchSyncEvent('sync-progress', {
-                            progress,
-                            current: i + 1,
-                            total: pendingOrders.length,
-                            message: `Uploaded ${i + 1}/${pendingOrders.length} orders`
+                    // Create order on server
+                    const { data: newOrder, error: orderError } = await supabase
+                        .from('orders')
+                        .insert({
+                            waiter_id: order.waiter_id,
+                            table_id: order.table_id,
+                            status: order.status,
+                            subtotal: order.subtotal,
+                            tax: order.tax,
+                            total_amount: order.total_amount,
+                            order_type: order.order_type,
+                            payment_method: order.payment_method,
+                            notes: order.notes,
+                            customer_name: order.customer_name,
+                            customer_phone: order.customer_phone,
+                            delivery_address: order.delivery_address,
+                            delivery_charges: order.delivery_charges,
+                            receipt_printed: order.receipt_printed || false,
+                            created_at: order.created_at
                         })
+                        .select()
+                        .single()
+
+                    if (orderError) throw orderError
+
+                    // Get order items
+                    const orderItems = await db.getAll(STORES.ORDER_ITEMS) as any[]
+                    const items = orderItems.filter(i => i.order_id === order.id)
+
+                    // Insert order items
+                    if (items.length > 0) {
+                        const itemsToInsert = items.map(item => ({
+                            order_id: newOrder.id,
+                            menu_item_id: item.menu_item_id,
+                            quantity: item.quantity,
+                            unit_price: item.unit_price,
+                            total_price: item.total_price
+                        }))
+
+                        await supabase.from('order_items').insert(itemsToInsert)
+
+                        // Delete synced items from IndexedDB
+                        for (const item of items) {
+                            await db.delete(STORES.ORDER_ITEMS, item.id)
+                        }
                     }
+
+                    // Update table if dine-in
+                    if (order.order_type === 'dine-in' && order.table_id) {
+                        await supabase
+                            .from('restaurant_tables')
+                            .update({
+                                status: 'occupied',
+                                waiter_id: order.waiter_id,
+                                current_order_id: newOrder.id
+                            })
+                            .eq('id', order.table_id)
+                    }
+
+                    // Delete synced order
+                    await db.delete(STORES.ORDERS, order.id)
+                    syncedCount++
+
+                    dispatchSyncEvent('sync-progress', {
+                        progress: Math.round(((i + 1) / pendingOrders.length) * 100),
+                        current: i + 1,
+                        total: pendingOrders.length,
+                        message: `Synced ${i + 1}/${pendingOrders.length} orders`
+                    })
                 } catch (err) {
-                    // Silent fail for production
+                    console.error('Failed to sync order:', order.id, err)
                 }
             }
 
-            if (pendingOrders.length > 0) {
+            if (syncedCount > 0) {
                 dispatchSyncEvent('sync-complete', { synced: syncedCount })
             }
 
             return { success: true, synced: syncedCount }
         } catch (error) {
-            dispatchSyncEvent('sync-error', { error: 'Failed to sync orders' })
+            dispatchSyncEvent('sync-error', { error: 'Sync failed' })
             return { success: false, synced: syncedCount }
         } finally {
             this.syncInProgress = false
         }
     }
 
+    // ✅ Get offline data
     async getOfflineData(store: string): Promise<any[]> {
         try {
             if (store === 'restaurant_tables' || store === 'waiters') {
                 const data = await db.get(STORES.SETTINGS, store)
                 if (data && typeof data === 'object' && 'value' in data) {
-                    const value = (data as any).value
-                    return Array.isArray(value) ? value : []
+                    return Array.isArray((data as any).value) ? (data as any).value : []
                 }
                 return []
             }
@@ -343,39 +331,7 @@ class OfflineManager {
         }
     }
 
-    async isOfflineReady(): Promise<boolean> {
-        const ready = localStorage.getItem('offline_ready') === 'true'
-        if (!ready) return false
-
-        const [categories, items] = await Promise.all([
-            db.getAll(STORES.MENU_CATEGORIES),
-            db.getAll(STORES.MENU_ITEMS)
-        ])
-
-        return (
-            Array.isArray(categories) &&
-            categories.length > 0 &&
-            Array.isArray(items) &&
-            items.length > 0
-        )
-    }
-
-    async clearAllData(includeMenu = false): Promise<void> {
-        const storesToClear = [
-            STORES.ORDERS,
-            STORES.ORDER_ITEMS,
-            STORES.CART,
-            STORES.SYNC_QUEUE
-        ]
-
-        if (includeMenu) {
-            storesToClear.push(STORES.MENU_ITEMS, STORES.MENU_CATEGORIES)
-            localStorage.removeItem('offline_ready')
-        }
-
-        await Promise.all(storesToClear.map(store => db.clear(store)))
-    }
-
+    // ✅ Get storage info
     async getStorageInfo() {
         try {
             const [categoriesData, itemsData, ordersData] = await Promise.all([
@@ -384,14 +340,9 @@ class OfflineManager {
                 db.getAll(STORES.ORDERS)
             ])
 
-            // Explicitly type the arrays
             const categories = Array.isArray(categoriesData) ? categoriesData : []
             const items = Array.isArray(itemsData) ? itemsData : []
             const orders = Array.isArray(ordersData) ? ordersData : []
-
-            const menuSize = items.length * 2
-            const ordersSize = orders.length * 5
-            const imagesSize = items.filter((i: any) => i.image_url).length * 100
 
             let used = 0
             let limit = 0
@@ -408,13 +359,7 @@ class OfflineManager {
                 percentage: limit > 0 ? Math.round((used / limit) * 100) : 0,
                 hasData: categories.length > 0 && items.length > 0,
                 ordersCount: orders.length,
-                menuItemsCount: items.length,
-                breakdown: {
-                    menu: menuSize,
-                    orders: ordersSize,
-                    images: imagesSize,
-                    total: menuSize + ordersSize + imagesSize
-                }
+                menuItemsCount: items.length
             }
         } catch (error) {
             return {
@@ -423,15 +368,14 @@ class OfflineManager {
                 percentage: 0,
                 hasData: false,
                 ordersCount: 0,
-                menuItemsCount: 0,
-                breakdown: { menu: 0, orders: 0, images: 0, total: 0 }
+                menuItemsCount: 0
             }
         }
     }
 
     destroy() {
-        if (this.autoCleanupInterval) {
-            clearInterval(this.autoCleanupInterval)
+        if (this.autoSyncInterval) {
+            clearInterval(this.autoSyncInterval)
         }
     }
 }

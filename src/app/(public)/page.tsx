@@ -1,4 +1,4 @@
-// src/app/(public)/page.tsx - FIXED TYPE ERROR
+// src/app/(public)/page.tsx - OFFLINE OPTIMIZED MENU
 'use client'
 export const dynamic = 'force-dynamic'
 
@@ -30,11 +30,10 @@ export default function MenuPage() {
     const [selectedCat, setSelectedCat] = useState('all')
     const [cartOpen, setCartOpen] = useState(false)
     const [sidebarOpen, setSidebarOpen] = useState(false)
-    const [isMounted, setIsMounted] = useState(false)
 
+    // ✅ Pre-download offline data on mount
     useEffect(() => {
-        setIsMounted(true)
-        if (typeof window !== 'undefined' && navigator.onLine) {
+        if (navigator.onLine) {
             offlineManager.downloadEssentialData()
         }
     }, [])
@@ -67,21 +66,18 @@ export default function MenuPage() {
 
     return (
         <>
-            {/* Desktop Sidebar - Hidden on mobile */}
+            {/* Desktop Sidebar */}
             <div className="hidden lg:block">
                 <AutoSidebar items={sidebarItems} title="Categories" />
             </div>
 
-            {/* Mobile Sidebar Overlay */}
+            {/* Mobile Sidebar */}
             {sidebarOpen && (
                 <>
-                    {/* Backdrop */}
                     <div
                         className="fixed inset-0 bg-black/50 z-40 lg:hidden"
                         onClick={() => setSidebarOpen(false)}
                     />
-
-                    {/* Sidebar */}
                     <div className="fixed top-0 left-0 h-full w-64 bg-[var(--card)] border-r border-[var(--border)] z-50 lg:hidden overflow-y-auto">
                         <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
                             <h2 className="text-lg font-bold text-[var(--fg)]">Categories</h2>
@@ -92,7 +88,6 @@ export default function MenuPage() {
                                 ✕
                             </button>
                         </div>
-
                         <div className="p-2">
                             {sidebarItems.map(item => (
                                 <button
@@ -126,13 +121,11 @@ export default function MenuPage() {
             )}
 
             <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
-                {/* Fixed Header with Menu Button */}
+                {/* Header */}
                 <header className="sticky top-0 z-40 bg-[var(--card)]/95 border-b border-[var(--border)] backdrop-blur-lg shadow-sm">
                     <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3.5">
                         <div className="flex items-center justify-between gap-2 sm:gap-3">
-                            {/* Left Side - Menu Button + Title */}
                             <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                                {/* Mobile Menu Button */}
                                 <button
                                     onClick={() => setSidebarOpen(true)}
                                     className="lg:hidden p-2 hover:bg-[var(--bg)] rounded-lg transition-colors shrink-0"
@@ -145,7 +138,7 @@ export default function MenuPage() {
                                         <h1 className="text-lg sm:text-2xl font-bold text-[var(--fg)]">
                                             Menu
                                         </h1>
-                                        {isMounted && isOffline && (
+                                        {isOffline && (
                                             <span className="flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 bg-yellow-500/10 border border-yellow-500/30 rounded-full text-[10px] sm:text-xs font-medium text-yellow-600">
                                                 <WifiOff className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                                                 <span className="hidden xs:inline">Offline</span>
@@ -158,7 +151,6 @@ export default function MenuPage() {
                                 </div>
                             </div>
 
-                            {/* Cart Button */}
                             <button
                                 onClick={() => setCartOpen(!cartOpen)}
                                 className="relative px-2.5 sm:px-4 py-1.5 sm:py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 sm:gap-2 font-medium text-xs sm:text-base shadow-lg active:scale-95 transition-all shrink-0"
@@ -174,7 +166,7 @@ export default function MenuPage() {
                         </div>
                     </div>
 
-                    {/* Horizontal Scrollable Categories - Mobile Only */}
+                    {/* Mobile Categories */}
                     <div className="lg:hidden border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-lg">
                         <div className="max-w-7xl mx-auto overflow-x-auto scrollbar-hide">
                             <div className="flex gap-2 px-3 py-3 min-w-max">
@@ -189,13 +181,9 @@ export default function MenuPage() {
                                         }`}
                                     >
                                         <span className="text-base">{item.icon}</span>
-                                        <span className="text-xs font-medium">
-                                            {item.label}
-                                        </span>
+                                        <span className="text-xs font-medium">{item.label}</span>
                                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
-                                            item.active
-                                                ? 'bg-white/20'
-                                                : 'bg-[var(--card)] text-[var(--muted)]'
+                                            item.active ? 'bg-white/20' : 'bg-[var(--card)] text-[var(--muted)]'
                                         }`}>
                                             {item.count}
                                         </span>
@@ -217,7 +205,7 @@ export default function MenuPage() {
                             <div className="text-4xl sm:text-5xl mb-3 sm:mb-4">🍽️</div>
                             <p className="text-[var(--fg)] font-medium mb-2 text-sm sm:text-base">No items found</p>
                             <p className="text-xs sm:text-sm text-[var(--muted)]">
-                                {isOffline ? 'Download menu when online' : 'Try selecting a different category'}
+                                {isOffline ? 'Menu will load when online' : 'Try selecting a different category'}
                             </p>
                         </div>
                     ) : (
@@ -235,7 +223,6 @@ export default function MenuPage() {
                                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                                                 loading="lazy"
                                             />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                                         </div>
                                     )}
 
