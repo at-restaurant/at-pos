@@ -1,4 +1,4 @@
-// src/app/(public)/page.tsx - DEXIE POWERED MENU
+// src/app/(public)/page.tsx - HYDRATION + SSR SAFE
 'use client'
 export const dynamic = 'force-dynamic'
 
@@ -37,9 +37,19 @@ export default function MenuPage() {
     const [cartOpen, setCartOpen] = useState(false)
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [downloading, setDownloading] = useState(false)
+    const [isClient, setIsClient] = useState(false)
+    const [isOnline, setIsOnline] = useState(false)
+
+    // ✅ FIX: Client-side detection
+    useEffect(() => {
+        setIsClient(true)
+        setIsOnline(navigator.onLine)
+    }, [])
 
     // Auto-download on first load if online
     useEffect(() => {
+        if (!isClient) return
+
         if (navigator.onLine) {
             syncManager.isOfflineReady().then(ready => {
                 if (!ready) {
@@ -47,7 +57,7 @@ export default function MenuPage() {
                 }
             })
         }
-    }, [])
+    }, [isClient])
 
     const handleDownload = async () => {
         setDownloading(true)
@@ -180,8 +190,8 @@ export default function MenuPage() {
                                     </p>
                                 </div>
 
-                                {/* Download button */}
-                                {navigator.onLine && (
+                                {/* ✅ FIX: Hydration-safe download button */}
+                                {hydrated && isClient && isOnline && (
                                     <button
                                         onClick={handleDownload}
                                         disabled={downloading}

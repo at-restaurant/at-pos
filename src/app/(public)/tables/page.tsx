@@ -1,4 +1,4 @@
-// src/app/(public)/tables/page.tsx - DEXIE POWERED
+// src/app/(public)/tables/page.tsx - SSR-SAFE
 "use client"
 export const dynamic = 'force-dynamic'
 
@@ -25,10 +25,13 @@ export default function TablesPage() {
     const [selectedTable, setSelectedTable] = useState<TableWithRelations | null>(null)
     const [tables, setTables] = useState<TableWithRelations[]>([])
     const [loading, setLoading] = useState(true)
-    const [isOnline, setIsOnline] = useState(navigator.onLine)
+    const [isOnline, setIsOnline] = useState(true) // ✅ SSR-safe default
     const supabase = createClient()
 
     useEffect(() => {
+        // ✅ Set actual online status on client
+        setIsOnline(navigator.onLine)
+
         load()
 
         const interval = setInterval(load, 5000)

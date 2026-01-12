@@ -1,4 +1,4 @@
-// src/lib/hooks/useOfflineFirst.ts - OFFLINE-FIRST DATA HOOK
+// src/lib/hooks/useOfflineFirst.ts - FULLY FIXED (SSR + IDBKeyRange)
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { db, dbHelpers } from '@/lib/db/dexie'
@@ -17,7 +17,7 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
     const [data, setData] = useState<T[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [isOffline, setIsOffline] = useState(!navigator.onLine)
+    const [isOffline, setIsOffline] = useState(false) // ✅ SSR-safe default
     const [isSyncing, setIsSyncing] = useState(false)
 
     const supabase = createClient()
@@ -52,10 +52,12 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
 
             let query = dexieTable
 
-            // Apply filters
+            // ✅ FIX: Apply filters with boolean→number conversion
             if (options.filter) {
                 Object.entries(options.filter).forEach(([key, value]) => {
-                    query = query.where(key).equals(value)
+                    // Convert boolean to number for Dexie (true→1, false→0)
+                    const filterValue = typeof value === 'boolean' ? (value ? 1 : 0) : value
+                    query = query.where(key).equals(filterValue)
                 })
             }
 
@@ -91,7 +93,8 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
     // SYNC WITH SUPABASE (BACKGROUND)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     const syncWithSupabase = useCallback(async () => {
-        if (!navigator.onLine) return
+        // ✅ FIX: Check if we're in browser before using navigator
+        if (typeof window === 'undefined' || !navigator.onLine) return
 
         setIsSyncing(true)
 
@@ -205,7 +208,8 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
             }
 
             // 2️⃣ Sync with Supabase in background (if online)
-            if (navigator.onLine) {
+            // ✅ FIX: Check if we're in browser before using navigator
+            if (typeof window !== 'undefined' && navigator.onLine) {
                 await syncWithSupabase()
             } else {
                 setIsOffline(true)
@@ -225,6 +229,12 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
     // EFFECTS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     useEffect(() => {
+        // ✅ FIX: Only run in browser
+        if (typeof window === 'undefined') return
+
+        // Set initial online status
+        setIsOffline(!navigator.onLine)
+
         load()
 
         // Network status listeners
@@ -267,7 +277,8 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     const insert = async (values: Partial<T>) => {
         try {
-            if (navigator.onLine) {
+            // ✅ FIX: Check if we're in browser
+            if (typeof window !== 'undefined' && navigator.onLine) {
                 const { error } = await supabase.from(options.table).insert(values)
                 if (!error) {
                     await load()
@@ -286,7 +297,8 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
 
     const update = async (id: string, values: Partial<T>) => {
         try {
-            if (navigator.onLine) {
+            // ✅ FIX: Check if we're in browser
+            if (typeof window !== 'undefined' && navigator.onLine) {
                 const { error } = await supabase
                     .from(options.table)
                     .update(values)
@@ -309,7 +321,8 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
 
     const remove = async (id: string) => {
         try {
-            if (navigator.onLine) {
+            // ✅ FIX: Check if we're in browser
+            if (typeof window !== 'undefined' && navigator.onLine) {
                 const { error } = await supabase
                     .from(options.table)
                     .delete()
