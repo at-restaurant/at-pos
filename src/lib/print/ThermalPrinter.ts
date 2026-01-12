@@ -1,5 +1,5 @@
-// src/lib/print/ThermalPrinter.ts - FIXED
-// ✅ Proper browser dialog size, NO extra spacing, NO feedLines
+// src/lib/print/ThermalPrinter.ts - ESC/POS COMMAND FREE
+// ✅ Pure text printing, printer handles all formatting internally
 
 import { ReceiptData, PrintResponse } from '@/types'
 import ThermalFormatter from './ThermalFormatter'
@@ -67,12 +67,11 @@ export class ThermalPrinter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // PRINT VIA IFRAME - NO LOCALHOST FETCH
+    // PRINT VIA IFRAME - Pure text, no ESC/POS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private async printViaWindow(receiptText: string): Promise<boolean> {
         return new Promise((resolve) => {
             try {
-                // ✅ Create hidden iframe
                 const iframe = document.createElement('iframe')
                 iframe.style.position = 'fixed'
                 iframe.style.right = '0'
@@ -89,19 +88,16 @@ export class ThermalPrinter {
                     return
                 }
 
-                // Write HTML to iframe
+                // Write pure HTML to iframe
                 iframeDoc.open()
                 iframeDoc.write(this.generatePrintHTML(receiptText))
                 iframeDoc.close()
 
-                // Wait for content to load
                 setTimeout(() => {
                     try {
-                        // Trigger print dialog
                         iframe.contentWindow?.focus()
                         iframe.contentWindow?.print()
 
-                        // Cleanup after print (reduced delay)
                         setTimeout(() => {
                             document.body.removeChild(iframe)
                             resolve(true)
@@ -122,12 +118,11 @@ export class ThermalPrinter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // HTML - ULTRA TIGHT SPACING (No extra space)
+    // HTML - Clean layout for 80mm thermal paper
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private generatePrintHTML(receiptText: string): string {
-        // Calculate approximate height based on line count
         const lineCount = receiptText.split('\n').length
-        const approximateHeight = Math.ceil(lineCount * 4.5) // 4.5mm per line
+        const approximateHeight = Math.ceil(lineCount * 4.5)
 
         return `<!DOCTYPE html>
 <html>
@@ -147,7 +142,6 @@ export class ThermalPrinter {
                 height: ${approximateHeight}mm !important;
                 overflow: hidden !important;
             }
-            .no-print { display: none !important; }
         }
         
         * {
@@ -185,43 +179,7 @@ export class ThermalPrinter {
 </html>`
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // TEST PRINT
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    async testPrint(): Promise<PrintResponse> {
-        const testReceipt: ReceiptData = {
-            restaurantName: 'AT RESTAURANT',
-            tagline: '🖨️ TEST PRINT',
-            address: 'Sooter Mills Rd, Lahore',
-            orderNumber: 'TEST-' + Date.now().toString().slice(-6),
-            date: new Date().toLocaleString('en-PK'),
-            orderType: 'dine-in',
-            tableNumber: 5,
-            waiter: 'Test Waiter',
-            items: [
-                {
-                    name: 'Test Item 1',
-                    quantity: 2,
-                    price: 150,
-                    total: 300,
-                    category: '🍕 Main Course'
-                },
-                {
-                    name: 'Test Beverage',
-                    quantity: 1,
-                    price: 100,
-                    total: 100,
-                    category: '🥤 Drinks'
-                }
-            ],
-            subtotal: 400,
-            tax: 20,
-            total: 420,
-            paymentMethod: 'cash'
-        }
 
-        return this.print(testReceipt)
-    }
 
     setConfig(config: Partial<PrinterConfig>) {
         this.config = { ...this.config, ...config }
@@ -269,7 +227,6 @@ export const thermalPrinter = (() => {
     if (typeof window === 'undefined') {
         return {
             print: async () => ({ success: false, error: 'SSR mode' }),
-            testPrint: async () => ({ success: false, error: 'SSR mode' }),
             setConfig: () => {},
             getConfig: () => ({ width: 42 }),
             isPrinterBusy: () => false,

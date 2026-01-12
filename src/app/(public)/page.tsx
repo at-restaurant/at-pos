@@ -1,9 +1,9 @@
-// src/app/(public)/page.tsx - HYDRATION + SSR SAFE
+// src/app/(public)/page.tsx - AUTO-SYNC ONLY (No Manual Download)
 'use client'
 export const dynamic = 'force-dynamic'
 
 import { useState, useMemo, useEffect } from 'react'
-import { ShoppingCart, Plus, WifiOff, Menu, Download } from 'lucide-react'
+import { ShoppingCart, Plus, WifiOff, Menu } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import CartDrawer from '@/components/cart/CartDrawer'
 import { useCart } from '@/lib/store/cart-store'
@@ -36,34 +36,18 @@ export default function MenuPage() {
     const [selectedCat, setSelectedCat] = useState('all')
     const [cartOpen, setCartOpen] = useState(false)
     const [sidebarOpen, setSidebarOpen] = useState(false)
-    const [downloading, setDownloading] = useState(false)
-    const [isClient, setIsClient] = useState(false)
-    const [isOnline, setIsOnline] = useState(false)
 
-    // ✅ FIX: Client-side detection
+    // ✅ AUTO-DOWNLOAD: Removed manual button, happens automatically
     useEffect(() => {
-        setIsClient(true)
-        setIsOnline(navigator.onLine)
-    }, [])
-
-    // Auto-download on first load if online
-    useEffect(() => {
-        if (!isClient) return
-
         if (navigator.onLine) {
             syncManager.isOfflineReady().then(ready => {
                 if (!ready) {
-                    handleDownload()
+                    console.log('📥 Auto-downloading menu data...')
+                    syncManager.downloadEssentialData()
                 }
             })
         }
-    }, [isClient])
-
-    const handleDownload = async () => {
-        setDownloading(true)
-        await syncManager.downloadEssentialData()
-        setDownloading(false)
-    }
+    }, [])
 
     const filtered = useMemo(
         () => items.filter(i => selectedCat === 'all' || i.category_id === selectedCat),
@@ -90,7 +74,6 @@ export default function MenuPage() {
         })
     }
 
-    // Get display image (compressed for offline, original for online)
     const getItemImage = (item: MenuItem) => {
         if (isOffline && item.compressed_image) {
             return item.compressed_image
@@ -100,12 +83,10 @@ export default function MenuPage() {
 
     return (
         <>
-            {/* Desktop Sidebar */}
             <div className="hidden lg:block">
                 <AutoSidebar items={sidebarItems} title="Categories" />
             </div>
 
-            {/* Mobile Sidebar */}
             {sidebarOpen && (
                 <>
                     <div
@@ -155,7 +136,6 @@ export default function MenuPage() {
             )}
 
             <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
-                {/* Header */}
                 <header className="sticky top-0 z-40 bg-[var(--card)]/95 border-b border-[var(--border)] backdrop-blur-lg shadow-sm">
                     <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3.5">
                         <div className="flex items-center justify-between gap-2 sm:gap-3">
@@ -189,18 +169,6 @@ export default function MenuPage() {
                                         {filtered.length} items
                                     </p>
                                 </div>
-
-                                {/* ✅ FIX: Hydration-safe download button */}
-                                {hydrated && isClient && isOnline && (
-                                    <button
-                                        onClick={handleDownload}
-                                        disabled={downloading}
-                                        className="p-2 hover:bg-[var(--bg)] rounded-lg transition-colors disabled:opacity-50 shrink-0"
-                                        title="Download for offline"
-                                    >
-                                        <Download className={`w-5 h-5 text-[var(--fg)] ${downloading ? 'animate-bounce' : ''}`} />
-                                    </button>
-                                )}
                             </div>
 
                             <button
@@ -218,7 +186,6 @@ export default function MenuPage() {
                         </div>
                     </div>
 
-                    {/* Mobile Categories */}
                     <div className="lg:hidden border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-lg">
                         <div className="max-w-7xl mx-auto overflow-x-auto scrollbar-hide">
                             <div className="flex gap-2 px-3 py-3 min-w-max">
@@ -246,7 +213,6 @@ export default function MenuPage() {
                     </div>
                 </header>
 
-                {/* Content */}
                 <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
                     {loading ? (
                         <div className="flex justify-center py-16 sm:py-20">
@@ -257,7 +223,7 @@ export default function MenuPage() {
                             <div className="text-4xl sm:text-5xl mb-3 sm:mb-4">🍽️</div>
                             <p className="text-[var(--fg)] font-medium mb-2 text-sm sm:text-base">No items found</p>
                             <p className="text-xs sm:text-sm text-[var(--muted)]">
-                                {isOffline ? 'Go online and download menu first' : 'Try selecting a different category'}
+                                {isOffline ? 'Go online to load menu' : 'Try selecting a different category'}
                             </p>
                         </div>
                     ) : (
