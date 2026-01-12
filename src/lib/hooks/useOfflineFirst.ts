@@ -1,4 +1,6 @@
-// src/lib/hooks/useOfflineFirst.ts - FULLY FIXED (SSR + IDBKeyRange)
+// src/lib/hooks/useOfflineFirst.ts - PRODUCTION READY
+'use client'
+
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { db, dbHelpers } from '@/lib/db/dexie'
@@ -13,11 +15,36 @@ interface UseOfflineFirstOptions {
     realtime?: boolean
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HELPER: Convert boolean to number for Dexie
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const toBooleanNumber = (value: any): any => {
+    return typeof value === 'boolean' ? (value ? 1 : 0) : value
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HELPER: Convert Dexie item booleans
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const convertBooleanFields = (item: Record<string, any>): Record<string, any> => {
+    const converted: Record<string, any> = {}
+    const boolFields = ['is_available', 'is_active', 'is_on_duty', 'receipt_printed', 'synced']
+
+    for (const key in item) {
+        if (boolFields.includes(key) && typeof item[key] === 'boolean') {
+            converted[key] = item[key] ? 1 : 0
+        } else {
+            converted[key] = item[key]
+        }
+    }
+
+    return converted
+}
+
 export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
     const [data, setData] = useState<T[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [isOffline, setIsOffline] = useState(false) // ✅ SSR-safe default
+    const [isOffline, setIsOffline] = useState(false)
     const [isSyncing, setIsSyncing] = useState(false)
 
     const supabase = createClient()
@@ -50,18 +77,28 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                     return []
             }
 
-            let query = dexieTable
+            let result: any[] = []
 
-            // ✅ FIX: Apply filters with boolean→number conversion
-            if (options.filter) {
-                Object.entries(options.filter).forEach(([key, value]) => {
-                    // Convert boolean to number for Dexie (true→1, false→0)
-                    const filterValue = typeof value === 'boolean' ? (value ? 1 : 0) : value
-                    query = query.where(key).equals(filterValue)
-                })
+            // Apply filters with boolean conversion
+            if (options.filter && Object.keys(options.filter).length > 0) {
+                const [firstKey, firstValue] = Object.entries(options.filter)[0]
+                const convertedValue = toBooleanNumber(firstValue)
+
+                result = await dexieTable.where(firstKey).equals(convertedValue).toArray()
+
+                // Apply additional filters in memory
+                const additionalFilters = Object.entries(options.filter).slice(1)
+                if (additionalFilters.length > 0) {
+                    result = result.filter(item =>
+                        additionalFilters.every(([key, value]) => {
+                            const convertedVal = toBooleanNumber(value)
+                            return item[key] === convertedVal
+                        })
+                    )
+                }
+            } else {
+                result = await dexieTable.toArray()
             }
-
-            let result = await query.toArray()
 
             // Apply sorting
             if (options.orderBy) {
@@ -83,17 +120,81 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
             }
 
             return result as T[]
-        } catch (error) {
-            console.error('Dexie load failed:', error)
+        } catch (err) {
+            console.error('Dexie load error:', err)
             return []
         }
     }, [options.table, JSON.stringify(options.filter), JSON.stringify(options.orderBy), options.limit])
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // SAVE TO DEXIE
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const saveToDexie = useCallback(async (items: any[]): Promise<void> => {
+        if (!items || items.length === 0) return
+
+        try {
+            switch (options.table) {
+                case 'menu_items': {
+                    const compressed = await Promise.all(
+                        items.map(async (item) => {
+                            const converted = convertBooleanFields(item)
+
+                            if (converted.image_url && !converted.image_url.startsWith('data:')) {
+                                try {
+                                    const compressedImg = await compressImageFromURL(converted.image_url, 800)
+                                    converted.compressed_image = compressedImg || undefined
+                                } catch {
+                                    // Skip compression on error
+                                }
+                            }
+
+                            return converted
+                        })
+                    )
+                    await db.menu_items.bulkPut(compressed as any)
+                    break
+                }
+
+                case 'menu_categories': {
+                    const converted = items.map(convertBooleanFields)
+                    await db.menu_categories.bulkPut(converted as any)
+                    break
+                }
+
+                case 'orders': {
+                    const converted = items.map(convertBooleanFields)
+                    await db.orders.bulkPut(converted as any)
+                    break
+                }
+
+                case 'restaurant_tables': {
+                    const converted = items.map(convertBooleanFields)
+                    await db.restaurant_tables.bulkPut(converted as any)
+                    break
+                }
+
+                case 'waiters': {
+                    const converted = items.map(convertBooleanFields)
+                    await db.waiters.bulkPut(converted as any)
+                    break
+                }
+            }
+
+            // Update last sync timestamp
+            await db.settings.put({
+                key: `${options.table}_last_sync`,
+                value: Date.now(),
+                updated_at: new Date().toISOString()
+            })
+        } catch (err) {
+            console.error('Dexie save error:', err)
+        }
+    }, [options.table])
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // SYNC WITH SUPABASE (BACKGROUND)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const syncWithSupabase = useCallback(async () => {
-        // ✅ FIX: Check if we're in browser before using navigator
+    const syncWithSupabase = useCallback(async (): Promise<void> => {
         if (typeof window === 'undefined' || !navigator.onLine) return
 
         setIsSyncing(true)
@@ -125,76 +226,25 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
             if (supabaseError) throw supabaseError
 
             if (supabaseData && supabaseData.length > 0) {
-                // Update Dexie with fresh data
+                // Save to Dexie
                 await saveToDexie(supabaseData)
 
                 // Update UI
                 setData(supabaseData as T[])
                 setIsOffline(false)
             }
-        } catch (error: any) {
-            console.error('Supabase sync failed:', error)
-            setError(error.message)
+        } catch (err: any) {
+            console.error('Supabase sync error:', err)
+            setError(err.message)
         } finally {
             setIsSyncing(false)
         }
-    }, [options.table, options.select, JSON.stringify(options.filter), JSON.stringify(options.orderBy), options.limit])
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // SAVE TO DEXIE
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const saveToDexie = async (items: any[]) => {
-        try {
-            switch (options.table) {
-                case 'menu_items':
-                    // Compress images for offline
-                    const compressedItems = await Promise.all(
-                        items.map(async (item) => {
-                            if (item.image_url && !item.image_url.startsWith('data:')) {
-                                const compressed = await compressImageFromURL(item.image_url, 800)
-                                return {
-                                    ...item,
-                                    compressed_image: compressed || undefined
-                                }
-                            }
-                            return item
-                        })
-                    )
-                    await db.menu_items.bulkPut(compressedItems)
-                    break
-
-                case 'menu_categories':
-                    await db.menu_categories.bulkPut(items)
-                    break
-
-                case 'orders':
-                    await db.orders.bulkPut(items)
-                    break
-
-                case 'restaurant_tables':
-                    await db.restaurant_tables.bulkPut(items)
-                    break
-
-                case 'waiters':
-                    await db.waiters.bulkPut(items)
-                    break
-            }
-
-            // Update last sync timestamp
-            await db.settings.put({
-                key: `${options.table}_last_sync`,
-                value: Date.now(),
-                updated_at: new Date().toISOString()
-            })
-        } catch (error) {
-            console.error('Save to Dexie failed:', error)
-        }
-    }
+    }, [options.table, options.select, options.filter, options.orderBy, options.limit, supabase, saveToDexie])
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MAIN LOAD FUNCTION
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const load = useCallback(async () => {
+    const load = useCallback(async (): Promise<void> => {
         setLoading(true)
         setError(null)
 
@@ -208,7 +258,6 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
             }
 
             // 2️⃣ Sync with Supabase in background (if online)
-            // ✅ FIX: Check if we're in browser before using navigator
             if (typeof window !== 'undefined' && navigator.onLine) {
                 await syncWithSupabase()
             } else {
@@ -217,9 +266,9 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                     setError('No cached data available offline')
                 }
             }
-        } catch (error: any) {
-            setError(error.message)
-            console.error('Load failed:', error)
+        } catch (err: any) {
+            setError(err.message)
+            console.error('Load error:', err)
         } finally {
             setLoading(false)
         }
@@ -229,7 +278,6 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
     // EFFECTS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     useEffect(() => {
-        // ✅ FIX: Only run in browser
         if (typeof window === 'undefined') return
 
         // Set initial online status
@@ -270,38 +318,35 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
             window.removeEventListener('offline', handleOffline)
             if (channel) supabase.removeChannel(channel)
         }
-    }, [load, syncWithSupabase, options.realtime, options.table])
+    }, [load, syncWithSupabase, options.realtime, options.table, supabase])
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // CRUD OPERATIONS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const insert = async (values: Partial<T>) => {
+    const insert = useCallback(async (values: Partial<T>): Promise<{ error: any }> => {
         try {
-            // ✅ FIX: Check if we're in browser
             if (typeof window !== 'undefined' && navigator.onLine) {
-                const { error } = await supabase.from(options.table).insert(values)
+                const { error } = await supabase.from(options.table).insert(values as any)
                 if (!error) {
                     await load()
                 }
                 return { error }
             } else {
-                // Offline insert - queue for sync
                 await dbHelpers.addToQueue(options.table, 'create', values)
                 await load()
                 return { error: null }
             }
-        } catch (error: any) {
-            return { error }
+        } catch (err: any) {
+            return { error: err }
         }
-    }
+    }, [options.table, supabase, load])
 
-    const update = async (id: string, values: Partial<T>) => {
+    const update = useCallback(async (id: string, values: Partial<T>): Promise<{ error: any }> => {
         try {
-            // ✅ FIX: Check if we're in browser
             if (typeof window !== 'undefined' && navigator.onLine) {
                 const { error } = await supabase
                     .from(options.table)
-                    .update(values)
+                    .update(values as any)
                     .eq('id', id)
 
                 if (!error) {
@@ -309,19 +354,17 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                 }
                 return { error }
             } else {
-                // Offline update - queue for sync
                 await dbHelpers.addToQueue(options.table, 'update', { id, ...values })
                 await load()
                 return { error: null }
             }
-        } catch (error: any) {
-            return { error }
+        } catch (err: any) {
+            return { error: err }
         }
-    }
+    }, [options.table, supabase, load])
 
-    const remove = async (id: string) => {
+    const remove = useCallback(async (id: string): Promise<{ error: any }> => {
         try {
-            // ✅ FIX: Check if we're in browser
             if (typeof window !== 'undefined' && navigator.onLine) {
                 const { error } = await supabase
                     .from(options.table)
@@ -333,15 +376,14 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                 }
                 return { error }
             } else {
-                // Offline delete - queue for sync
                 await dbHelpers.addToQueue(options.table, 'delete', { id })
                 await load()
                 return { error: null }
             }
-        } catch (error: any) {
-            return { error }
+        } catch (err: any) {
+            return { error: err }
         }
-    }
+    }, [options.table, supabase, load])
 
     return {
         data,
