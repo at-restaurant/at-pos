@@ -3,6 +3,14 @@
 // ============================================
 // BASE TYPES
 // ============================================
+
+
+export type OrderType = 'dine-in' | 'delivery' // ✅ Remove takeaway from type, use categorization instead
+export type PaymentMethod = 'cash' | 'online' | 'card'
+export type OrderStatus = 'pending' | 'completed' | 'cancelled'
+export type TableStatus = 'available' | 'occupied' | 'reserved' | 'cleaning'
+
+
 export type Admin = {
     id: string
     email: string
@@ -40,167 +48,39 @@ export type Table = {
     created_at: string
 }
 
-export type MenuCategory = {
-    id: string
-    name: string
-    icon: string
-    display_order: number
-    is_active: boolean
-    created_at: string
-}
-
-export type MenuItem = {
-    id: string
-    category_id: string
-    name: string
-    description?: string
-    price: number
-    image_url?: string
-    is_available: boolean
-    preparation_time?: number
-    created_at: string
-}
-
-export type Order = {
-    id: string
-    table_id?: string | null
-    waiter_id?: string | null
-    status: 'pending' | 'preparing' | 'completed' | 'cancelled'
-    subtotal: number
-    tax: number
-    total_amount: number
-    notes?: string
-    created_at: string
-    updated_at: string
-}
-
-export type OrderItem = {
-    id: string
-    order_id: string
-    menu_item_id: string
-    quantity: number
-    unit_price: number
-    total_price: number
-    notes?: string
-    status: 'pending' | 'preparing' | 'ready' | 'served'
-    created_at: string
-}
-
-export type InventoryCategory = {
-    id: string
-    name: string
-    icon: string
-    display_order: number
-    is_active: boolean
-    created_at: string
-}
-
-export type InventoryItem = {
-    id: string
-    category_id?: string
-    name: string
-    description?: string
-    image_url?: string
-    quantity: number
-    unit: string
-    reorder_level: number
-    purchase_price: number
-    supplier_name?: string
-    storage_location?: string
-    is_active: boolean
-    created_at: string
-    updated_at: string
-}
-
-// ============================================
-// JOINED/ENRICHED TYPES (With Relations)
-// ============================================
-export type TableWithRelations = Table & {
-    waiter?: Pick<Waiter, 'id' | 'name' | 'profile_pic'> | null
-    order?: Pick<Order, 'id' | 'total_amount' | 'status'> & {
-        order_items?: Array<OrderItem & {
-            menu_items: Pick<MenuItem, 'name' | 'price'>
-        }>
-    } | null
-}
-
-export type OrderWithRelations = Order & {
-    restaurant_tables?: Pick<Table, 'id' | 'table_number'> | null
-    waiters?: Pick<Waiter, 'id' | 'name' | 'profile_pic'> | null
-    order_items?: Array<OrderItem & {
-        menu_items: Pick<MenuItem, 'name' | 'price' | 'category_id'>
-    }>
-}
-
-export type MenuItemWithCategory = MenuItem & {
-    menu_categories?: Pick<MenuCategory, 'name' | 'icon'>
-}
-
-export type InventoryItemWithCategory = InventoryItem & {
-    inventory_categories?: Pick<InventoryCategory, 'name' | 'icon'>
-    total_value?: number
-}
-
-// ============================================
-// UTILITY TYPES
-// ============================================
-export type StockStatus = 'critical' | 'low' | 'medium' | 'high'
-export type CartItem = {
-    id: string
-    name: string
-    price: number
-    quantity: number
-    image_url?: string
-}
 
 
 // ============================================
 // PRINT TYPES
 // ============================================
 
-export interface ReceiptItem {
-    name: string
-    quantity: number
-    price: number
-    total: number
-    category?: string
-}
 
 export interface ReceiptData {
-    // Restaurant info
-    restaurantName?: string
-    tagline?: string
-    address?: string
+    restaurantName: string
+    tagline: string
+    address: string
     phone?: string
-
-    // Order details
     orderNumber: string
     date: string
-    orderType: 'dine-in' | 'delivery'
-
-    // Dine-in specific
+    orderType: OrderType // ✅ FIXED: Now includes 'takeaway'
     tableNumber?: number
     waiter?: string
-
-    // Delivery specific
     customerName?: string
     customerPhone?: string
     deliveryAddress?: string
     deliveryCharges?: number
-
-    // Items
-    items: ReceiptItem[]
-
-    // Pricing
+    items: Array<{
+        name: string
+        quantity: number
+        price: number
+        total: number
+        category?: string
+    }>
     subtotal: number
     tax: number
     discount?: number
     total: number
-
-    // Payment
-    paymentMethod?: 'cash' | 'online' | 'card'
-
-    // Additional
+    paymentMethod?: PaymentMethod
     notes?: string
 }
 
@@ -211,11 +91,174 @@ export interface PrintResponse {
     orderNumber?: string
 }
 
-export interface PrinterStatus {
-    status: 'online' | 'offline'
-    printer: 'connected' | 'disconnected' | 'configured' | 'not configured'
-    uptime?: number
-    timestamp?: string
-    platform?: string
-    printersAvailable?: number
+// ✅ Reusable Order Type
+export interface BaseOrder {
+    id: string
+    created_at: string
+    subtotal: number
+    tax: number
+    total_amount: number
+    status: OrderStatus
+    order_type: OrderType
+    payment_method?: PaymentMethod
+    receipt_printed: boolean
+    synced?: boolean
+    notes?: string
+}
+
+export interface DineInOrder extends BaseOrder {
+    order_type: 'dine-in'
+    table_id: string
+    waiter_id: string
+    customer_name?: never
+    customer_phone?: never
+    delivery_address?: never
+    delivery_charges?: never
+}
+
+export interface DeliveryOrder extends BaseOrder {
+    order_type: 'delivery'
+    customer_name?: string
+    customer_phone?: string
+    delivery_address?: string
+    delivery_charges?: number
+    table_id?: never
+    waiter_id?: string
+}
+
+
+// ✅ Order with relations
+export interface OrderWithRelations extends BaseOrder {
+    table_id?: string
+    waiter_id?: string
+    customer_name?: string
+    customer_phone?: string
+    delivery_address?: string
+    delivery_charges?: number
+    restaurant_tables?: { table_number: number }
+    waiters?: { name: string }
+    order_items: Array<{
+        id: string
+        quantity: number
+        unit_price: number
+        total_price: number
+        menu_item_id: string
+        menu_items?: {
+            name: string
+            price: number
+            category_id?: string
+        }
+    }>
+}
+
+export interface PrintResponse {
+    success: boolean
+    message?: string
+    error?: string
+    orderNumber?: string
+}
+
+
+
+
+
+
+// ORDER PAGE
+
+
+export interface ReceiptData {
+    restaurantName: string
+    tagline: string
+    address: string
+    phone?: string
+    orderNumber: string
+    date: string
+    orderType: OrderType // ✅ FIXED: Now includes 'takeaway'
+    tableNumber?: number
+    waiter?: string
+    customerName?: string
+    customerPhone?: string
+    deliveryAddress?: string
+    deliveryCharges?: number
+    items: Array<{
+        name: string
+        quantity: number
+        price: number
+        total: number
+        category?: string
+    }>
+    subtotal: number
+    tax: number
+    discount?: number
+    total: number
+    paymentMethod?: PaymentMethod
+    notes?: string
+}
+
+export interface PrintResponse {
+    success: boolean
+    message?: string
+    error?: string
+    orderNumber?: string
+}
+
+// ✅ Reusable Order Type
+export interface BaseOrder {
+    id: string
+    created_at: string
+    subtotal: number
+    tax: number
+    total_amount: number
+    status: OrderStatus
+    order_type: OrderType
+    payment_method?: PaymentMethod
+    receipt_printed: boolean
+    synced?: boolean
+    notes?: string
+}
+
+export interface DineInOrder extends BaseOrder {
+    order_type: 'dine-in'
+    table_id: string
+    waiter_id: string
+    customer_name?: never
+    customer_phone?: never
+    delivery_address?: never
+    delivery_charges?: never
+}
+
+export interface DeliveryOrder extends BaseOrder {
+    order_type: 'delivery'
+    customer_name?: string
+    customer_phone?: string
+    delivery_address?: string
+    delivery_charges?: number
+    table_id?: never
+    waiter_id?: string
+}
+
+export type Order = DineInOrder | DeliveryOrder
+
+// ✅ Order with relations
+export interface OrderWithRelations extends BaseOrder {
+    table_id?: string
+    waiter_id?: string
+    customer_name?: string
+    customer_phone?: string
+    delivery_address?: string
+    delivery_charges?: number
+    restaurant_tables?: { table_number: number }
+    waiters?: { name: string }
+    order_items: Array<{
+        id: string
+        quantity: number
+        unit_price: number
+        total_price: number
+        menu_item_id: string
+        menu_items?: {
+            name: string
+            price: number
+            category_id?: string
+        }
+    }>
 }

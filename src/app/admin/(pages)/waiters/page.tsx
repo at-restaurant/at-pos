@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useSupabase } from '@/lib/hooks/useSupabase'
+import { useSupabaseAdmin } from '@/lib/hooks/admin/useSupabaseAdmin'
 import { Plus, TrendingUp, Wallet, DollarSign, X, Menu } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
@@ -26,7 +26,7 @@ const EMPLOYEE_TYPES = [
 
 export default function WaitersPage() {
     const router = useRouter()
-    const { data: waiters, loading } = useSupabase('waiters', {
+    const { data: waiters, loading } = useSupabaseAdmin('waiters', {
         filter: { is_active: true },
         order: { column: 'created_at', ascending: false },
         realtime: true

@@ -1,34 +1,33 @@
-// src/lib/hooks/index.ts - UPDATED WITH ALL EXPORTS
-// ✅ Central export for all custom hooks
+// src/lib/hooks/index.ts - CLEANED UP EXPORTS
 
-// Business Logic Hooks
-export * from './useOrderManagement'
-export * from './useTableOperations'
-export * from './useInventoryTracking'
+// ✅ Core Hooks (Reusable)
+export { useReusableData } from './useReusableData'
 
-// Data Hooks
-export * from './useDataLoader'
+// ✅ Business Logic Hooks
+export { useOrderManagement } from './useOrderManagement'
+export { useTableOperations } from './useTableOperations'
+export { useInventoryTracking } from './useInventoryTracking'
 
-// ✅ NEW: Offline-first hook
-export * from './useOfflineFirst'
-
-// ✅ NEW: Inventory hooks (for admin)
+// ✅ Admin-Only Hooks (Online Only)
+export { useSupabase } from './admin/useSupabaseAdmin' // Keep for admin backward compatibility
 export { useInventoryItems, useInventorySync } from './useInventoryItems'
 
-// Realtime Hooks (excluding useInventorySync to avoid conflict)
-export { useRealtimeSync, useOrdersSync, useTablesSync, useWaitersSync } from './useRealtimeSync'
+// ✅ Form & UI Hooks
+export { useFormManager } from './useFormManager'
+export { useHydration } from './useHydration'
+export { useAdminAuth } from './useAdminAuth'
+export { useOfflineStatus } from './useOfflineStatus'
+export { useNetworkStatus } from './useNetworkStatus'
+export { useStorageMonitor } from './useStorageMonitor'
 
-// Form Hooks
-export * from './useFormManager'
-
-// UI Hooks
-export * from './useHydration'
-export * from './useAdminAuth'
-export * from './useOfflineStatus'
+// ✅ Store Hooks
 export { useCart } from '@/lib/store/cart-store'
+export { useTheme } from '@/lib/store/theme-store'
 
-// Re-export commonly used
+// ✅ UI Component Hooks
 export { useToast } from '@/components/ui/Toast'
 
-// ✅ Legacy compatibility (for admin pages that still use useSupabase)
-export { useSupabase } from './useSupabase'
+// ❌ REMOVED (Replaced by useReusableData):
+// export { useOfflineFirst } from './useOfflineFirst'
+// export { useDataLoader } from './useDataLoader'
+// export { useRealtimeSync } from './useRealtimeSync'

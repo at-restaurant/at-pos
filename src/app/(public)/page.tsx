@@ -1,44 +1,42 @@
-// src/app/(public)/page.tsx - AUTO-SYNC ONLY (No Manual Download)
+// src/app/(public)/page.tsx - PRODUCTION FIXED
 'use client'
 export const dynamic = 'force-dynamic'
 
 import { useState, useMemo, useEffect } from 'react'
-import { ShoppingCart, Plus, WifiOff, Menu } from 'lucide-react'
+import { ShoppingCart, Plus, WifiOff, Menu, RefreshCw } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import CartDrawer from '@/components/cart/CartDrawer'
 import { useCart } from '@/lib/store/cart-store'
 import { useHydration } from '@/lib/hooks/useHydration'
-import { useOfflineFirst } from '@/lib/hooks/useOfflineFirst'
 import { syncManager } from '@/lib/db/syncManager'
+import { db } from '@/lib/db/dexie'
+import { createClient } from '@/lib/supabase/client'
 import type { MenuItem, MenuCategory } from '@/lib/db/dexie'
 
 export default function MenuPage() {
-    const { data: categories, isOffline: categoriesOffline } = useOfflineFirst<MenuCategory>({
-        table: 'menu_categories',
-        filter: { is_active: true },
-        orderBy: { column: 'display_order', ascending: true }
-    })
-
-    const { data: items, loading, isOffline, isSyncing } = useOfflineFirst<MenuItem>({
-        table: 'menu_items',
-        filter: { is_available: true },
-        orderBy: { column: 'name', ascending: true }
-    })
-
-    const { data: tables } = useOfflineFirst({ table: 'restaurant_tables' })
-    const { data: waiters } = useOfflineFirst({
-        table: 'waiters',
-        filter: { is_active: true }
-    })
-
-    const cart = useCart()
-    const hydrated = useHydration()
+    const [categories, setCategories] = useState<MenuCategory[]>([])
+    const [items, setItems] = useState<MenuItem[]>([])
+    const [tables, setTables] = useState<any[]>([])
+    const [waiters, setWaiters] = useState<any[]>([])
+    const [loading, setLoading] = useState(true)
+    const [isOffline, setIsOffline] = useState(false)
+    const [isSyncing, setIsSyncing] = useState(false)
     const [selectedCat, setSelectedCat] = useState('all')
     const [cartOpen, setCartOpen] = useState(false)
     const [sidebarOpen, setSidebarOpen] = useState(false)
 
-    // ✅ AUTO-DOWNLOAD: Removed manual button, happens automatically
+    const cart = useCart()
+    const hydrated = useHydration()
+    const supabase = createClient()
+
     useEffect(() => {
+        // Set initial online status
+        setIsOffline(!navigator.onLine)
+
+        // Initial load
+        loadAllData()
+
+        // Auto-sync if online
         if (navigator.onLine) {
             syncManager.isOfflineReady().then(ready => {
                 if (!ready) {
@@ -47,7 +45,104 @@ export default function MenuPage() {
                 }
             })
         }
+
+        // Refresh every 10 seconds
+        const interval = setInterval(loadAllData, 10000)
+
+        // Network listeners
+        const handleOnline = () => {
+            setIsOffline(false)
+            syncManager.syncAll()
+            loadAllData()
+        }
+        const handleOffline = () => setIsOffline(true)
+
+        window.addEventListener('online', handleOnline)
+        window.addEventListener('offline', handleOffline)
+
+        return () => {
+            clearInterval(interval)
+            window.removeEventListener('online', handleOnline)
+            window.removeEventListener('offline', handleOffline)
+        }
     }, [])
+
+    const loadAllData = async () => {
+        try {
+            // Always load from Dexie first (instant)
+            const [dexieCategories, dexieItems, dexieTables, dexieWaiters] = await Promise.all([
+                db.menu_categories.where('is_active').equals(1).sortBy('display_order'),
+                db.menu_items.where('is_available').equals(1).sortBy('name'),
+                db.restaurant_tables.toArray(),
+                db.waiters.where('is_active').equals(1).toArray()
+            ])
+
+            setCategories(dexieCategories)
+            setItems(dexieItems)
+            setTables(dexieTables)
+            setWaiters(dexieWaiters)
+            setLoading(false)
+
+            // Update from Supabase if online
+            if (navigator.onLine) {
+                setIsSyncing(true)
+
+                const [
+                    { data: onlineCategories },
+                    { data: onlineItems },
+                    { data: onlineTables },
+                    { data: onlineWaiters }
+                ] = await Promise.all([
+                    supabase
+                        .from('menu_categories')
+                        .select('*')
+                        .eq('is_active', true)
+                        .order('display_order'),
+                    supabase
+                        .from('menu_items')
+                        .select('*')
+                        .eq('is_available', true)
+                        .order('name'),
+                    supabase
+                        .from('restaurant_tables')
+                        .select('*')
+                        .order('table_number'),
+                    supabase
+                        .from('waiters')
+                        .select('*')
+                        .eq('is_active', true)
+                        .order('name')
+                ])
+
+                // Save to Dexie
+                if (onlineCategories && onlineCategories.length > 0) {
+                    await db.menu_categories.bulkPut(onlineCategories)
+                    setCategories(onlineCategories)
+                }
+
+                if (onlineItems && onlineItems.length > 0) {
+                    await db.menu_items.bulkPut(onlineItems)
+                    setItems(onlineItems)
+                }
+
+                if (onlineTables && onlineTables.length > 0) {
+                    await db.restaurant_tables.bulkPut(onlineTables)
+                    setTables(onlineTables)
+                }
+
+                if (onlineWaiters && onlineWaiters.length > 0) {
+                    await db.waiters.bulkPut(onlineWaiters)
+                    setWaiters(onlineWaiters)
+                }
+
+                setIsSyncing(false)
+            }
+        } catch (error) {
+            console.error('Load error:', error)
+            setLoading(false)
+            setIsSyncing(false)
+        }
+    }
 
     const filtered = useMemo(
         () => items.filter(i => selectedCat === 'all' || i.category_id === selectedCat),
@@ -171,18 +266,27 @@ export default function MenuPage() {
                                 </div>
                             </div>
 
-                            <button
-                                onClick={() => setCartOpen(!cartOpen)}
-                                className="relative px-2.5 sm:px-4 py-1.5 sm:py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 sm:gap-2 font-medium text-xs sm:text-base shadow-lg active:scale-95 transition-all shrink-0"
-                            >
-                                <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
-                                <span className="hidden xs:inline">Cart</span>
-                                {hydrated && cart.itemCount() > 0 && (
-                                    <span className="absolute -top-1.5 -right-1.5 sm:-top-2 sm:-right-2 min-w-[18px] h-[18px] sm:min-w-[24px] sm:h-6 px-0.5 sm:px-1 bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold shadow-lg">
-                                        {cart.itemCount()}
-                                    </span>
-                                )}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={loadAllData}
+                                    className="p-2 hover:bg-[var(--bg)] rounded-lg active:scale-95 transition-all"
+                                >
+                                    <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 text-[var(--muted)] ${loading ? 'animate-spin' : ''}`} />
+                                </button>
+
+                                <button
+                                    onClick={() => setCartOpen(!cartOpen)}
+                                    className="relative px-2.5 sm:px-4 py-1.5 sm:py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 sm:gap-2 font-medium text-xs sm:text-base shadow-lg active:scale-95 transition-all shrink-0"
+                                >
+                                    <ShoppingCart className="w-4 h-4 sm:w-5 sm:h-5" />
+                                    <span className="hidden xs:inline">Cart</span>
+                                    {hydrated && cart.itemCount() > 0 && (
+                                        <span className="absolute -top-1.5 -right-1.5 sm:-top-2 sm:-right-2 min-w-[18px] h-[18px] sm:min-w-[24px] sm:h-6 px-0.5 sm:px-1 bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold shadow-lg">
+                                            {cart.itemCount()}
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
                         </div>
                     </div>
 
