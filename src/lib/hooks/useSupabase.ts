@@ -1,4 +1,4 @@
-// src/lib/hooks/useSupabaseAdmin.ts - ADMIN ONLY (No Dexie)
+// src/lib/hooks/useSupabase.ts - ADMIN ONLY (No Dexie)
 'use client'
 
 import { useState, useEffect } from 'react'

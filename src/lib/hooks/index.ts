@@ -9,7 +9,7 @@ export { useTableOperations } from './useTableOperations'
 export { useInventoryTracking } from './useInventoryTracking'
 
 // ✅ Admin-Only Hooks (Online Only)
-export { useSupabase } from './admin/useSupabaseAdmin' // Keep for admin backward compatibility
+export { useSupabase } from './useSupabase' // Keep for admin backward compatibility
 export { useInventoryItems, useInventorySync } from './useInventoryItems'
 
 // ✅ Form & UI Hooks

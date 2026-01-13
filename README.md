@@ -348,7 +348,7 @@ rt-restaurant/
 │   │   │   ├── client.ts
 │   │   │   └── serverRaw.ts
 │   │   ├── hooks/                   # Custom React hooks
-│   │   │   ├── useSupabaseAdmin.ts
+│   │   │   ├── useSupabase.ts
 │   │   │   ├── useOrders.ts
 │   │   │   ├── useInventory.ts
 │   │   │   └── useAdminAuth.ts
