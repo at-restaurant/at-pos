@@ -80,7 +80,7 @@ export default function AttendancePage() {
             const absentWaiters = waiters.filter(w => !w.is_on_duty)
 
             if (absentWaiters.length === 0) {
-                toast.add('info', 'ℹ️ Everyone is already present!')
+                toast.add('warning', 'ℹ️ Everyone is already present!')
                 setLoading(false)
                 return
             }

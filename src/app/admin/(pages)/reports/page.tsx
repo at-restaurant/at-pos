@@ -1,11 +1,11 @@
-// src/app/admin/(pages)/history/page.tsx - COMPLETE PRODUCTION VERSION
+// src/app/admin/(pages)/reports/page.tsx - COMPLETE PRODUCTION VERSION
 'use client'
 
 import { useState, useEffect , useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Calendar, TrendingUp, DollarSign, ShoppingCart, Download, Package, Users, Activity, BarChart3, PieChart } from 'lucide-react'
-import { useSidebarItems } from '@/lib/hooks/useSidebarItems'
 import AutoSidebar from '@/components/layout/AutoSidebar'
+import { useSidebarItems } from '@/lib/hooks/useSidebarItems'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
 import { PageHeader } from '@/components/ui/PageHeader'

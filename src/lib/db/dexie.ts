@@ -85,7 +85,7 @@ export interface WaiterShift {
     id: string
     waiter_id: string
     clock_in: string
-    clock_out?: string
+    clock_out?: string | null
     synced: boolean
     created_at: string
 }
