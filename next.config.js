@@ -19,14 +19,14 @@ const nextConfig = {
     },
 
     // ✅ Experimental optimizations (Next 15 safe)
-    experimental: {
-        optimizeCss: true,
-        optimizePackageImports: [
-            'lucide-react',
-            'recharts',
-            '@supabase/ssr',
-        ],
-    },
+    // experimental: {
+    //     optimizeCss: true,
+    //     optimizePackageImports: [
+    //         'lucide-react',
+    //         'recharts',
+    //         '@supabase/ssr',
+    //     ],
+    // },
 
     // ✅ Compiler options
     compiler: {
