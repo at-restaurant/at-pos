@@ -1,4 +1,4 @@
-// src/lib/hooks/useReusableData.ts - ULTRA REUSABLE
+// src/lib/hooks/useReusableData.ts - FIXED sortBy issue
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -12,11 +12,10 @@ interface UseDataOptions {
     table: TableName
     filter?: Record<string, any>
     orderBy?: string
-    relations?: string[] // For Supabase joins
-    refreshInterval?: number // Auto-refresh in ms
+    relations?: string[]
+    refreshInterval?: number
 }
 
-// ✅ ONE HOOK TO RULE THEM ALL
 export function useReusableData<T = any>(options: UseDataOptions) {
     const [data, setData] = useState<T[]>([])
     const [loading, setLoading] = useState(true)
@@ -29,14 +28,31 @@ export function useReusableData<T = any>(options: UseDataOptions) {
             // 1️⃣ Load from Dexie (instant)
             let dexieQuery = (db as any)[options.table]
 
+            // ✅ FIX: Apply filter first, then convert to array
             if (options.filter) {
                 const [key, value] = Object.entries(options.filter)[0]
                 dexieQuery = dexieQuery.where(key).equals(value)
             }
 
-            const dexieData = options.orderBy
-                ? await dexieQuery.sortBy(options.orderBy)
-                : await dexieQuery.toArray()
+            // ✅ FIX: Always convert to array first
+            let dexieData = await dexieQuery.toArray()
+
+            // ✅ FIX: Sort in JavaScript if needed
+            if (options.orderBy && dexieData.length > 0) {
+                dexieData = dexieData.sort((a: any, b: any) => {
+                    const aVal = a[options.orderBy!]
+                    const bVal = b[options.orderBy!]
+
+                    // Handle different types
+                    if (typeof aVal === 'string' && typeof bVal === 'string') {
+                        return aVal.localeCompare(bVal)
+                    }
+                    if (typeof aVal === 'number' && typeof bVal === 'number') {
+                        return aVal - bVal
+                    }
+                    return 0
+                })
+            }
 
             if (dexieData.length > 0) {
                 setData(dexieData)
@@ -63,7 +79,7 @@ export function useReusableData<T = any>(options: UseDataOptions) {
 
                 if (onlineData && onlineData.length > 0) {
                     await (db as any)[options.table].bulkPut(onlineData)
-                    setData(onlineData as T[]) // ✅ Type assertion fixed
+                    setData(onlineData as T[])
                 }
             }
         } catch (error) {
@@ -77,7 +93,6 @@ export function useReusableData<T = any>(options: UseDataOptions) {
         setIsOnline(navigator.onLine)
         load()
 
-        // Auto-refresh
         const interval = options.refreshInterval
             ? setInterval(load, options.refreshInterval)
             : null
@@ -101,7 +116,7 @@ export function useReusableData<T = any>(options: UseDataOptions) {
     return { data, loading, isOnline, refresh: load }
 }
 
-// ✅ SPECIALIZED HOOKS (Built on reusable hook)
+// ✅ Specialized hooks (Built on reusable hook)
 export const useMenuItems = (categoryId?: string) =>
     useReusableData({
         table: 'menu_items',

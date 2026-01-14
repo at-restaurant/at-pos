@@ -1,10 +1,7 @@
-// src/lib/store/theme-store.ts - FIXED VERSION
+// src/lib/store/theme-store.ts - FIXED TOGGLE + DARK GREY
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-/**
- * Design Token System
- */
 export const designTokens = {
     light: {
         bg: {
@@ -44,11 +41,11 @@ export const designTokens = {
     },
     dark: {
         bg: {
-            primary: '#0a0a0a',
-            secondary: '#141414',
-            tertiary: '#1a1a1a',
-            hover: '#252525',
-            active: '#2a2a2a'
+            primary: '#1a1a1a',      // ✅ Dark grey instead of black
+            secondary: '#242424',
+            tertiary: '#2a2a2a',
+            hover: '#303030',
+            active: '#363636'
         },
         fg: {
             primary: '#ffffff',
@@ -57,8 +54,8 @@ export const designTokens = {
             muted: '#6b7280'
         },
         border: {
-            default: '#1f1f1f',
-            hover: '#2a2a2a',
+            default: '#2a2a2a',
+            hover: '#363636',
             focus: '#3b82f6'
         },
         brand: {
@@ -90,7 +87,25 @@ interface ThemeStore {
     getTokens: () => DesignTokens
 }
 
-// ✅ FIX: Read theme from localStorage immediately to prevent flash
+// ✅ Apply theme to DOM immediately
+const applyThemeToDOM = (theme: Theme) => {
+    if (typeof document === 'undefined') return
+
+    document.documentElement.classList.remove('light', 'dark')
+    document.documentElement.classList.add(theme)
+    document.documentElement.setAttribute('data-theme', theme)
+
+    // ✅ Apply CSS variables
+    const tokens = designTokens[theme]
+
+    document.documentElement.style.setProperty('--bg', tokens.bg.primary)
+    document.documentElement.style.setProperty('--card', tokens.bg.secondary)
+    document.documentElement.style.setProperty('--border', tokens.border.default)
+    document.documentElement.style.setProperty('--fg', tokens.fg.primary)
+    document.documentElement.style.setProperty('--muted', tokens.fg.muted)
+}
+
+// ✅ Get initial theme
 const getInitialTheme = (): Theme => {
     if (typeof window === 'undefined') return 'light'
 
@@ -98,37 +113,35 @@ const getInitialTheme = (): Theme => {
         const stored = localStorage.getItem('theme-storage')
         if (stored) {
             const parsed = JSON.parse(stored)
-            return parsed.state?.theme || 'light'
+            const theme = parsed.state?.theme || 'light'
+            applyThemeToDOM(theme) // ✅ Apply immediately
+            return theme
         }
     } catch (error) {
-        console.warn('Failed to read theme from storage:', error)
+        console.warn('Failed to read theme:', error)
     }
 
     return 'light'
 }
 
-// ✅ FIX: Apply theme synchronously to DOM
-const applyThemeToDOM = (theme: Theme) => {
-    if (typeof document === 'undefined') return
-
-    document.documentElement.classList.remove('light', 'dark')
-    document.documentElement.classList.add(theme)
-    document.documentElement.setAttribute('data-theme', theme)
-}
-
 export const useTheme = create<ThemeStore>()(
     persist(
         (set, get) => ({
-            theme: getInitialTheme(), // ✅ Read immediately
+            theme: getInitialTheme(),
 
-            toggleTheme: () => set(state => {
-                const newTheme: Theme = state.theme === 'dark' ? 'light' : 'dark'
-                applyThemeToDOM(newTheme) // ✅ Apply synchronously
-                return { theme: newTheme }
-            }),
+            toggleTheme: () => {
+                const currentTheme = get().theme
+                const newTheme: Theme = currentTheme === 'dark' ? 'light' : 'dark'
+
+                console.log('🎨 Toggling theme:', currentTheme, '→', newTheme) // Debug
+
+                applyThemeToDOM(newTheme)
+                set({ theme: newTheme })
+            },
 
             setTheme: (theme: Theme) => {
-                applyThemeToDOM(theme) // ✅ Apply synchronously
+                console.log('🎨 Setting theme:', theme) // Debug
+                applyThemeToDOM(theme)
                 set({ theme })
             },
 
@@ -139,9 +152,9 @@ export const useTheme = create<ThemeStore>()(
         }),
         {
             name: 'theme-storage',
-            // ✅ FIX: Apply theme immediately on hydration
             onRehydrateStorage: () => (state) => {
                 if (state) {
+                    console.log('🎨 Rehydrated theme:', state.theme) // Debug
                     applyThemeToDOM(state.theme)
                 }
             }
@@ -149,17 +162,11 @@ export const useTheme = create<ThemeStore>()(
     )
 )
 
-/**
- * Hook to get current design tokens
- */
 export const useDesignTokens = (): DesignTokens => {
     const theme = useTheme(state => state.theme)
     return designTokens[theme]
 }
 
-/**
- * Utility function to get a specific token value
- */
 export const getToken = (path: string, theme: Theme = 'light'): string => {
     const tokens = designTokens[theme]
     const keys = path.split('.')

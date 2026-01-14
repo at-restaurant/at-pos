@@ -1,39 +1,38 @@
-// src/app/(public)/orders/page.tsx - SIMPLIFIED REUSABLE VERSION
+// src/app/(public)/orders/page.tsx - FAST ACTIONS VERSION
 "use client"
 export const dynamic = 'force-dynamic'
 
 import { useState, useMemo, useEffect } from 'react'
-import { Printer, RefreshCw, WifiOff, Calendar } from 'lucide-react'
+import { Printer, RefreshCw, WifiOff, Calendar, X } from 'lucide-react'
 import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
-import UniversalModal from '@/components/ui/UniversalModal'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useToast } from '@/components/ui/Toast'
 import { getOrderStatusColor } from '@/lib/utils/statusHelpers'
 import { useReusableData } from '@/lib/hooks/useReusableData'
 import { db, dbHelpers } from '@/lib/db/dexie'
+import { createClient } from '@/lib/supabase/client'
+import { productionPrinter } from '@/lib/print/ProductionPrinter'
 import {
     categorizeOrder,
     getTodayRange,
     loadOrderWithRelations,
-    printAndCompleteOrder,
-    cancelOrder,
     calculateTodayStats
 } from '@/lib/utils/orderUtils'
-import type { OrderWithRelations } from '@/types'
+import type { OrderWithRelations, ReceiptData } from '@/types'
 
 export default function OrdersPage() {
     const [filter, setFilter] = useState('active')
-    const [selectedOrder, setSelectedOrder] = useState<OrderWithRelations | null>(null)
     const [orders, setOrders] = useState<OrderWithRelations[]>([])
     const [pendingCount, setPendingCount] = useState(0)
     const [menuCategories, setMenuCategories] = useState<Record<string, { name: string; icon: string }>>({})
+    const [processing, setProcessing] = useState<string | null>(null)
 
     const toast = useToast()
+    const supabase = createClient()
 
-    // ✅ Use reusable hook
     const { data: rawOrders, loading, isOnline, refresh } = useReusableData<any>({
         table: 'orders',
         orderBy: 'created_at',
@@ -48,7 +47,6 @@ export default function OrdersPage() {
             )
             setOrders(enriched.filter(Boolean) as OrderWithRelations[])
         }
-
         if (rawOrders.length > 0) enrichOrders()
     }, [rawOrders])
 
@@ -57,7 +55,6 @@ export default function OrdersPage() {
         async function loadCategories() {
             const categories = await db.menu_categories.toArray()
             const items = await db.menu_items.toArray()
-
             const categoryMap: Record<string, { name: string; icon: string }> = {}
             items.forEach(item => {
                 const category = categories.find(c => c.id === item.category_id)
@@ -65,7 +62,6 @@ export default function OrdersPage() {
                     categoryMap[item.id] = { name: category.name, icon: category.icon || '📋' }
                 }
             })
-
             setMenuCategories(categoryMap)
         }
         loadCategories()
@@ -118,7 +114,6 @@ export default function OrdersPage() {
         }
     }, [orders, filter])
 
-    // Calculate stats
     const todayStats = useMemo(() => calculateTodayStats(orders), [orders])
 
     const stats = [
@@ -130,38 +125,108 @@ export default function OrdersPage() {
 
     const sidebarItems = useSidebarItems([
         { id: 'active', label: 'Active Orders', icon: '📋', count: stats[0].value },
-        { id: 'dine-in-today', label: 'Dine-In Today', icon: '🏠', count: stats[1].value },
+        { id: 'dine-in-today', label: 'Dine-In Today', icon: '🍽', count: stats[1].value },
         { id: 'delivery', label: 'Delivery Today', icon: '🚚', count: stats[2].value },
         { id: 'takeaway', label: 'Takeaway Today', icon: '📦', count: stats[3].value }
     ], filter, setFilter)
 
-    // Handle print and complete
+    // ✅ FAST PRINT & COMPLETE
     const handlePrintAndComplete = async (order: OrderWithRelations) => {
+        if (processing) return
+        setProcessing(order.id)
+
         try {
-            await printAndCompleteOrder(order, menuCategories)
+            const receiptData: ReceiptData = {
+                restaurantName: 'AT RESTAURANT',
+                tagline: 'Delicious Food, Memorable Moments',
+                address: 'Sooter Mills Rd, Lahore',
+                orderNumber: order.id.slice(0, 8).toUpperCase(),
+                date: new Date(order.created_at).toLocaleString('en-PK'),
+                orderType: order.order_type,
+                customerName: order.customer_name,
+                customerPhone: order.customer_phone,
+                deliveryAddress: order.delivery_address,
+                deliveryCharges: order.delivery_charges,
+                tableNumber: order.restaurant_tables?.table_number,
+                waiter: order.waiters?.name,
+                items: order.order_items.map((item) => {
+                    const category = menuCategories[item.menu_item_id]
+                    return {
+                        name: item.menu_items?.name || 'Unknown',
+                        quantity: item.quantity,
+                        price: item.unit_price,
+                        total: item.total_price,
+                        category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
+                    }
+                }),
+                subtotal: order.subtotal,
+                tax: order.tax,
+                total: order.total_amount,
+                paymentMethod: order.payment_method,
+                notes: order.notes
+            }
+
+            await productionPrinter.print(receiptData)
+
+            // Update order
+            if (isOnline) {
+                await supabase.from('orders').update({
+                    receipt_printed: true,
+                    status: 'completed',
+                    updated_at: new Date().toISOString()
+                }).eq('id', order.id)
+
+                if (order.order_type === 'dine-in' && order.table_id) {
+                    await supabase.from('restaurant_tables').update({
+                        status: 'available',
+                        current_order_id: null,
+                        waiter_id: null
+                    }).eq('id', order.table_id)
+                }
+            } else {
+                await db.orders.update(order.id, { receipt_printed: true, status: 'completed' })
+                await dbHelpers.addToQueue('orders', 'update', { id: order.id, receipt_printed: true, status: 'completed' })
+            }
+
             toast.add('success', '✅ Order completed!')
-            setSelectedOrder(null)
             refresh()
         } catch (error: any) {
             toast.add('error', `❌ ${error.message}`)
+        } finally {
+            setProcessing(null)
         }
     }
 
-    // Handle cancel
+    // ✅ FAST CANCEL
     const handleCancel = async (order: OrderWithRelations) => {
-        if (!confirm('⚠️ Cancel this order?')) return
+        if (processing || !confirm('⚠️ Cancel this order?')) return
+        setProcessing(order.id)
 
         try {
-            await cancelOrder(order)
+            if (isOnline) {
+                await supabase.from('orders').update({ status: 'cancelled' }).eq('id', order.id)
+                if (order.order_type === 'dine-in' && order.table_id) {
+                    await supabase.from('restaurant_tables').update({
+                        status: 'available',
+                        current_order_id: null,
+                        waiter_id: null
+                    }).eq('id', order.table_id)
+                }
+            } else {
+                await db.orders.update(order.id, { status: 'cancelled' })
+                await dbHelpers.addToQueue('orders', 'update', { id: order.id, status: 'cancelled' })
+            }
+
             toast.add('success', '✅ Order cancelled')
-            setSelectedOrder(null)
             refresh()
         } catch (error: any) {
             toast.add('error', `❌ ${error.message}`)
+        } finally {
+            setProcessing(null)
         }
     }
 
-    // Table columns
+    // Table columns with inline actions
     const columns = [
         {
             key: 'order',
@@ -188,31 +253,13 @@ export default function OrdersPage() {
                     'delivery': 'bg-purple-500/20 text-purple-600',
                     'takeaway': 'bg-green-500/20 text-green-600'
                 }
-                const icons = {
-                    'dine-in': '🏠',
-                    'delivery': '🚚',
-                    'takeaway': '📦'
-                }
+                const icons = { 'dine-in': '🍽', 'delivery': '🚚', 'takeaway': '📦' }
                 return (
                     <span className={`inline-flex px-2 py-1 rounded-md text-xs font-medium ${colors[category]}`}>
                         {icons[category]} {category === 'dine-in' ? 'Dine-In' : category === 'delivery' ? 'Delivery' : 'Takeaway'}
                     </span>
                 )
             }
-        },
-        {
-            key: 'payment',
-            label: 'Payment',
-            render: (row: OrderWithRelations) => (
-                <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${
-                    row.payment_method === 'cash' ? 'bg-green-500/20 text-green-600' :
-                        row.payment_method === 'online' ? 'bg-blue-500/20 text-blue-600' :
-                            'bg-gray-500/20 text-gray-600'
-                }`}>
-                    {row.payment_method === 'cash' ? '💵 Cash' :
-                        row.payment_method === 'online' ? '💳 Online' : '⏳ Pending'}
-                </span>
-            )
         },
         {
             key: 'status',
@@ -234,6 +281,29 @@ export default function OrdersPage() {
                     )}
                 </div>
             )
+        },
+        {
+            key: 'actions',
+            label: 'Actions',
+            align: 'right' as const,
+            render: (row: OrderWithRelations) => row.status === 'pending' ? (
+                <div className="flex gap-2 justify-end">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleCancel(row) }}
+                        disabled={processing === row.id}
+                        className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 text-xs font-medium disabled:opacity-50"
+                    >
+                        {processing === row.id ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <X className="w-4 h-4" />}
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handlePrintAndComplete(row) }}
+                        disabled={processing === row.id}
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs font-medium flex items-center gap-1 disabled:opacity-50"
+                    >
+                        {processing === row.id ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Printer className="w-4 h-4" /> Print</>}
+                    </button>
+                </div>
+            ) : null
         }
     ]
 
@@ -290,56 +360,9 @@ export default function OrdersPage() {
                         )}
 
                         <ResponsiveStatsGrid stats={stats} />
-                        <UniversalDataTable columns={columns} data={filtered} loading={loading} searchable onRowClick={setSelectedOrder} />
+                        <UniversalDataTable columns={columns} data={filtered} loading={loading} searchable />
                     </div>
                 </div>
-
-                {selectedOrder && (
-                    <UniversalModal
-                        open={!!selectedOrder}
-                        onClose={() => setSelectedOrder(null)}
-                        title={`Order #${selectedOrder.id.slice(0, 8)}`}
-                        footer={
-                            selectedOrder.status === 'pending' && (
-                                <div className="flex gap-2 w-full">
-                                    <button
-                                        onClick={() => handleCancel(selectedOrder)}
-                                        className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={() => handlePrintAndComplete(selectedOrder)}
-                                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
-                                    >
-                                        <Printer className="w-4 h-4" />
-                                        Print & Complete
-                                    </button>
-                                </div>
-                            )
-                        }
-                    >
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                {selectedOrder.order_items?.map((item) => (
-                                    <div key={item.id} className="flex justify-between p-3 bg-[var(--bg)] rounded-lg">
-                                        <span className="font-medium text-sm">
-                                            {item.quantity}× {item.menu_items?.name}
-                                        </span>
-                                        <span className="font-bold text-sm">PKR {item.total_price.toLocaleString()}</span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="bg-blue-600/10 rounded-lg p-4 border border-blue-600/30">
-                                <div className="flex justify-between text-xl font-bold">
-                                    <span>Total</span>
-                                    <span className="text-blue-600">PKR {selectedOrder.total_amount.toLocaleString()}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </UniversalModal>
-                )}
             </div>
         </ErrorBoundary>
     )
