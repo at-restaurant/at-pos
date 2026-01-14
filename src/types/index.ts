@@ -5,7 +5,7 @@
 // ============================================
 
 
-export type OrderType = 'dine-in' | 'delivery' // ✅ Remove takeaway from type, use categorization instead
+export type OrderType = 'dine-in' | 'delivery' | 'takeaway'
 export type PaymentMethod = 'cash' | 'online' | 'card'
 export type OrderStatus = 'pending' | 'completed' | 'cancelled'
 export type TableStatus = 'available' | 'occupied' | 'reserved' | 'cleaning'

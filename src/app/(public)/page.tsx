@@ -74,10 +74,10 @@ export default function MenuPage() {
         try {
             // Always load from Dexie first (instant)
             const [dexieCategories, dexieItems, dexieTables, dexieWaiters] = await Promise.all([
-                db.menu_categories.where('is_active').equals(true).sortBy('display_order'),
-                db.menu_items.where('is_available').equals(true).sortBy('name'),
+                db.menu_categories.where('is_active').equals(1).sortBy('display_order'),
+                db.menu_items.where('is_available').equals(1).sortBy('name'),
                 db.restaurant_tables.toArray(),
-                db.waiters.where('is_active').equals(true).toArray()
+                db.waiters.where('is_active').equals(1).toArray()
             ])
 
             setCategories(dexieCategories)

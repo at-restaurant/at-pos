@@ -171,13 +171,17 @@ export class ThermalFormatter {
         return text
     }
 
-    private formatFooter(orderType?: 'dine-in' | 'delivery'): string {
+    private formatFooter(orderType?: 'dine-in' | 'delivery' | 'takeaway'): string {
         let text = '\n' + this.line('=')
 
         if (orderType === 'delivery') {
             text += this.center('Thank you for your order!')
             text += '\n'
             text += this.center('Order again soon!')
+        } else if (orderType === 'takeaway') {
+            text += this.center('Thank you for your takeaway order!')
+            text += '\n'
+            text += this.center('Enjoy your meal!')
         } else {
             text += this.center('Thank you for dining with us!')
             text += '\n'

@@ -11,7 +11,7 @@ export default function TestMenuPage() {
     useEffect(() => {
         const fetchMenuItems = async () => {
             try {
-                const items = await db.menu_items.where('is_available').equals(true).toArray()
+                const items = await db.menu_items.where('is_available').equals(1).toArray()
                 setMenuItems(items)
                 console.log('Fetched menu items:', items)
             } catch (error) {
