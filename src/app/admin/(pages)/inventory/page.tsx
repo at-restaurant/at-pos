@@ -3,7 +3,8 @@
 
 import { useState, useMemo } from 'react'
 import { Plus, Download, Calendar, Menu } from 'lucide-react'
-import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
+import { useSidebarItems } from '@/lib/hooks/useSidebarItems'
+import AutoSidebar from '@/components/layout/AutoSidebar'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
 import { FormModal } from '@/components/ui/UniversalModal'
