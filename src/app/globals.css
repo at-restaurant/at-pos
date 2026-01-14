@@ -10,7 +10,7 @@
     --card: #f8f9fa;
     --border: #e5e7eb;
     --fg: #0a0a0a;
-    --muted: #6b7280;
+    --muted: #0a0a0a;
 
     --bg-primary: #ffffff;
     --bg-secondary: #f8f9fa;
@@ -19,8 +19,8 @@
     --bg-active: #dee2e6;
 
     --fg-primary: #0a0a0a;
-    --fg-secondary: #495057;
-    --fg-tertiary: #6c757d;
+    --fg-secondary: #0a0a0a;
+    --fg-tertiary: #0a0a0a;
     --fg-muted: #adb5bd;
 
     --border-default: #e5e7eb;

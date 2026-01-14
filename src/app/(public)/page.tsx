@@ -31,51 +31,53 @@ export default function MenuPage() {
     const supabase = createClient()
 
     useEffect(() => {
-        // Set initial online status
-        setIsOffline(!navigator.onLine)
+        const initialize = async () => {
+            setIsOffline(!navigator.onLine);
+            setLoading(true);
 
-        // Initial load
-        loadAllData()
-
-        // Auto-sync if online
-        if (navigator.onLine) {
-            syncManager.isOfflineReady().then(ready => {
-                if (!ready) {
-                    console.log('📥 Auto-downloading menu data...')
-                    syncManager.downloadEssentialData()
+            try {
+                const isReady = await syncManager.isOfflineReady();
+                if (!isReady && navigator.onLine) {
+                    console.log('📥 Initial data sync required. Downloading...');
+                    await syncManager.downloadEssentialData();
+                    console.log('✅ Initial sync complete.');
                 }
-            })
-        }
+                await loadAllData();
+            } catch (error) {
+                console.error("Initialization failed:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
 
-        // Refresh every 10 seconds
-        const interval = setInterval(loadAllData, 10000)
+        initialize();
 
-        // Network listeners
+        const interval = setInterval(loadAllData, 15000); // Slightly longer refresh
         const handleOnline = () => {
-            setIsOffline(false)
-            syncManager.syncAll()
-            loadAllData()
-        }
-        const handleOffline = () => setIsOffline(true)
+            setIsOffline(false);
+            syncManager.syncAll();
+            loadAllData();
+        };
+        const handleOffline = () => setIsOffline(true);
 
-        window.addEventListener('online', handleOnline)
-        window.addEventListener('offline', handleOffline)
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
 
         return () => {
-            clearInterval(interval)
-            window.removeEventListener('online', handleOnline)
-            window.removeEventListener('offline', handleOffline)
-        }
-    }, [])
+            clearInterval(interval);
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
 
     const loadAllData = async () => {
         try {
             // Always load from Dexie first (instant)
             const [dexieCategories, dexieItems, dexieTables, dexieWaiters] = await Promise.all([
-                db.menu_categories.where('is_active').equals(1).sortBy('display_order'),
-                db.menu_items.where('is_available').equals(1).sortBy('name'),
+                db.menu_categories.where('is_active').equals(true).sortBy('display_order'),
+                db.menu_items.where('is_available').equals(true).sortBy('name'),
                 db.restaurant_tables.toArray(),
-                db.waiters.where('is_active').equals(1).toArray()
+                db.waiters.where('is_active').equals(true).toArray()
             ])
 
             setCategories(dexieCategories)

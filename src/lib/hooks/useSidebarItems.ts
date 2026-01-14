@@ -1,17 +1,23 @@
 // src/lib/hooks/useSidebarItems.ts
-import { SidebarItem } from '@/components/layout/AutoSidebar'
+import { useMemo } from 'react'
+
+interface SidebarItemInput {
+    id: string
+    label: string
+    icon: string
+    count: number
+}
 
 export function useSidebarItems(
-    routeConfig: any[],
-    currentFilter: string,
-    onFilterChange: (id: string) => void
-): SidebarItem[] {
-    return routeConfig.map(config => ({
-        id: config.id,
-        label: config.label,
-        icon: config.icon,
-        count: config.count,
-        active: currentFilter === config.id,
-        onClick: () => onFilterChange(config.id)
-    }))
+    items: SidebarItemInput[],
+    activeFilter: string,
+    setFilter: (filter: string) => void
+) {
+    return useMemo(() => {
+        return items.map(item => ({
+            ...item,
+            active: activeFilter === item.id,
+            onClick: () => setFilter(item.id),
+        }))
+    }, [items, activeFilter, setFilter])
 }

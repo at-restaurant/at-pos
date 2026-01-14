@@ -19,7 +19,7 @@ interface CartDrawerProps {
 export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDrawerProps) {
     const cart = useCart()
     const [loading, setLoading] = useState(false)
-    const [orderType, setOrderType] = useState<'dine-in' | 'delivery'>('dine-in')
+    const [orderType, setOrderType] = useState<'dine-in' | 'delivery' | 'takeaway'>('dine-in')
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('cash')
     const [showDetails, setShowDetails] = useState(false)
     const [details, setDetails] = useState({ customer_name: '', customer_phone: '', delivery_address: '', delivery_charges: 0 })
@@ -92,7 +92,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
     const placeOrder = async () => {
         if (cart.items.length === 0) return
         if (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId)) return
-        if (orderType === 'delivery' && !paymentMethod) return
+        if ((orderType === 'delivery' || orderType === 'takeaway') && !paymentMethod) return
 
         setLoading(true)
 
@@ -109,8 +109,8 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             } else {
                 const orderId = await createNewOrder(subtotal, tax, total, deliveryFee, now)
 
-                // ✅ PRINT IMMEDIATELY FOR DINE-IN
-                if (orderType === 'dine-in' && orderId) {
+                // ✅ PRINT IMMEDIATELY FOR DINE-IN, DELIVERY, AND TAKEAWAY
+                if (orderId) {
                     await printReceipt(orderId, subtotal, tax, total, now)
                 }
             }
@@ -188,7 +188,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         const orderData: any = {
             id: orderId,
             waiter_id: cart.waiterId || null,
-            status: orderType === 'delivery' ? 'completed' : 'pending',
+            status: orderType !== 'dine-in' ? 'completed' : 'pending',
             subtotal,
             tax,
             total_amount: total,
@@ -330,7 +330,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                         <button
                             onClick={() => { setOrderType('dine-in'); setShowDetails(false) }}
                             className={`p-3 rounded-lg border-2 flex flex-col items-center gap-2 ${orderType === 'dine-in' ? 'border-blue-600 bg-blue-600/20' : 'border-[var(--border)]'}`}
@@ -344,6 +344,13 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         >
                             <Truck className={`w-6 h-6 ${orderType === 'delivery' ? 'text-blue-600' : 'text-[var(--fg)]'}`} />
                             <span className={`text-sm font-medium ${orderType === 'delivery' ? 'text-blue-600' : 'text-[var(--fg)]'}`}>Delivery</span>
+                        </button>
+                        <button
+                            onClick={() => setOrderType('takeaway')}
+                            className={`p-3 rounded-lg border-2 flex flex-col items-center gap-2 ${orderType === 'takeaway' ? 'border-blue-600 bg-blue-600/20' : 'border-[var(--border)]'}`}
+                        >
+                            <AlertTriangle className={`w-6 h-6 ${orderType === 'takeaway' ? 'text-blue-600' : 'text-[var(--fg)]'}`} />
+                            <span className={`text-sm font-medium ${orderType === 'takeaway' ? 'text-blue-600' : 'text-[var(--fg)]'}`}>Takeaway</span>
                         </button>
                     </div>
 
