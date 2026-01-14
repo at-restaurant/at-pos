@@ -51,27 +51,28 @@
     --transition-slow: 300ms ease;
 }
 
+/* ✅ DARK THEME - Dark Grey (Not Black) */
 :root.dark,
 [data-theme="dark"] {
-    --bg: #0a0a0a;
-    --card: #141414;
-    --border: #1f1f1f;
+    --bg: #1a1a1a;
+    --card: #242424;
+    --border: #2a2a2a;
     --fg: #ffffff;
     --muted: #888888;
 
-    --bg-primary: #0a0a0a;
-    --bg-secondary: #141414;
-    --bg-tertiary: #1a1a1a;
-    --bg-hover: #252525;
-    --bg-active: #2a2a2a;
+    --bg-primary: #1a1a1a;
+    --bg-secondary: #242424;
+    --bg-tertiary: #2a2a2a;
+    --bg-hover: #303030;
+    --bg-active: #363636;
 
     --fg-primary: #ffffff;
     --fg-secondary: #e5e7eb;
     --fg-tertiary: #9ca3af;
     --fg-muted: #6b7280;
 
-    --border-default: #1f1f1f;
-    --border-hover: #2a2a2a;
+    --border-default: #2a2a2a;
+    --border-hover: #363636;
     --border-focus: #3b82f6;
 
     --status-success-bg: #064e3b;
@@ -155,4 +156,7 @@ html {
 
 body {
     overflow-x: hidden;
+    background-color: var(--bg);
+    color: var(--fg);
+    transition: background-color 200ms ease, color 200ms ease;
 }

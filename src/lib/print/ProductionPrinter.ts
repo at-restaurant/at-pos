@@ -1,4 +1,4 @@
-// src/lib/print/ProductionPrinter.ts - FIXED: iframe print (no localhost fetch)
+// src/lib/print/ProductionPrinter.ts - NO TEST PRINT
 // ✅ Direct browser print dialog using iframe
 
 import { ReceiptData, PrintResponse } from '@/types'
@@ -54,11 +54,6 @@ export class ProductionPrinter {
         }
     }
 
-    async testPrint(): Promise<PrintResponse> {
-        console.log('🧪 Running test print...')
-        return thermalPrinter.testPrint()
-    }
-
     getQueueStatus() {
         return {
             current: 0,
@@ -78,7 +73,6 @@ export const productionPrinter = (() => {
     if (typeof window === 'undefined') {
         return {
             print: async () => ({ success: false, error: 'SSR mode' }),
-            testPrint: async () => ({ success: false, error: 'SSR mode' }),
             getQueueStatus: () => ({ current: 0, offline: 0, isPrinting: false }),
             clearQueue: () => {}
         } as any

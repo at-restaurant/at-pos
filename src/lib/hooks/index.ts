@@ -1,25 +1,33 @@
-// src/lib/hooks/index.ts
-// ✅ Central export for all custom hooks
+// src/lib/hooks/index.ts - CLEANED UP EXPORTS
 
-// Business Logic Hooks
-export * from './useOrderManagement'
-export * from './useTableOperations'
-export * from './useInventoryTracking'
+// ✅ Core Hooks (Reusable)
+export { useReusableData } from './useReusableData'
 
-// Data Hooks
-export * from './useDataLoader'
-export * from './useSupabase'
+// ✅ Business Logic Hooks
+export { useOrderManagement } from './useOrderManagement'
+export { useTableOperations } from './useTableOperations'
+export { useInventoryTracking } from './useInventoryTracking'
 
-// Realtime Hooks
-export * from './useRealtimeSync'
+// ✅ Admin-Only Hooks (Online Only)
+export { useSupabase } from './useSupabase' // Keep for admin backward compatibility
+export { useInventoryItems, useInventorySync } from './useInventoryItems'
 
-// Form Hooks
-export * from './useFormManager'
+// ✅ Form & UI Hooks
+export { useFormManager } from './useFormManager'
+export { useHydration } from './useHydration'
+export { useAdminAuth } from './useAdminAuth'
+export { useOfflineStatus } from './useOfflineStatus'
+export { useNetworkStatus } from './useNetworkStatus'
+export { useStorageMonitor } from './useStorageMonitor'
 
-// UI Hooks
-export * from './useHydration'
-export * from './useAdminAuth'
+// ✅ Store Hooks
 export { useCart } from '@/lib/store/cart-store'
+export { useTheme } from '@/lib/store/theme-store'
 
-// Re-export commonly used
+// ✅ UI Component Hooks
 export { useToast } from '@/components/ui/Toast'
+
+// ❌ REMOVED (Replaced by useReusableData):
+// export { useOfflineFirst } from './useOfflineFirst'
+// export { useDataLoader } from './useDataLoader'
+// export { useRealtimeSync } from './useRealtimeSync'

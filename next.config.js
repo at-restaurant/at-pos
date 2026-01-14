@@ -2,17 +2,15 @@
 const nextConfig = {
     reactStrictMode: true,
 
-    // ✅ FIX: Conditional export - only for Electron
-    output: process.env.BUILD_ELECTRON === 'true' ? 'export' : undefined,
+    // ✅ Web build (no static export)
+    output: 'standalone',
 
-    // ✅ Image optimization
+    // ✅ Image optimization (Cloudinary)
     images: {
-        unoptimized: process.env.BUILD_ELECTRON === 'true',
         remotePatterns: [
             {
                 protocol: 'https',
                 hostname: 'res.cloudinary.com',
-                port: '',
                 pathname: '/**',
             },
         ],
@@ -20,20 +18,15 @@ const nextConfig = {
         minimumCacheTTL: 60,
     },
 
-    // ✅ Trailing slash for Electron
-    trailingSlash: process.env.BUILD_ELECTRON === 'true',
-
-    // ✅ CRITICAL: Conditional experimental features
-    experimental: process.env.BUILD_ELECTRON === 'true'
-        ? {}  // Empty for Electron - no experimental features
-        : {
-            optimizeCss: true,
-            optimizePackageImports: [
-                'lucide-react',
-                'recharts',
-                '@supabase/ssr',
-            ],
-        },
+    // ✅ Experimental optimizations (Next 15 safe)
+    experimental: {
+        optimizeCss: true,
+        optimizePackageImports: [
+            'lucide-react',
+            'recharts',
+            '@supabase/ssr',
+        ],
+    },
 
     // ✅ Compiler options
     compiler: {
@@ -43,12 +36,8 @@ const nextConfig = {
                 : false,
     },
 
-    // ✅ Headers (only for web builds)
+    // ✅ Headers (web only)
     async headers() {
-        if (process.env.BUILD_ELECTRON === 'true') {
-            return [];
-        }
-
         return [
             {
                 source: '/fonts/:path*',
@@ -70,8 +59,6 @@ const nextConfig = {
             },
         ];
     },
-
-    // ✅ REMOVED: No turbopack config needed
 };
 
 module.exports = nextConfig;
