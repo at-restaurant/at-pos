@@ -1,5 +1,5 @@
-// src/lib/print/ThermalFormatter.ts - FIXED: No extra spacing
-// ✅ Minimal top space, NO bottom space wastage
+// src/lib/print/ThermalFormatter.ts - ESC/POS COMMAND FREE
+// ✅ Pure text formatting, no ESC/POS commands
 
 import type { ReceiptData } from '@/types'
 
@@ -11,14 +11,10 @@ export class ThermalFormatter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // MAIN FORMATTING METHOD
+    // MAIN FORMATTING METHOD - NO ESC/POS COMMANDS
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     format(data: ReceiptData): string {
         let receipt = ''
-
-        // ✅ ESC/POS Paper Size Commands
-        receipt += '\x1B\x40'           // ESC @ - Initialize printer
-        receipt += '\x1D\x50\x50\x00'   // GS P 80 0 - Set 80mm width
 
         // Header (minimal spacing)
         receipt += this.formatHeader(data)
@@ -47,19 +43,19 @@ export class ThermalFormatter {
             receipt += this.formatNotes(data.notes)
         }
 
-        // Footer (order type aware)
+        // Footer
         receipt += this.formatFooter(data.orderType)
 
         return receipt
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // HEADER - Minimal spacing
+    // HEADER
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatHeader(data: ReceiptData): string {
         let text = ''
 
-        text += this.center(data.restaurantName || 'AT RESTAURANT', true)
+        text += this.center(data.restaurantName || 'AT RESTAURANT')
         text += '\n'
         text += this.center(data.tagline || 'Delicious Food, Memorable Moments')
         text += '\n'
@@ -168,9 +164,6 @@ export class ThermalFormatter {
         return text
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // NOTES SECTION
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatNotes(notes: string): string {
         let text = '\n' + this.line('-')
         text += 'Special Instructions:\n'
@@ -178,9 +171,6 @@ export class ThermalFormatter {
         return text
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // FOOTER - Order type aware message
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatFooter(orderType?: 'dine-in' | 'delivery'): string {
         let text = '\n' + this.line('=')
 
@@ -210,7 +200,7 @@ export class ThermalFormatter {
         return truncatedLeft + padding + right + '\n'
     }
 
-    private center(text: string, large: boolean = false): string {
+    private center(text: string): string {
         const pad = Math.max(0, Math.floor((this.width - text.length) / 2))
         return ' '.repeat(pad) + text
     }

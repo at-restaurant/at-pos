@@ -3,21 +3,19 @@
 
 import { useState, useEffect } from 'react'
 import { Package } from 'lucide-react'
-import { useDataLoader } from '@/lib/hooks'
+import { useSupabase } from '@/lib/hooks'
 
 export default function InventoryInsights() {
     const [topUsage, setTopUsage] = useState<any[]>([])
 
-    const { data: usage } = useDataLoader({
-        table: 'inventory_usage',
-        select: 'inventory_item_id, quantity_used, cost, inventory_items(name)',
-        filter: {
-            created_at: `gte.${new Date().toISOString().split('T')[0]}`
-        }
+    const today = new Date().toISOString().split('T')[0]
+
+    const { data: usage } = useSupabase('inventory_usage', {
+        select: 'inventory_item_id, quantity_used, cost, inventory_items(name)'
     })
 
     useEffect(() => {
-        if (!usage) return
+        if (!usage || usage.length === 0) return
 
         const grouped = usage.reduce((acc: any, item: any) => {
             const id = item.inventory_item_id

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { Plus, X, Menu } from 'lucide-react'
-import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
+import { useSidebarItems } from '@/lib/hooks/useSidebarItems'
+import AutoSidebar from '@/components/layout/AutoSidebar'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { FormModal } from '@/components/ui/UniversalModal'
 import ResponsiveInput, { FormGrid } from '@/components/ui/ResponsiveInput'

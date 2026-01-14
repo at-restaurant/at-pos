@@ -1,55 +1,226 @@
-// src/app/(public)/tables/page.tsx - FIXED WITH OFFLINE STATUS
+// src/app/(public)/tables/page.tsx - PRODUCTION FIXED
 "use client"
 export const dynamic = 'force-dynamic'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { RefreshCw, DollarSign, WifiOff } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
-import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
+import { useSidebarItems } from '@/lib/hooks/useSidebarItems'
+import AutoSidebar from '@/components/layout/AutoSidebar'
 import UniversalModal from '@/components/ui/UniversalModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { useDataLoader, useTablesSync } from '@/lib/hooks'
 import { getTableStatusColor } from '@/lib/utils/statusHelpers'
-import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
-import type { TableWithRelations } from '@/types'
+import { createClient } from '@/lib/supabase/client'
+import { db } from '@/lib/db/dexie'
+
+type TableWithRelations = {
+    id: string
+    table_number: number
+    capacity: number
+    section?: string
+    status: string
+    waiter_id?: string
+    current_order_id?: string
+    created_at: string
+    waiter?: { id: string; name: string; profile_pic?: string } | null
+    order?: {
+        id: string
+        total_amount: number
+        status: string
+        order_items?: Array<{
+            id: string
+            quantity: number
+            total_price: number
+            menu_items?: { name: string; price: number }
+        }>
+    } | null
+}
 
 export default function TablesPage() {
     const [statusFilter, setStatusFilter] = useState('all')
     const [selectedTable, setSelectedTable] = useState<TableWithRelations | null>(null)
+    const [tables, setTables] = useState<TableWithRelations[]>([])
+    const [loading, setLoading] = useState(true)
+    const [isOnline, setIsOnline] = useState(true)
+    const supabase = createClient()
 
-    const { data: tables, loading, refresh } = useDataLoader<TableWithRelations>({
-        table: 'restaurant_tables',
-        select: '*, waiters(id, name, profile_pic)',
-        order: { column: 'table_number' }
-    })
+    useEffect(() => {
+        setIsOnline(navigator.onLine)
+        load()
 
-    const { data: orders } = useDataLoader({
-        table: 'orders',
-        select: 'id, total_amount, status, table_id, order_items(id, quantity, total_price, menu_items(name, price))',
-        filter: { status: 'pending' }
-    })
+        const interval = setInterval(load, 5000)
 
-    // ✅ ADD: Get offline status
-    const { isOnline } = useOfflineStatus()
+        const handleOnline = () => {
+            setIsOnline(true)
+            load()
+        }
+        const handleOffline = () => setIsOnline(false)
 
-    useTablesSync(refresh)
+        window.addEventListener('online', handleOnline)
+        window.addEventListener('offline', handleOffline)
 
-    const enrichedTables: TableWithRelations[] = useMemo(() =>
-            tables.map(t => ({
-                ...t,
-                waiter: t.waiter_id && t.status !== 'available' ? (t as any).waiters : null,
-                order: t.current_order_id ? orders.find(o => o.id === t.current_order_id) || null : null
-            }))
-        , [tables, orders])
+        return () => {
+            clearInterval(interval)
+            window.removeEventListener('online', handleOnline)
+            window.removeEventListener('offline', handleOffline)
+        }
+    }, [])
+
+    const load = async () => {
+        try {
+            // Load from Dexie first
+            const dexieTables = await db.restaurant_tables.orderBy('table_number').toArray()
+            const dexieOrders = await db.orders.where('status').equals('pending').toArray()
+            const dexieWaiters = await db.waiters.toArray()
+
+            // Enrich tables with relations
+            const enriched: TableWithRelations[] = await Promise.all(
+                dexieTables.map(async (table) => {
+                    let waiter = null
+                    let order = null
+
+                    if (table.waiter_id && table.status !== 'available') {
+                        waiter = dexieWaiters.find(w => w.id === table.waiter_id) || null
+                    }
+
+                    if (table.current_order_id) {
+                        order = dexieOrders.find(o => o.id === table.current_order_id) || null
+
+                        if (order) {
+                            const items = await db.order_items
+                                .where('order_id')
+                                .equals(order.id)
+                                .toArray()
+
+                            const enrichedItems = await Promise.all(
+                                items.map(async (item) => {
+                                    const menuItem = await db.menu_items.get(item.menu_item_id)
+                                    return {
+                                        id: item.id,
+                                        quantity: item.quantity,
+                                        total_price: item.total_price,
+                                        menu_items: menuItem ? { name: menuItem.name, price: menuItem.price } : undefined
+                                    }
+                                })
+                            )
+
+                            order = {
+                                id: order.id,
+                                total_amount: order.total_amount,
+                                status: order.status,
+                                order_items: enrichedItems
+                            } as any
+                        }
+                    }
+
+                    return {
+                        id: table.id,
+                        table_number: table.table_number,
+                        capacity: table.capacity,
+                        section: table.section,
+                        status: table.status,
+                        waiter_id: table.waiter_id,
+                        current_order_id: table.current_order_id,
+                        created_at: table.created_at,
+                        waiter,
+                        order
+                    }
+                })
+            )
+
+            setTables(enriched)
+            setLoading(false)
+
+            // Update from Supabase if online
+            if (navigator.onLine) {
+                const { data: onlineTables } = await supabase
+                    .from('restaurant_tables')
+                    .select(`
+                        *,
+                        waiters:waiter_id(id, name, profile_pic)
+                    `)
+                    .order('table_number')
+
+                const { data: onlineOrders } = await supabase
+                    .from('orders')
+                    .select(`
+                        id,
+                        total_amount,
+                        status,
+                        table_id,
+                        order_items(
+                            id,
+                            quantity,
+                            total_price,
+                            menu_items(name, price)
+                        )
+                    `)
+                    .eq('status', 'pending')
+
+                if (onlineTables) {
+                    // Save to Dexie
+                    await db.restaurant_tables.bulkPut(onlineTables.map((t: any) => ({
+                        id: t.id,
+                        table_number: t.table_number,
+                        capacity: t.capacity,
+                        section: t.section,
+                        status: t.status,
+                        waiter_id: t.waiter_id,
+                        current_order_id: t.current_order_id,
+                        created_at: t.created_at
+                    })))
+
+                    // Enrich with relations - ✅ FIXED TYPE SAFETY
+                    const enrichedOnline: TableWithRelations[] = onlineTables.map((t: any) => {
+                        const matchingOrder = t.current_order_id
+                            ? onlineOrders?.find((o: any) => o.id === t.current_order_id)
+                            : null
+
+                        return {
+                            id: t.id,
+                            table_number: t.table_number,
+                            capacity: t.capacity,
+                            section: t.section,
+                            status: t.status,
+                            waiter_id: t.waiter_id,
+                            current_order_id: t.current_order_id,
+                            created_at: t.created_at,
+                            waiter: t.waiter_id && t.status !== 'available' ? t.waiters : null,
+                            order: matchingOrder ? {
+                                id: matchingOrder.id,
+                                total_amount: matchingOrder.total_amount,
+                                status: matchingOrder.status,
+                                order_items: matchingOrder.order_items?.map((item: any) => ({
+                                    id: item.id,
+                                    quantity: item.quantity,
+                                    total_price: item.total_price,
+                                    menu_items: item.menu_items ? {
+                                        name: item.menu_items.name,
+                                        price: item.menu_items.price
+                                    } : undefined
+                                })) || []
+                            } : null
+                        }
+                    })
+
+                    setTables(enrichedOnline)
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load tables:', error)
+            setLoading(false)
+        }
+    }
 
     const filtered = useMemo(() =>
-            enrichedTables.filter(t => statusFilter === 'all' || t.status === statusFilter)
-        , [enrichedTables, statusFilter])
+            tables.filter(t => statusFilter === 'all' || t.status === statusFilter),
+        [tables, statusFilter]
+    )
 
     const stats = useMemo(() => [
-        { label: 'Total', value: tables.length, color: '#3b82f6', onClick: () => setStatusFilter('all'), active: statusFilter === 'all', subtext: `${enrichedTables.filter(t => t.status === 'available').length} available` },
+        { label: 'Total', value: tables.length, color: '#3b82f6', onClick: () => setStatusFilter('all'), active: statusFilter === 'all', subtext: `${tables.filter(t => t.status === 'available').length} available` },
         { label: 'Available', value: tables.filter(t => t.status === 'available').length, color: '#10b981', onClick: () => setStatusFilter('available'), active: statusFilter === 'available' },
         { label: 'Occupied', value: tables.filter(t => t.status === 'occupied').length, color: '#ef4444', onClick: () => setStatusFilter('occupied'), active: statusFilter === 'occupied' },
         { label: 'Reserved', value: tables.filter(t => t.status === 'reserved').length, color: '#f59e0b', onClick: () => setStatusFilter('reserved'), active: statusFilter === 'reserved' }
@@ -108,14 +279,13 @@ export default function TablesPage() {
                         title="Tables"
                         subtitle={`Restaurant tables & running bills${!isOnline ? ' • Offline mode' : ''}`}
                         action={
-                            <button onClick={refresh} className="p-2 hover:bg-[var(--bg)] rounded-lg active:scale-95">
-                                <RefreshCw className="w-5 h-5 text-[var(--muted)]" />
+                            <button onClick={load} className="p-2 hover:bg-[var(--bg)] rounded-lg active:scale-95">
+                                <RefreshCw className={`w-5 h-5 text-[var(--muted)] ${loading ? 'animate-spin' : ''}`} />
                             </button>
                         }
                     />
 
                     <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-                        {/* ✅ ADD: Offline Warning Banner */}
                         {!isOnline && (
                             <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-3">
                                 <WifiOff className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
@@ -139,9 +309,9 @@ export default function TablesPage() {
                                     subtitle={`Order #${selectedTable.order.id.slice(0, 8)}`}
                                     icon={<DollarSign className="w-6 h-6 text-blue-600" />}>
                         <div className="space-y-4">
-                            {selectedTable.order.order_items?.map((item: any, idx: number) => (
+                            {selectedTable.order.order_items?.map((item, idx) => (
                                 <div key={idx} className="flex justify-between p-3 bg-[var(--bg)] rounded-lg">
-                                    <span className="font-medium text-sm">{item.quantity}× {item.menu_items.name}</span>
+                                    <span className="font-medium text-sm">{item.quantity}× {item.menu_items?.name}</span>
                                     <span className="font-bold text-sm">PKR {item.total_price}</span>
                                 </div>
                             ))}

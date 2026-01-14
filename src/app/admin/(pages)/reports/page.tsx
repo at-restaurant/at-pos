@@ -4,7 +4,8 @@
 import { useState, useEffect , useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Calendar, TrendingUp, DollarSign, ShoppingCart, Download, Package, Users, Activity, BarChart3, PieChart } from 'lucide-react'
-import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
+import { useSidebarItems } from '@/lib/hooks/useSidebarItems'
+import AutoSidebar from '@/components/layout/AutoSidebar'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -702,7 +703,7 @@ export default function HistoryPage() {
 
                 <div className="lg:ml-64">
                     <PageHeader
-                        title="History & Analytics"
+                        title="Reports"
                         subtitle="Complete business insights with inventory tracking"
                         action={
                             <div className="flex gap-2">
