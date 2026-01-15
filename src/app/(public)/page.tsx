@@ -49,7 +49,7 @@ export default function MenuPage() {
     useEffect(() => {
         setIsMounted(true)
         if (typeof window !== 'undefined' && navigator.onLine) {
-            offlineManager.downloadEssentialData()
+            offlineManager.downloadAllData()
         }
     }, [])
 

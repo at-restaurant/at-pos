@@ -13,7 +13,8 @@ export default function OfflineInitializer() {
 
             try {
                 // ✅ Force sync on app load to clear stale data
-                const result = await offlineManager.downloadEssentialData(true)
+                const result = await offlineManager.downloadAllData(true)
+
 
                 if (result?.success) {
                     console.log('✅ Offline data synced on load:', {

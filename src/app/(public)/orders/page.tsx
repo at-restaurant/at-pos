@@ -1,5 +1,5 @@
 // src/app/(public)/orders/page.tsx
-// ✅ FIXED: Print only ONCE when completing order
+// ✅ COMPLETE OFFLINE SUPPORT + PRINT WHEN ADDING TO EXISTING ORDER
 
 "use client"
 export const dynamic = 'force-dynamic'
@@ -13,33 +13,62 @@ import SplitBillModal from '@/components/features/split-bill/SplitBillModal'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { getOrderStatusColor } from '@/lib/utils/statusHelpers'
-import { createClient } from '@/lib/supabase/client'
-import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
+import { useOfflineFirst } from '@/lib/hooks/useOfflineFirst'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
 import type { ReceiptData } from '@/types'
+import { createClient } from '@/lib/supabase/client'
+import { db } from '@/lib/db/indexedDB'
+import { STORES } from '@/lib/db/schema'
 
 export default function OrdersPage() {
     const [filter, setFilter] = useState<'active' | 'today-dinein' | 'today-delivery' | 'today-takeaway'>('active')
     const [selectedOrder, setSelectedOrder] = useState<any>(null)
     const [showSplitBill, setShowSplitBill] = useState<any>(null)
     const [showDailySummary, setShowDailySummary] = useState(false)
-    const [orders, setOrders] = useState<any[]>([])
-    const [loading, setLoading] = useState(true)
     const [actionLoading, setActionLoading] = useState(false)
     const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
 
-    const {isOnline, pendingCount} = useOfflineStatus()
     const supabase = createClient()
 
+    // ✅ FIXED: Use offline-first hook for orders
+    const { data: orders, loading, isOffline, refresh } = useOfflineFirst<any>({
+        store: STORES.ORDERS,
+        table: 'orders',
+        autoSync: true
+    })
+
+    // Load menu categories
     useEffect(() => {
-        loadOrders()
         loadMenuCategories()
-        const interval = setInterval(loadOrders, 10000)
-        return () => clearInterval(interval)
-    }, [isOnline])
+    }, [])
+
+    // Auto-refresh every 10s when online
+    useEffect(() => {
+        if (!isOffline) {
+            const interval = setInterval(refresh, 10000)
+            return () => clearInterval(interval)
+        }
+    }, [isOffline, refresh])
 
     const loadMenuCategories = async () => {
-        const {data} = await supabase
+        // Try cache first
+        const cachedItems = await db.getAll(STORES.MENU_ITEMS) as any[]
+        if (cachedItems.length > 0) {
+            const categoryMap: { [key: string]: { name: string; icon: string } } = {}
+            cachedItems.forEach((item: any) => {
+                if (item.menu_categories) {
+                    categoryMap[item.id] = {
+                        name: item.menu_categories.name,
+                        icon: item.menu_categories.icon || '📋'
+                    }
+                }
+            })
+            setMenuCategories(categoryMap)
+            return
+        }
+
+        // Fallback to Supabase
+        const { data } = await supabase
             .from('menu_items')
             .select('id, menu_categories(name, icon)')
 
@@ -57,73 +86,56 @@ export default function OrdersPage() {
         }
     }
 
-    const loadOrders = async () => {
-        setLoading(true)
-        try {
-            const {data: allOrders} = await supabase
-                .from('orders')
-                .select('*, restaurant_tables(table_number), waiters(name), order_items(*, menu_items(name, price, category_id))')
-                .order('created_at', {ascending: false})
-                .limit(500)
-
-            if (allOrders) {
-                const enrichedOrders = allOrders.map(order => {
-                    const itemsTotal = order.order_items?.reduce((sum: number, item: any) =>
-                        sum + (item.total_price || 0), 0) || 0
-
-                    return {
-                        ...order,
-                        display_total: itemsTotal > 0 ? itemsTotal : order.total_amount,
-                        item_count: order.order_items?.reduce((sum: number, item: any) =>
-                            sum + item.quantity, 0) || 0
-                    }
-                })
-
-                setOrders(enrichedOrders)
-            }
-        } catch (error) {
-            console.error('Failed to load orders:', error)
-        } finally {
-            setLoading(false)
-        }
-    }
-
     const getTodayRange = () => {
         const today = new Date()
         today.setHours(0, 0, 0, 0)
         const tomorrow = new Date(today)
         tomorrow.setDate(tomorrow.getDate() + 1)
-        return {start: today, end: tomorrow}
+        return { start: today, end: tomorrow }
     }
 
+    // ✅ Enhanced filtering with offline orders
     const filtered = useMemo(() => {
         const { start, end } = getTodayRange()
 
+        // Enrich orders with calculated totals
+        const enrichedOrders = orders.map(order => {
+            const itemsTotal = order.order_items?.reduce((sum: number, item: any) =>
+                sum + (item.total_price || 0), 0) || 0
+
+            return {
+                ...order,
+                display_total: itemsTotal > 0 ? itemsTotal : order.total_amount,
+                item_count: order.order_items?.reduce((sum: number, item: any) =>
+                    sum + item.quantity, 0) || 0
+            }
+        })
+
         switch (filter) {
             case 'active':
-                return orders.filter(o => o.status === 'pending' && o.order_type === 'dine-in')
+                return enrichedOrders.filter(o => o.status === 'pending' && o.order_type === 'dine-in')
             case 'today-dinein':
-                return orders.filter(o => {
+                return enrichedOrders.filter(o => {
                     const d = new Date(o.created_at)
                     return d >= start && d < end && o.status === 'completed' && o.order_type === 'dine-in'
                 })
             case 'today-delivery':
-                return orders.filter(o => {
+                return enrichedOrders.filter(o => {
                     const d = new Date(o.created_at)
                     return d >= start && d < end && o.status === 'completed' && o.order_type === 'delivery'
                 })
             case 'today-takeaway':
-                return orders.filter(o => {
+                return enrichedOrders.filter(o => {
                     const d = new Date(o.created_at)
                     return d >= start && d < end && o.status === 'completed' && o.order_type === 'takeaway'
                 })
             default:
-                return orders
+                return enrichedOrders
         }
     }, [orders, filter])
 
     const stats = useMemo(() => {
-        const {start, end} = getTodayRange()
+        const { start, end } = getTodayRange()
         const todayCompleted = orders.filter(o => {
             const orderDate = new Date(o.created_at)
             return orderDate >= start && orderDate < end && o.status === 'completed'
@@ -167,19 +179,15 @@ export default function OrdersPage() {
         return 'cash'
     }
 
-    // ✅ FIXED: Single print + complete function
+    // ✅ FIXED: Single print + complete function (works offline)
     const handlePrintAndComplete = async (order: any, paymentMethod: 'cash' | 'online') => {
         if (actionLoading) return
 
         setActionLoading(true)
         try {
-            // 1. Update payment method
-            await supabase
-                .from('orders')
-                .update({ payment_method: paymentMethod })
-                .eq('id', order.id)
+            const isOfflineOrder = order.id.startsWith('offline_')
 
-            // 2. Build receipt
+            // 1. Build receipt
             const receiptData: ReceiptData = {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
@@ -193,16 +201,16 @@ export default function OrdersPage() {
                 deliveryCharges: order.delivery_charges,
                 tableNumber: order.restaurant_tables?.table_number,
                 waiter: order.waiters?.name,
-                items: order.order_items.map((item: any) => {
-                    const category = menuCategories[item.menu_items?.id]
+                items: order.order_items?.map((item: any) => {
+                    const category = menuCategories[item.menu_items?.id || item.menu_item_id]
                     return {
-                        name: item.menu_items?.name,
+                        name: item.menu_items?.name || 'Unknown Item',
                         quantity: item.quantity,
-                        price: item.menu_items?.price,
+                        price: item.unit_price || item.menu_items?.price || 0,
                         total: item.total_price,
                         category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
                     }
-                }),
+                }) || [],
                 subtotal: order.display_total || order.total_amount,
                 tax: order.tax,
                 total: order.display_total || order.total_amount,
@@ -210,36 +218,49 @@ export default function OrdersPage() {
                 notes: order.notes
             }
 
-            // 3. Print ONCE
+            // 2. Print ONCE
             console.log('🖨️ Printing receipt...')
             await productionPrinter.print(receiptData)
 
-            // 4. Complete order
-            const { error: updateError } = await supabase
-                .from('orders')
-                .update({
+            // 3. Complete order (offline-compatible)
+            if (isOfflineOrder) {
+                // Update in IndexedDB
+                await db.put(STORES.ORDERS, {
+                    ...order,
                     status: 'completed',
+                    payment_method: paymentMethod,
                     receipt_printed: true,
                     updated_at: new Date().toISOString()
                 })
-                .eq('id', order.id)
-
-            if (updateError) throw updateError
-
-            // 5. Free table if dine-in
-            if (order.order_type === 'dine-in' && order.table_id) {
-                await supabase
-                    .from('restaurant_tables')
+            } else {
+                // Update in Supabase
+                const { error: updateError } = await supabase
+                    .from('orders')
                     .update({
-                        status: 'available',
-                        current_order_id: null,
-                        waiter_id: null
+                        status: 'completed',
+                        payment_method: paymentMethod,
+                        receipt_printed: true,
+                        updated_at: new Date().toISOString()
                     })
-                    .eq('id', order.table_id)
+                    .eq('id', order.id)
+
+                if (updateError) throw updateError
+
+                // Free table if dine-in
+                if (order.order_type === 'dine-in' && order.table_id) {
+                    await supabase
+                        .from('restaurant_tables')
+                        .update({
+                            status: 'available',
+                            current_order_id: null,
+                            waiter_id: null
+                        })
+                        .eq('id', order.table_id)
+                }
             }
 
             setSelectedOrder(null)
-            loadOrders()
+            refresh()
 
             // Show success toast
             if (typeof window !== 'undefined') {
@@ -264,22 +285,33 @@ export default function OrdersPage() {
 
         setActionLoading(true)
         try {
-            const { error } = await supabase
-                .from('orders')
-                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-                .eq('id', order.id)
+            const isOfflineOrder = order.id.startsWith('offline_')
 
-            if (error) throw error
+            if (isOfflineOrder) {
+                // Mark as cancelled and synced (won't upload)
+                await db.put(STORES.ORDERS, {
+                    ...order,
+                    status: 'cancelled',
+                    synced: true
+                })
+            } else {
+                const { error } = await supabase
+                    .from('orders')
+                    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                    .eq('id', order.id)
 
-            if (order.order_type === 'dine-in' && order.table_id) {
-                await supabase
-                    .from('restaurant_tables')
-                    .update({ status: 'available', current_order_id: null, waiter_id: null })
-                    .eq('id', order.table_id)
+                if (error) throw error
+
+                if (order.order_type === 'dine-in' && order.table_id) {
+                    await supabase
+                        .from('restaurant_tables')
+                        .update({ status: 'available', current_order_id: null, waiter_id: null })
+                        .eq('id', order.table_id)
+                }
             }
 
             setSelectedOrder(null)
-            loadOrders()
+            refresh()
 
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('toast-add', {
@@ -303,7 +335,7 @@ export default function OrdersPage() {
                 <div className="flex items-center gap-2">
                     {row.id.startsWith('offline_') && (
                         <div title="Offline order">
-                            <WifiOff className="w-4 h-4 text-yellow-600 flex-shrink-0"/>
+                            <WifiOff className="w-4 h-4 text-yellow-600 flex-shrink-0" />
                         </div>
                     )}
                     <div>
@@ -366,14 +398,14 @@ export default function OrdersPage() {
     ]
 
     const sidebarItems = useSidebarItems([
-        {id: 'active', label: 'Active Orders', icon: '🔄', count: stats[0].value},
-        {id: 'today-dinein', label: 'Today Dine-in', icon: '🏠', count: stats[1].value},
-        {id: 'today-delivery', label: 'Today Delivery', icon: '🚚', count: stats[2].value},
-        {id: 'today-takeaway', label: 'Today Takeaway', icon: '📦', count: stats[3].value}
+        { id: 'active', label: 'Active Orders', icon: '🔄', count: stats[0].value },
+        { id: 'today-dinein', label: 'Today Dine-in', icon: '🏠', count: stats[1].value },
+        { id: 'today-delivery', label: 'Today Delivery', icon: '🚚', count: stats[2].value },
+        { id: 'today-takeaway', label: 'Today Takeaway', icon: '📦', count: stats[3].value }
     ], filter, (id: string) => setFilter(id as any))
 
     const DailySummaryModal = () => {
-        const {start, end} = getTodayRange()
+        const { start, end } = getTodayRange()
         const todayCompleted = orders.filter(o => {
             const orderDate = new Date(o.created_at)
             return orderDate >= start && orderDate < end && o.status === 'completed'
@@ -386,21 +418,19 @@ export default function OrdersPage() {
         const onlineTotal = onlineOrders.reduce((sum, o) => sum + (o.display_total || o.total_amount), 0)
 
         return (
-            <div
-                className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
-                onClick={() => setShowDailySummary(false)}>
-                <div
-                    className="bg-[var(--card)] border border-[var(--border)] rounded-t-2xl sm:rounded-xl w-full sm:max-w-2xl shadow-2xl max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"
-                    onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
+                 onClick={() => setShowDailySummary(false)}>
+                <div className="bg-[var(--card)] border border-[var(--border)] rounded-t-2xl sm:rounded-xl w-full sm:max-w-2xl shadow-2xl max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"
+                     onClick={e => e.stopPropagation()}>
                     <div className="sticky top-0 bg-[var(--card)] border-b border-[var(--border)] z-10 p-4 sm:p-6">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-600/20 rounded-xl flex items-center justify-center flex-shrink-0">
-                                <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-green-600"/>
+                                <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" />
                             </div>
                             <div className="flex-1 min-w-0">
                                 <h3 className="text-lg sm:text-xl font-bold text-[var(--fg)]">Today's Summary</h3>
                                 <p className="text-xs sm:text-sm text-[var(--muted)] truncate">
-                                    {new Date().toLocaleDateString('en-PK', {weekday: 'short', month: 'short', day: 'numeric'})}
+                                    {new Date().toLocaleDateString('en-PK', { weekday: 'short', month: 'short', day: 'numeric' })}
                                 </p>
                             </div>
                         </div>
@@ -421,7 +451,7 @@ export default function OrdersPage() {
                         <div className="grid grid-cols-2 gap-3">
                             <div className="p-4 bg-green-600/10 rounded-lg border border-green-600/30">
                                 <div className="flex items-center gap-2 mb-2">
-                                    <Banknote className="w-4 h-4 text-green-600"/>
+                                    <Banknote className="w-4 h-4 text-green-600" />
                                     <p className="text-xs font-semibold text-green-600">Cash</p>
                                 </div>
                                 <p className="text-xl font-bold text-green-600">PKR {cashTotal.toLocaleString()}</p>
@@ -429,7 +459,7 @@ export default function OrdersPage() {
                             </div>
                             <div className="p-4 bg-blue-600/10 rounded-lg border border-blue-600/30">
                                 <div className="flex items-center gap-2 mb-2">
-                                    <CreditCard className="w-4 h-4 text-blue-600"/>
+                                    <CreditCard className="w-4 h-4 text-blue-600" />
                                     <p className="text-xs font-semibold text-blue-600">Online</p>
                                 </div>
                                 <p className="text-xl font-bold text-blue-600">PKR {onlineTotal.toLocaleString()}</p>
@@ -439,10 +469,8 @@ export default function OrdersPage() {
                     </div>
 
                     <div className="sticky bottom-0 bg-[var(--card)] border-t border-[var(--border)] p-4">
-                        <button
-                            onClick={() => setShowDailySummary(false)}
-                            className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors active:scale-95"
-                        >
+                        <button onClick={() => setShowDailySummary(false)}
+                                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors active:scale-95">
                             Close
                         </button>
                     </div>
@@ -473,7 +501,7 @@ export default function OrdersPage() {
                         {selectedOrder.order_items?.map((item: any) => (
                             <div key={item.id} className="flex justify-between p-3 bg-[var(--bg)] rounded-lg">
                                 <span className="font-medium text-sm text-[var(--fg)]">
-                                    {item.quantity}× {item.menu_items?.name}
+                                    {item.quantity}× {item.menu_items?.name || 'Unknown Item'}
                                 </span>
                                 <span className="font-bold text-sm text-[var(--fg)]">
                                     PKR {item.total_price.toLocaleString()}
@@ -498,9 +526,8 @@ export default function OrdersPage() {
                                         setSelectedOrder(null)
                                     }}
                                     disabled={actionLoading}
-                                    className="w-full px-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--card)] flex items-center justify-center gap-2 font-medium transition-colors active:scale-95 disabled:opacity-50"
-                                >
-                                    <Users className="w-4 h-4"/> Split Bill
+                                    className="w-full px-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--card)] flex items-center justify-center gap-2 font-medium transition-colors active:scale-95 disabled:opacity-50">
+                                    <Users className="w-4 h-4" /> Split Bill
                                 </button>
 
                                 {selectedOrder.order_type === 'dine-in' && !selectedOrder.payment_method ? (
@@ -509,28 +536,26 @@ export default function OrdersPage() {
                                         <div className="grid grid-cols-2 gap-3">
                                             <button
                                                 onClick={() => handlePrintAndComplete(selectedOrder, 'cash')}
-                                                disabled={actionLoading || !isOnline}
-                                                className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95"
-                                            >
+                                                disabled={actionLoading}
+                                                className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
                                                 {actionLoading ? (
                                                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                                 ) : (
                                                     <>
-                                                        <Banknote className="w-5 h-5"/>
+                                                        <Banknote className="w-5 h-5" />
                                                         <span className="text-sm">Cash</span>
                                                     </>
                                                 )}
                                             </button>
                                             <button
                                                 onClick={() => handlePrintAndComplete(selectedOrder, 'online')}
-                                                disabled={actionLoading || !isOnline}
-                                                className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95"
-                                            >
+                                                disabled={actionLoading}
+                                                className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
                                                 {actionLoading ? (
                                                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                                 ) : (
                                                     <>
-                                                        <CreditCard className="w-5 h-5"/>
+                                                        <CreditCard className="w-5 h-5" />
                                                         <span className="text-sm">Online</span>
                                                     </>
                                                 )}
@@ -540,14 +565,13 @@ export default function OrdersPage() {
                                 ) : (
                                     <button
                                         onClick={() => handlePrintAndComplete(selectedOrder, selectedOrder.payment_method || 'cash')}
-                                        disabled={actionLoading || !isOnline}
-                                        className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95"
-                                    >
+                                        disabled={actionLoading}
+                                        className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
                                         {actionLoading ? (
                                             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                         ) : (
                                             <>
-                                                <Printer className="w-4 h-4"/>
+                                                <Printer className="w-4 h-4" />
                                                 Print & Complete
                                             </>
                                         )}
@@ -557,8 +581,7 @@ export default function OrdersPage() {
                                 <button
                                     onClick={() => handleCancel(selectedOrder)}
                                     disabled={actionLoading}
-                                    className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors disabled:opacity-50 active:scale-95"
-                                >
+                                    className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors disabled:opacity-50 active:scale-95">
                                     Cancel Order
                                 </button>
                             </div>
