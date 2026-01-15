@@ -1,5 +1,5 @@
 // src/components/cart/CartDrawer.tsx
-// ✅ FIXED: Auto-mark waiter present when selected, proper order relationships
+// ✅ FIXED: Prints receipt when adding items to existing order
 
 'use client'
 
@@ -66,7 +66,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         }
     }
 
-    // ✅ NEW: Auto-mark waiter present when selected
     const handleWaiterChange = async (waiterId: string) => {
         cart.setWaiter(waiterId)
 
@@ -74,7 +73,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
         const selectedWaiter = waiters.find(w => w.id === waiterId)
 
-        // If waiter is not on duty, mark them present
         if (selectedWaiter && !selectedWaiter.is_on_duty) {
             try {
                 await supabase
@@ -89,7 +87,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         }
     }
 
-    // ✅ FIXED: Check for existing order on table
     useEffect(() => {
         if (cart.tableId && orderType === 'dine-in') {
             checkTableOccupancy(cart.tableId)
@@ -101,7 +98,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         if (!selectedTable) return
 
         if (selectedTable.status === 'occupied') {
-            // Get existing active order for this table
             const { data: existingOrder } = await supabase
                 .from('orders')
                 .select('id, total_amount, subtotal, tax, order_items(id, quantity, menu_items(name))')
@@ -184,7 +180,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         return 'cash'
     }
 
-    // ✅ FIXED: Add to existing order OR create new
+    // ✅ FIXED: Print receipt when adding to existing order
     const placeOrder = async () => {
         if (cart.items.length === 0) return
         if (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId)) return
@@ -218,7 +214,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 // 2. Update order totals (ADD to existing)
                 const { data: currentOrder } = await supabase
                     .from('orders')
-                    .select('subtotal, tax, total_amount')
+                    .select('subtotal, tax, total_amount, waiter_id, table_id, order_items(*, menu_items(name, price))')
                     .eq('id', existingOrderId)
                     .single()
 
@@ -240,6 +236,35 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
                 if (updateError) throw updateError
 
+                // ✅ 3. PRINT RECEIPT FOR NEW ITEMS ADDED
+                const selectedTable = tables.find(t => t.id === cart.tableId)
+                const selectedWaiter = waiters.find(w => w.id === cart.waiterId)
+
+                const receiptData: ReceiptData = {
+                    restaurantName: 'AT RESTAURANT',
+                    tagline: 'Delicious Food, Memorable Moments',
+                    address: 'Sooter Mills Rd, Lahore',
+                    orderNumber: existingOrderId.slice(0, 8).toUpperCase() + ' (ADD)',
+                    date: new Date().toLocaleString('en-PK'),
+                    orderType: 'dine-in',
+                    tableNumber: selectedTable?.table_number,
+                    waiter: selectedWaiter?.name,
+                    items: cart.items.map(item => ({
+                        name: item.name,
+                        quantity: item.quantity,
+                        price: item.price,
+                        total: item.price * item.quantity,
+                        category: menuCategories[item.id] ? `${menuCategories[item.id].icon} ${menuCategories[item.id].name}` : '📋 Uncategorized'
+                    })),
+                    subtotal,
+                    tax,
+                    total,
+                    notes: '🆕 NEW ITEMS ADDED TO ORDER'
+                }
+
+                // Print the new items receipt
+                await productionPrinter.print(receiptData)
+
                 // Success!
                 cart.clearCart()
                 setTableWarning(null)
@@ -251,7 +276,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                     const event = new CustomEvent('toast-add', {
                         detail: {
                             type: 'success',
-                            message: `✅ Added ${cart.items.length} items to Table ${tableWarning.tableNumber}'s order!`
+                            message: `✅ Added ${cart.items.length} items to Table ${tableWarning.tableNumber}'s order & printed receipt!`
                         }
                     })
                     window.dispatchEvent(event)
@@ -273,7 +298,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             }
         }
 
-        // ✅ Create NEW order
+        // ✅ Create NEW order (existing logic)
         let finalOrderType: 'dine-in' | 'delivery' | 'takeaway'
         if (orderType === 'dine-in') {
             finalOrderType = 'dine-in'
@@ -451,7 +476,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                                 Your {cart.items.length} items will be ADDED to this table's existing order.
                                             </p>
                                             <p className="text-xs text-[var(--muted)]">
-                                                💡 This creates one combined bill for the table
+                                                💡 A receipt for new items will be printed automatically
                                             </p>
                                         </div>
                                     </div>

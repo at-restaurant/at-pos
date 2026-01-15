@@ -1,4 +1,4 @@
-// src/lib/db/offlineManager.ts - COMPLETE OFFLINE SOLUTION
+// src/lib/db/offlineManager.ts - COMPLETE FIXED VERSION
 import { createClient } from '@/lib/supabase/client'
 import { db } from './indexedDB'
 import { STORES } from './schema'
@@ -8,7 +8,19 @@ const dispatchSyncEvent = (type: string, detail: any) => {
     window.dispatchEvent(new CustomEvent(type, { detail }))
 }
 
-// ✅ NEW: Compress images for offline storage
+// ✅ FIXED: Return type now includes 'error' field
+interface DownloadResult {
+    success: boolean
+    counts?: {
+        categories: number
+        items: number
+        tables: number
+        waiters: number
+        orders: number
+    }
+    error?: string // ✅ ADDED
+}
+
 async function compressImage(url: string, maxWidth = 400): Promise<string> {
     return new Promise((resolve) => {
         const img = new Image()
@@ -68,7 +80,6 @@ class OfflineManager {
             this.syncPendingChanges()
         })
 
-        // Sync every 5 minutes when online
         setInterval(() => {
             if (typeof navigator !== 'undefined' && navigator.onLine) {
                 this.downloadAllData()
@@ -77,17 +88,14 @@ class OfflineManager {
     }
 
     private initCleanup() {
-        // Clean old data daily
         this.cleanupOldData()
         setInterval(() => this.cleanupOldData(), 24 * 60 * 60 * 1000)
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ✅ DOWNLOAD ALL DATA FOR COMPLETE OFFLINE SUPPORT
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    async downloadAllData(force = false): Promise<{ success: boolean; counts?: any }> {
+    // ✅ FIXED: Proper return type with error handling
+    async downloadAllData(force = false): Promise<DownloadResult> {
         if (this.isDownloading) {
-            return { success: false }
+            return { success: false, error: 'Download already in progress' }
         }
 
         const lastSync = localStorage.getItem('full_sync_timestamp')
@@ -103,7 +111,6 @@ class OfflineManager {
         try {
             dispatchSyncEvent('sync-start', { message: 'Downloading all data...' })
 
-            // Download everything in parallel
             const [categories, items, tables, waiters, orders, orderItems] = await Promise.allSettled([
                 supabase.from('menu_categories').select('*').eq('is_active', true),
                 supabase.from('menu_items').select('*').eq('is_available', true),
@@ -160,16 +167,14 @@ class OfflineManager {
                 updateProgress(5, 'Waiters downloaded')
             }
 
-            // ✅ NEW: 5. Active Orders (for offline viewing)
+            // 5. Active Orders
             if (orders.status === 'fulfilled' && orders.value.data) {
                 const activeOrders = orders.value.data.filter((o: any) => o.status === 'pending' || o.status === 'preparing')
 
-                // Store active orders
                 for (const order of activeOrders) {
                     if (!order.id.startsWith('offline_')) {
                         await db.put(STORES.ORDERS, { ...order, synced: true, cached: true })
 
-                        // Store order items
                         if (order.order_items) {
                             for (const item of order.order_items) {
                                 await db.put(STORES.ORDER_ITEMS, { ...item, cached: true })
@@ -200,15 +205,12 @@ class OfflineManager {
         } catch (error: any) {
             console.error('❌ Download failed:', error)
             dispatchSyncEvent('sync-error', { error: error.message })
-            return { success: false }
+            return { success: false, error: error.message } // ✅ FIXED
         } finally {
             this.isDownloading = false
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ✅ SYNC PENDING CHANGES
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     async syncPendingChanges(): Promise<{ success: boolean; synced: number }> {
         if (this.syncInProgress || !navigator.onLine) {
             return { success: false, synced: 0 }
@@ -230,7 +232,6 @@ class OfflineManager {
 
             for (const order of pendingOrders) {
                 try {
-                    // Insert order
                     const { data: newOrder, error: orderError } = await supabase
                         .from('orders')
                         .insert({
@@ -254,7 +255,6 @@ class OfflineManager {
 
                     if (orderError) throw orderError
 
-                    // Insert order items
                     const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
                     const orderItems = items.filter(i => i.order_id === order.id)
 
@@ -270,7 +270,6 @@ class OfflineManager {
                         await supabase.from('order_items').insert(itemsToInsert)
                     }
 
-                    // Update table if dine-in
                     if (order.order_type === 'dine-in' && order.table_id) {
                         await supabase
                             .from('restaurant_tables')
@@ -282,7 +281,6 @@ class OfflineManager {
                             .eq('id', order.table_id)
                     }
 
-                    // Delete offline order
                     await db.delete(STORES.ORDERS, order.id)
                     for (const item of orderItems) {
                         await db.delete(STORES.ORDER_ITEMS, item.id)
@@ -328,9 +326,6 @@ class OfflineManager {
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ✅ GET OFFLINE DATA (Enhanced)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     async getOfflineData(store: string): Promise<any[]> {
         try {
             if (store === 'restaurant_tables' || store === 'waiters') {
@@ -345,9 +340,6 @@ class OfflineManager {
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ✅ CLEANUP OLD DATA
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     async cleanupOldData(): Promise<number> {
         try {
             const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
@@ -398,6 +390,7 @@ class OfflineManager {
 
         await Promise.all(storesToClear.map(store => db.clear(store)))
     }
+
     async getStorageInfo() {
         try {
             const [categoriesData, itemsData, ordersData] = await Promise.all([
@@ -451,9 +444,7 @@ class OfflineManager {
     }
 
     destroy() {
-        if (this.autoCleanupInterval) {
-            clearInterval(this.autoCleanupInterval)
-        }
+        // Cleanup if needed
     }
 }
 
