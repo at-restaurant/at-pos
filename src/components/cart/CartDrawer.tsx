@@ -30,7 +30,11 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         delivery_address: '',
         delivery_charges: 0
     })
-    const [tableWarning, setTableWarning] = useState<{ show: boolean; tableNumber: number; currentOrder?: any } | null>(null)
+    const [tableWarning, setTableWarning] = useState<{
+        show: boolean
+        tableNumber: number
+        currentOrder?: any
+    } | null>(null)
     const [confirmAddMore, setConfirmAddMore] = useState(false)
     const [editingQuantity, setEditingQuantity] = useState<{ [key: string]: string }>({})
     const [customTaxPercent, setCustomTaxPercent] = useState<string>('0')
@@ -75,7 +79,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         if (selectedTable.status === 'occupied') {
             const { data: existingOrder } = await supabase
                 .from('orders')
-                .select('id, total_amount, order_items(quantity, menu_items(name))')
+                .select('id, total_amount, subtotal, tax, order_items(id, quantity, menu_items(name))')
                 .eq('table_id', tableId)
                 .eq('status', 'pending')
                 .single()
@@ -159,7 +163,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         return 'cash'
     }
 
-    // ✅ MAIN PLACE ORDER LOGIC - WITH 3 ORDER TYPES
     const placeOrder = async () => {
         if (cart.items.length === 0) return
         if (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId)) return
@@ -174,23 +177,92 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         const deliveryFee = orderType === 'delivery' ? details.delivery_charges : 0
         const total = subtotal + tax + deliveryFee
 
-        // ✅ STEP 1: Determine actual order type (3 types now!)
-        let finalOrderType: 'dine-in' | 'delivery' | 'takeaway'
+        // ✅ Check if adding to existing order
+        const isAddingToExisting = confirmAddMore && tableWarning?.currentOrder
 
+        if (isAddingToExisting && orderType === 'dine-in') {
+            try {
+                const existingOrderId = tableWarning!.currentOrder.id
+
+                // 1. Insert new order items
+                const newOrderItems = cart.items.map(item => ({
+                    order_id: existingOrderId,
+                    menu_item_id: item.id,
+                    quantity: item.quantity,
+                    unit_price: item.price,
+                    total_price: item.price * item.quantity
+                }))
+
+                const { error: itemsError } = await supabase
+                    .from('order_items')
+                    .insert(newOrderItems)
+
+                if (itemsError) throw itemsError
+
+                // 2. Update order totals
+                const newSubtotal = tableWarning!.currentOrder.subtotal + subtotal
+                const newTax = tableWarning!.currentOrder.tax + tax
+                const newTotal = newSubtotal + newTax
+
+                const { error: updateError } = await supabase
+                    .from('orders')
+                    .update({
+                        subtotal: newSubtotal,
+                        tax: newTax,
+                        total_amount: newTotal,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', existingOrderId)
+
+                if (updateError) throw updateError
+
+                // Success!
+                cart.clearCart()
+                setConfirmAddMore(false)
+                setTableWarning(null)
+                setEditingQuantity({})
+                setCustomTaxPercent('0')
+                onClose()
+
+                if (typeof window !== 'undefined') {
+                    const event = new CustomEvent('toast-add', {
+                        detail: {
+                            type: 'success',
+                            message: `✅ Added ${cart.items.length} items to Table ${tableWarning?.tableNumber}'s order!`
+                        }
+                    })
+                    window.dispatchEvent(event)
+                }
+
+                return
+            } catch (error: any) {
+                console.error('Failed to add items to existing order:', error)
+                if (typeof window !== 'undefined') {
+                    const event = new CustomEvent('toast-add', {
+                        detail: {
+                            type: 'error',
+                            message: `❌ Failed to add items: ${error.message}`
+                        }
+                    })
+                    window.dispatchEvent(event)
+                }
+                return
+            }
+        }
+
+        // ✅ ORIGINAL FLOW: Create new order
+        let finalOrderType: 'dine-in' | 'delivery' | 'takeaway'
         if (orderType === 'dine-in') {
             finalOrderType = 'dine-in'
         } else {
-            // User selected "Delivery" mode - check if they provided customer details
             const hasCustomerDetails = !!(
                 details.customer_name?.trim() ||
                 details.customer_phone?.trim() ||
                 details.delivery_address?.trim()
             )
-
             finalOrderType = hasCustomerDetails ? 'delivery' : 'takeaway'
         }
 
-        // ✅ STEP 2: Build order data
         const orderData: any = {
             waiter_id: cart.waiterId || null,
             status: finalOrderType === 'dine-in' ? 'pending' : 'completed',
@@ -198,16 +270,14 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             tax,
             total_amount: total,
             notes: cart.notes || null,
-            order_type: finalOrderType, // ✅ Now supports 3 types!
+            order_type: finalOrderType,
             payment_method: finalOrderType !== 'dine-in' ? paymentMethod : null,
             receipt_printed: true
         }
 
-        // ✅ STEP 3: Add type-specific fields
         if (finalOrderType === 'dine-in') {
             orderData.table_id = cart.tableId || null
         } else {
-            // Delivery or Takeaway
             orderData.customer_name = details.customer_name || null
             orderData.customer_phone = details.customer_phone || null
             orderData.delivery_address = details.delivery_address || null
@@ -219,39 +289,53 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         if (result.success && result.order) {
             console.log(`🖨️ Auto-printing receipt for ${finalOrderType}...`)
 
+            // 🔹 Merge same items by menu_item_id for printing
+            const mergedItems: any[] = []
+            const itemMap = new Map<string, any>()
+
+            cart.items.forEach((item) => {
+                const key = item.id
+                if (!itemMap.has(key)) {
+                    itemMap.set(key, { ...item, total: item.price * item.quantity })
+                } else {
+                    const existing = itemMap.get(key)
+                    existing.quantity += item.quantity
+                    existing.total += item.price * item.quantity
+                }
+            })
+
+            mergedItems.push(...itemMap.values())
+
             const receiptData: ReceiptData = {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
                 address: 'Sooter Mills Rd, Lahore',
                 orderNumber: result.order.id.slice(0, 8).toUpperCase(),
                 date: new Date(result.order.created_at).toLocaleString('en-PK'),
-                orderType: finalOrderType, // ✅ Will show: dine-in | delivery | takeaway
+                orderType: finalOrderType,
                 customerName: finalOrderType !== 'dine-in' ? details.customer_name : undefined,
                 customerPhone: finalOrderType !== 'dine-in' ? details.customer_phone : undefined,
                 deliveryAddress: finalOrderType === 'delivery' ? details.delivery_address : undefined,
                 deliveryCharges: finalOrderType === 'delivery' ? details.delivery_charges : undefined,
                 tableNumber: finalOrderType === 'dine-in' ? tables.find(t => t.id === cart.tableId)?.table_number : undefined,
                 waiter: waiters.find(w => w.id === cart.waiterId)?.name,
-                items: cart.items.map(i => {
-                    const category = menuCategories[i.id]
-                    return {
-                        name: i.name,
-                        quantity: i.quantity,
-                        price: i.price,
-                        total: i.price * i.quantity,
-                        category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
-                    }
-                }),
-                subtotal,
+                items: mergedItems.map(i => ({
+                    name: i.name,
+                    quantity: i.quantity,
+                    price: i.price,
+                    total: i.total,
+                    category: menuCategories[i.id] ? `${menuCategories[i.id].icon} ${menuCategories[i.id].name}` : '📋 Uncategorized'
+                })),
+                subtotal: mergedItems.reduce((sum, i) => sum + i.total, 0),
                 tax,
                 total,
                 paymentMethod: finalOrderType !== 'dine-in' ? validatePaymentMethod(paymentMethod) : undefined,
                 notes: cart.notes
             }
 
-            // ✅ Print receipt
             await productionPrinter.print(receiptData)
 
+            // Clear cart and reset
             cart.clearCart()
             setDetails({ customer_name: '', customer_phone: '', delivery_address: '', delivery_charges: 0 })
             setConfirmAddMore(false)
@@ -259,10 +343,10 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             setEditingQuantity({})
             setCustomTaxPercent('0')
             setEditingTax(false)
-
             onClose()
         }
     }
+
 
     const groupedItems = cart.items.reduce((acc: { [key: string]: typeof cart.items }, item) => {
         const category = menuCategories[item.id]

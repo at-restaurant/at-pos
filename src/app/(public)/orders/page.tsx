@@ -103,25 +103,59 @@ export default function OrdersPage() {
     }
 
     const filtered = useMemo(() => {
-        const {start, end} = getTodayRange()
-        const todayOrders = orders.filter(o => {
-            const orderDate = new Date(o.created_at)
-            return orderDate >= start && orderDate < end
-        })
+        const { start, end } = getTodayRange()
 
+        // 1️⃣ Filter orders based on current bucket
+        let relevantOrders = []
         switch (filter) {
             case 'active':
-                return orders.filter(o => o.status === 'pending' && o.order_type === 'dine-in')
+                relevantOrders = orders.filter(o => o.status === 'pending' && o.order_type === 'dine-in')
+                break
             case 'today-dinein':
-                return todayOrders.filter(o => o.status === 'completed' && o.order_type === 'dine-in')
+                relevantOrders = orders.filter(o => {
+                    const d = new Date(o.created_at)
+                    return d >= start && d < end && o.status === 'completed' && o.order_type === 'dine-in'
+                })
+                break
             case 'today-delivery':
-                return todayOrders.filter(o => o.status === 'completed' && o.order_type === 'delivery')
+                relevantOrders = orders.filter(o => {
+                    const d = new Date(o.created_at)
+                    return d >= start && d < end && o.status === 'completed' && o.order_type === 'delivery'
+                })
+                break
             case 'today-takeaway':
-                return todayOrders.filter(o => o.status === 'completed' && o.order_type === 'takeaway')
+                relevantOrders = orders.filter(o => {
+                    const d = new Date(o.created_at)
+                    return d >= start && d < end && o.status === 'completed' && o.order_type === 'takeaway'
+                })
+                break
             default:
-                return orders
+                relevantOrders = orders
         }
+
+        // 2️⃣ Only for active orders: merge by table_id
+        if (filter === 'active') {
+            const map = new Map<string, any>()
+            for (const o of relevantOrders) {
+                const key = o.table_id || o.id
+                if (!map.has(key)) {
+                    map.set(key, { ...o })
+                } else {
+                    const existing = map.get(key)
+                    // Merge totals
+                    existing.subtotal += o.subtotal
+                    existing.tax += o.tax
+                    existing.total_amount += o.total_amount
+                    // Merge order_items
+                    existing.order_items = [...existing.order_items, ...o.order_items]
+                }
+            }
+            return Array.from(map.values())
+        }
+
+        return relevantOrders
     }, [orders, filter])
+
 
     const stats = useMemo(() => {
         const {start, end} = getTodayRange()
@@ -174,9 +208,24 @@ export default function OrdersPage() {
         if (isOnline) {
             await supabase
                 .from('orders')
-                .update({payment_method: paymentMethod})
+                .update({ payment_method: paymentMethod })
                 .eq('id', showPaymentModal.id)
         }
+
+        // 🔹 Merge items by menu_items.id
+        const mergedItems: any[] = []
+        const itemMap = new Map<string, any>()
+        showPaymentModal.order_items.forEach((item: any) => {
+            const key = item.menu_items?.id
+            if (!itemMap.has(key)) {
+                itemMap.set(key, { ...item })
+            } else {
+                const existing = itemMap.get(key)
+                existing.quantity += item.quantity
+                existing.total_price += item.total_price
+            }
+        })
+        mergedItems.push(...itemMap.values())
 
         const receiptData: ReceiptData = {
             restaurantName: 'AT RESTAURANT',
@@ -191,7 +240,7 @@ export default function OrdersPage() {
             deliveryCharges: showPaymentModal.delivery_charges,
             tableNumber: showPaymentModal.restaurant_tables?.table_number,
             waiter: showPaymentModal.waiters?.name,
-            items: showPaymentModal.order_items.map((item: any) => {
+            items: mergedItems.map((item: any) => {
                 const category = menuCategories[item.menu_items?.id]
                 return {
                     name: item.menu_items?.name,
@@ -201,9 +250,9 @@ export default function OrdersPage() {
                     category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
                 }
             }),
-            subtotal: showPaymentModal.subtotal,
+            subtotal: mergedItems.reduce((sum, i) => sum + i.total_price, 0),
             tax: showPaymentModal.tax,
-            total: showPaymentModal.total_amount,
+            total: mergedItems.reduce((sum, i) => sum + i.total_price, 0),
             paymentMethod: validatePaymentMethod(paymentMethod),
             notes: showPaymentModal.notes
         }
@@ -214,6 +263,7 @@ export default function OrdersPage() {
         setSelectedOrder(null)
         loadOrders()
     }
+
 
     const handleCancel = async (order: any) => {
         if (!confirm('⚠️ Cancel this order?')) return
