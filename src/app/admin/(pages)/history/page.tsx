@@ -1,34 +1,38 @@
 // src/app/admin/(pages)/history/page.tsx
-// ✅ COMPLETELY REFACTORED: Simple, visual, user-friendly for non-technical admin
+// ✅ HISTORY HUB: Main navigation + Quick overview
 
 'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Calendar, TrendingUp, DollarSign, Download, ChevronLeft, ChevronRight } from 'lucide-react'
+import Link from 'next/link'
+import {
+    Calendar, TrendingUp, DollarSign, ShoppingBag,
+    Users, Package, FileText, MapPin, ArrowRight,
+    BarChart3, Clock
+} from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
-// Simple date presets
+// Date presets
 const PRESETS = [
     { id: 'today', label: 'Today', days: 0 },
-    { id: 'yesterday', label: 'Yesterday', days: 1 },
     { id: 'week', label: 'This Week', days: 7 },
     { id: 'month', label: 'This Month', days: 30 },
-    { id: 'last-month', label: 'Last Month', days: 60 },
     { id: 'year', label: 'This Year', days: 365 }
 ]
 
-export default function HistoryPage() {
-    const [selectedPreset, setSelectedPreset] = useState('today')
+export default function HistoryHub() {
+    const [selectedPreset, setSelectedPreset] = useState('month')
     const [customStart, setCustomStart] = useState('')
     const [customEnd, setCustomEnd] = useState('')
-    const [data, setData] = useState<any>(null)
+    const [stats, setStats] = useState<any>(null)
     const [loading, setLoading] = useState(true)
+
     const supabase = createClient()
 
     useEffect(() => {
-        loadData()
+        loadQuickStats()
     }, [selectedPreset, customStart, customEnd])
 
     const getDateRange = () => {
@@ -44,168 +48,129 @@ export default function HistoryPage() {
 
         const end = new Date()
         const start = new Date()
-
-        if (preset.id === 'yesterday') {
-            start.setDate(start.getDate() - 1)
-            start.setHours(0, 0, 0, 0)
-            end.setDate(end.getDate() - 1)
-            end.setHours(23, 59, 59, 999)
-        } else if (preset.id === 'last-month') {
-            start.setDate(start.getDate() - 60)
-            end.setDate(end.getDate() - 30)
-        } else {
-            start.setDate(start.getDate() - preset.days)
-        }
+        start.setDate(start.getDate() - preset.days)
 
         return { start, end }
     }
 
-    const loadData = async () => {
+    const loadQuickStats = async () => {
         setLoading(true)
         const { start, end } = getDateRange()
 
         try {
-            // Load all data in parallel
-            const [ordersRes, inventoryRes, menuRes, waitersRes] = await Promise.all([
+            // Quick parallel queries
+            const [ordersRes, inventoryRes, waitersRes] = await Promise.all([
                 supabase
                     .from('orders')
-                    .select('*, order_items(quantity, total_price, menu_items(name, price))')
-                    .gte('created_at', start.toISOString())
-                    .lte('created_at', end.toISOString())
-                    .eq('status', 'completed'),
-                supabase.from('inventory_items').select('*'),
-                supabase
-                    .from('order_items')
-                    .select('menu_item_id, quantity, total_price, menu_items(name, price)')
+                    .select('id, total_amount, status, order_type, payment_method')
                     .gte('created_at', start.toISOString())
                     .lte('created_at', end.toISOString()),
                 supabase
-                    .from('orders')
-                    .select('waiter_id, total_amount, waiters(name)')
-                    .gte('created_at', start.toISOString())
-                    .lte('created_at', end.toISOString())
-                    .eq('status', 'completed')
+                    .from('inventory_items')
+                    .select('quantity, purchase_price'),
+                supabase
+                    .from('waiters')
+                    .select('id, name, total_orders, total_revenue')
+                    .eq('is_active', true)
             ])
 
             const orders = ordersRes.data || []
             const inventory = inventoryRes.data || []
-            const menuItems = menuRes.data || []
-            const waiterOrders = waitersRes.data || []
+            const waiters = waitersRes.data || []
 
-            // Calculate metrics
-            const totalOrders = orders.length
-            const totalRevenue = orders.reduce((s, o) => s + (o.total_amount || 0), 0)
-            const totalTax = orders.reduce((s, o) => s + (o.tax || 0), 0)
-            const avgOrder = totalOrders > 0 ? totalRevenue / totalOrders : 0
-
-            // Inventory
+            const completed = orders.filter(o => o.status === 'completed')
+            const totalRevenue = completed.reduce((s, o) => s + (o.total_amount || 0), 0)
             const inventoryValue = inventory.reduce((s, i) => s + (i.quantity * i.purchase_price), 0)
-            const lowStock = inventory.filter(i => i.quantity <= i.reorder_level).length
 
-            // Profit (estimated)
-            const estimatedCost = totalRevenue * 0.65 // 65% cost
-            const profit = totalRevenue - estimatedCost - totalTax
+            // Order type breakdown
+            const dineInCount = orders.filter(o => o.order_type === 'dine-in').length
+            const deliveryCount = orders.filter(o => o.order_type === 'delivery').length
+            const takeawayCount = orders.filter(o => o.order_type === 'takeaway').length
 
-            // Menu items sold
-            const itemsSold: any = {}
-            menuItems.forEach((item: any) => {
-                const name = item.menu_items?.name || 'Unknown'
-                if (!itemsSold[name]) {
-                    itemsSold[name] = { quantity: 0, revenue: 0 }
-                }
-                itemsSold[name].quantity += item.quantity
-                itemsSold[name].revenue += item.total_price
-            })
+            // Payment breakdown
+            const cashCount = completed.filter(o => o.payment_method === 'cash').length
+            const onlineCount = completed.filter(o => o.payment_method === 'online').length
 
-            const topItems = Object.entries(itemsSold)
-                .sort((a: any, b: any) => b[1].revenue - a[1].revenue)
-                .slice(0, 10)
-
-            // Waiter performance
-            const waiterStats: any = {}
-            waiterOrders.forEach((order: any) => {
-                const name = order.waiters?.name || 'Unknown'
-                if (!waiterStats[name]) {
-                    waiterStats[name] = { orders: 0, revenue: 0 }
-                }
-                waiterStats[name].orders += 1
-                waiterStats[name].revenue += order.total_amount
-            })
-
-            const topWaiters = Object.entries(waiterStats)
-                .sort((a: any, b: any) => b[1].revenue - a[1].revenue)
-                .slice(0, 10)
-
-            setData({
-                summary: {
-                    totalOrders,
-                    totalRevenue,
-                    totalTax,
-                    avgOrder,
-                    inventoryValue,
-                    lowStock,
-                    estimatedCost,
-                    profit,
-                    profitMargin: totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0
-                },
-                topItems,
-                topWaiters,
+            setStats({
+                totalOrders: orders.length,
+                completedOrders: completed.length,
+                totalRevenue,
+                inventoryValue,
+                activeWaiters: waiters.length,
+                dineInCount,
+                deliveryCount,
+                takeawayCount,
+                cashCount,
+                onlineCount,
                 period: `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
             })
         } catch (error) {
-            console.error('Error loading data:', error)
+            console.error('Load stats error:', error)
         } finally {
             setLoading(false)
         }
     }
 
-    const exportReport = () => {
-        if (!data) return
-
-        const { summary, topItems, topWaiters, period } = data
-
-        const report = `
-AT RESTAURANT - BUSINESS REPORT
-Period: ${period}
-
-=== FINANCIAL SUMMARY ===
-Total Orders: ${summary.totalOrders}
-Total Revenue: PKR ${summary.totalRevenue.toLocaleString()}
-Average Order: PKR ${Math.round(summary.avgOrder).toLocaleString()}
-Tax Collected: PKR ${summary.totalTax.toLocaleString()}
-Estimated Cost: PKR ${Math.round(summary.estimatedCost).toLocaleString()}
-Net Profit: PKR ${Math.round(summary.profit).toLocaleString()}
-Profit Margin: ${summary.profitMargin.toFixed(1)}%
-
-=== INVENTORY ===
-Total Value: PKR ${summary.inventoryValue.toLocaleString()}
-Low Stock Items: ${summary.lowStock}
-
-=== TOP SELLING ITEMS ===
-${topItems.map((item: any, i: number) =>
-            `${i + 1}. ${item[0]} - ${item[1].quantity} sold - PKR ${item[1].revenue.toLocaleString()}`
-        ).join('\n')}
-
-=== TOP PERFORMING WAITERS ===
-${topWaiters.map((waiter: any, i: number) =>
-            `${i + 1}. ${waiter[0]} - ${waiter[1].orders} orders - PKR ${waiter[1].revenue.toLocaleString()}`
-        ).join('\n')}
-        `.trim()
-
-        const blob = new Blob([report], { type: 'text/plain' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `report-${Date.now()}.txt`
-        a.click()
-    }
+    // Navigation cards with dynamic data
+    const navigationCards = [
+        {
+            id: 'orders',
+            title: 'Orders History',
+            description: 'View all orders with filters',
+            icon: ShoppingBag,
+            color: '#3b82f6',
+            href: '/admin/history/orders',
+            stat: `${stats?.totalOrders || 0} orders`,
+            subtext: `${stats?.completedOrders || 0} completed`
+        },
+        {
+            id: 'revenue',
+            title: 'Revenue Analysis',
+            description: 'Charts & financial breakdown',
+            icon: DollarSign,
+            color: '#10b981',
+            href: '/admin/history/revenue',
+            stat: `PKR ${((stats?.totalRevenue || 0) / 1000).toFixed(1)}k`,
+            subtext: 'Total revenue'
+        },
+        {
+            id: 'waiters',
+            title: 'Staff Performance',
+            description: 'Track individual staff stats',
+            icon: Users,
+            color: '#8b5cf6',
+            href: '/admin/history/waiters',
+            stat: `${stats?.activeWaiters || 0} staff`,
+            subtext: 'Active members'
+        },
+        {
+            id: 'inventory',
+            title: 'Inventory Archive',
+            description: 'Monthly inventory snapshots',
+            icon: Package,
+            color: '#f59e0b',
+            href: '/admin/history/inventory',
+            stat: `PKR ${((stats?.inventoryValue || 0) / 1000).toFixed(1)}k`,
+            subtext: 'Current value'
+        },
+        {
+            id: 'customers',
+            title: 'Customer Database',
+            description: 'Delivery & takeaway contacts',
+            icon: MapPin,
+            color: '#ec4899',
+            href: '/admin/history/customers',
+            stat: `${stats?.deliveryCount || 0} deliveries`,
+            subtext: 'This period'
+        }
+    ]
 
     if (loading) {
         return (
             <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
                 <div className="text-center">
                     <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                    <p className="text-[var(--muted)]">Loading report...</p>
+                    <p className="text-[var(--muted)]">Loading history...</p>
                 </div>
             </div>
         )
@@ -215,29 +180,20 @@ ${topWaiters.map((waiter: any, i: number) =>
         <ErrorBoundary>
             <div className="min-h-screen bg-[var(--bg)]">
                 <PageHeader
-                    title="Business Reports"
-                    subtitle="Simple reports for your restaurant"
-                    action={
-                        <button
-                            onClick={exportReport}
-                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 active:scale-95 transition-all"
-                        >
-                            <Download className="w-4 h-4" />
-                            Export
-                        </button>
-                    }
+                    title="History & Reports"
+                    subtitle={`Track all restaurant data • ${stats?.period}`}
                 />
 
-                <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+                <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
                     {/* Date Selection */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-6">
-                        <h3 className="text-lg font-bold text-[var(--fg)] mb-4 flex items-center gap-2">
-                            <Calendar className="w-5 h-5" />
-                            Select Time Period
-                        </h3>
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Calendar className="w-5 h-5 text-blue-600" />
+                            <h3 className="font-bold text-[var(--fg)]">Select Period</h3>
+                        </div>
 
                         {/* Quick Presets */}
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                             {PRESETS.map(preset => (
                                 <button
                                     key={preset.id}
@@ -246,10 +202,10 @@ ${topWaiters.map((waiter: any, i: number) =>
                                         setCustomStart('')
                                         setCustomEnd('')
                                     }}
-                                    className={`px-4 py-3 rounded-lg font-medium transition-all ${
+                                    className={`px-4 py-3 rounded-lg font-medium text-sm transition-all ${
                                         selectedPreset === preset.id
                                             ? 'bg-blue-600 text-white shadow-lg'
-                                            : 'bg-[var(--bg)] text-[var(--fg)] hover:bg-[var(--border)]'
+                                            : 'bg-[var(--bg)] text-[var(--fg)] hover:bg-[var(--border)] border border-[var(--border)]'
                                     }`}
                                 >
                                     {preset.label}
@@ -270,7 +226,7 @@ ${topWaiters.map((waiter: any, i: number) =>
                                             setCustomStart(e.target.value)
                                             setSelectedPreset('')
                                         }}
-                                        className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)]"
+                                        className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
                                     />
                                 </div>
                                 <div>
@@ -282,148 +238,108 @@ ${topWaiters.map((waiter: any, i: number) =>
                                             setCustomEnd(e.target.value)
                                             setSelectedPreset('')
                                         }}
-                                        className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)]"
+                                        className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
                                     />
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <div className="mt-4 p-3 bg-blue-500/10 rounded-lg border border-blue-500/30">
-                            <p className="text-sm text-blue-600 font-medium">
-                                📅 Showing: {data?.period}
-                            </p>
+                    {/* Quick Overview Stats */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg">
+                            <BarChart3 className="w-8 h-8 opacity-80 mb-2" />
+                            <p className="text-sm opacity-90">Total Orders</p>
+                            <p className="text-3xl font-bold mt-1">{stats?.totalOrders}</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-4 text-white shadow-lg">
+                            <DollarSign className="w-8 h-8 opacity-80 mb-2" />
+                            <p className="text-sm opacity-90">Revenue</p>
+                            <p className="text-2xl font-bold mt-1">PKR {((stats?.totalRevenue || 0) / 1000).toFixed(1)}k</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-4 text-white shadow-lg">
+                            <Users className="w-8 h-8 opacity-80 mb-2" />
+                            <p className="text-sm opacity-90">Active Staff</p>
+                            <p className="text-3xl font-bold mt-1">{stats?.activeWaiters}</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-4 text-white shadow-lg">
+                            <ShoppingBag className="w-8 h-8 opacity-80 mb-2" />
+                            <p className="text-sm opacity-90">Dine-In</p>
+                            <p className="text-3xl font-bold mt-1">{stats?.dineInCount}</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl p-4 text-white shadow-lg">
+                            <MapPin className="w-8 h-8 opacity-80 mb-2" />
+                            <p className="text-sm opacity-90">Delivery</p>
+                            <p className="text-3xl font-bold mt-1">{stats?.deliveryCount}</p>
                         </div>
                     </div>
 
-                    {/* Financial Summary - Big Numbers */}
-                    <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-8 text-white shadow-2xl">
-                        <div className="flex items-center gap-3 mb-6">
-                            <DollarSign className="w-8 h-8" />
+                    {/* Navigation Cards */}
+                    <div>
+                        <h2 className="text-xl font-bold text-[var(--fg)] mb-4 flex items-center gap-2">
+                            <FileText className="w-5 h-5 text-blue-600" />
+                            Detailed Reports
+                        </h2>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {navigationCards.map(card => {
+                                const Icon = card.icon
+                                return (
+                                    <Link
+                                        key={card.id}
+                                        href={card.href}
+                                        className="group bg-[var(--card)] border border-[var(--border)] rounded-xl p-6 hover:border-blue-600 hover:shadow-xl transition-all duration-300 relative overflow-hidden"
+                                    >
+                                        {/* Background gradient on hover */}
+                                        <div
+                                            className="absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity"
+                                            style={{ background: `linear-gradient(135deg, ${card.color}00 0%, ${card.color} 100%)` }}
+                                        />
+
+                                        <div className="relative">
+                                            <div
+                                                className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform"
+                                                style={{ backgroundColor: `${card.color}20` }}
+                                            >
+                                                <Icon className="w-6 h-6" style={{ color: card.color }} />
+                                            </div>
+
+                                            <h3 className="font-bold text-[var(--fg)] mb-2 text-lg">{card.title}</h3>
+                                            <p className="text-sm text-[var(--muted)] mb-4">{card.description}</p>
+
+                                            <div className="flex items-center justify-between pt-4 border-t border-[var(--border)]">
+                                                <div>
+                                                    <p className="text-2xl font-bold" style={{ color: card.color }}>
+                                                        {card.stat}
+                                                    </p>
+                                                    <p className="text-xs text-[var(--muted)] mt-1">{card.subtext}</p>
+                                                </div>
+                                                <ArrowRight
+                                                    className="w-5 h-5 text-[var(--muted)] group-hover:text-blue-600 group-hover:translate-x-1 transition-all"
+                                                />
+                                            </div>
+                                        </div>
+                                    </Link>
+                                )
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Quick Tips */}
+                    <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                        <div className="flex items-start gap-3">
+                            <Clock className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                             <div>
-                                <h2 className="text-2xl font-bold">Financial Summary</h2>
-                                <p className="text-green-100 text-sm">{data?.period}</p>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                            <div className="bg-white/10 backdrop-blur rounded-xl p-4">
-                                <p className="text-green-100 text-sm mb-1">Total Orders</p>
-                                <p className="text-4xl font-bold">{data?.summary.totalOrders}</p>
-                                <p className="text-green-100 text-xs mt-2">
-                                    Avg: PKR {Math.round(data?.summary.avgOrder || 0).toLocaleString()}
-                                </p>
-                            </div>
-
-                            <div className="bg-white/10 backdrop-blur rounded-xl p-4">
-                                <p className="text-green-100 text-sm mb-1">Total Revenue</p>
-                                <p className="text-3xl font-bold">
-                                    PKR {((data?.summary.totalRevenue || 0) / 1000).toFixed(0)}k
-                                </p>
-                                <p className="text-green-100 text-xs mt-2">
-                                    Tax: PKR {(data?.summary.totalTax || 0).toLocaleString()}
-                                </p>
-                            </div>
-
-                            <div className="bg-white/10 backdrop-blur rounded-xl p-4">
-                                <p className="text-green-100 text-sm mb-1">Net Profit</p>
-                                <p className="text-3xl font-bold">
-                                    PKR {(Math.round(data?.summary.profit || 0) / 1000).toFixed(0)}k
-                                </p>
-                                <p className="text-green-100 text-xs mt-2">
-                                    Margin: {(data?.summary.profitMargin || 0).toFixed(1)}%
-                                </p>
-                            </div>
-
-                            <div className="bg-white/10 backdrop-blur rounded-xl p-4">
-                                <p className="text-green-100 text-sm mb-1">Inventory Value</p>
-                                <p className="text-3xl font-bold">
-                                    PKR {((data?.summary.inventoryValue || 0) / 1000).toFixed(0)}k
-                                </p>
-                                {data?.summary.lowStock > 0 && (
-                                    <p className="text-yellow-200 text-xs mt-2 flex items-center gap-1">
-                                        ⚠️ {data.summary.lowStock} items low
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Top Products */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-6">
-                        <h3 className="text-lg font-bold text-[var(--fg)] mb-4">🏆 Best Selling Items</h3>
-                        <div className="space-y-3">
-                            {data?.topItems.slice(0, 5).map((item: any, i: number) => (
-                                <div key={i} className="flex items-center gap-4 p-4 bg-[var(--bg)] rounded-lg">
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
-                                        i === 0 ? 'bg-yellow-500 text-white' :
-                                            i === 1 ? 'bg-gray-400 text-white' :
-                                                i === 2 ? 'bg-orange-600 text-white' :
-                                                    'bg-[var(--border)] text-[var(--muted)]'
-                                    }`}>
-                                        {i + 1}
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="font-medium text-[var(--fg)]">{item[0]}</p>
-                                        <p className="text-sm text-[var(--muted)]">{item[1].quantity} sold</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="font-bold text-green-600">PKR {item[1].revenue.toLocaleString()}</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Top Waiters */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-6">
-                        <h3 className="text-lg font-bold text-[var(--fg)] mb-4">⭐ Top Performing Staff</h3>
-                        <div className="space-y-3">
-                            {data?.topWaiters.slice(0, 5).map((waiter: any, i: number) => (
-                                <div key={i} className="flex items-center gap-4 p-4 bg-[var(--bg)] rounded-lg">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
-                                        i === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600' :
-                                            i === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500' :
-                                                i === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600' :
-                                                    'bg-blue-600'
-                                    }`}>
-                                        {waiter[0][0]}
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="font-medium text-[var(--fg)]">{waiter[0]}</p>
-                                        <p className="text-sm text-[var(--muted)]">{waiter[1].orders} orders served</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="font-bold text-blue-600">PKR {waiter[1].revenue.toLocaleString()}</p>
-                                        <p className="text-xs text-[var(--muted)]">
-                                            Avg: PKR {Math.round(waiter[1].revenue / waiter[1].orders).toLocaleString()}
-                                        </p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Profit Breakdown */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-6">
-                        <h3 className="text-lg font-bold text-[var(--fg)] mb-4">💰 Profit Breakdown</h3>
-                        <div className="space-y-4">
-                            <div className="flex justify-between p-4 bg-green-500/10 rounded-lg border border-green-500/30">
-                                <span className="font-medium text-[var(--fg)]">Total Revenue</span>
-                                <span className="font-bold text-green-600">+ PKR {data?.summary.totalRevenue.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between p-4 bg-red-500/10 rounded-lg border border-red-500/30">
-                                <span className="font-medium text-[var(--fg)]">Estimated Costs (65%)</span>
-                                <span className="font-bold text-red-600">- PKR {Math.round(data?.summary.estimatedCost || 0).toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
-                                <span className="font-medium text-[var(--fg)]">Tax</span>
-                                <span className="font-bold text-orange-600">- PKR {data?.summary.totalTax.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between p-4 bg-blue-600/20 rounded-lg border-2 border-blue-600">
-                                <span className="font-bold text-[var(--fg)]">Net Profit</span>
-                                <span className="text-2xl font-bold text-blue-600">
-                                    PKR {Math.round(data?.summary.profit || 0).toLocaleString()}
-                                </span>
+                                <p className="font-semibold text-[var(--fg)] mb-1">💡 Quick Tips</p>
+                                <ul className="text-sm text-[var(--muted)] space-y-1">
+                                    <li>• Select a date range above to filter all reports</li>
+                                    <li>• Click any card to view detailed analysis</li>
+                                    <li>• Inventory data auto-saves monthly for long-term tracking</li>
+                                </ul>
                             </div>
                         </div>
                     </div>
