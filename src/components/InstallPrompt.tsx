@@ -49,8 +49,8 @@ export default function InstallPrompt() {
 
         setDownloading(true)
 
-        // ✅ Download essential data first
-        const result = await offlineManager.downloadEssentialData(true)
+        // ✅ Download data first
+        const result = await offlineManager.downloadAllData(true)
 
         if (result.success) {
             setDownloaded(true)

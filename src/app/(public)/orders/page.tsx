@@ -14,6 +14,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { getOrderStatusColor } from '@/lib/utils/statusHelpers'
 import { useOfflineFirst } from '@/lib/hooks/useOfflineFirst'
+import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
 import type { ReceiptData } from '@/types'
 import { createClient } from '@/lib/supabase/client'
@@ -29,6 +30,7 @@ export default function OrdersPage() {
     const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
 
     const supabase = createClient()
+    const { pendingCount } = useOfflineStatus()  // ✅ ADD THIS
 
     // ✅ FIXED: Use offline-first hook for orders
     const { data: orders, loading, isOffline, refresh } = useOfflineFirst<any>({
@@ -601,7 +603,7 @@ export default function OrdersPage() {
                         title="Orders"
                         subtitle={`${stats[0].value} active${pendingCount > 0 ? ` • ${pendingCount} pending sync` : ''}`}
                         action={
-                            <button onClick={loadOrders}
+                            <button onClick={refresh}
                                     className="p-2 hover:bg-[var(--bg)] rounded-lg active:scale-95 transition-transform">
                                 <RefreshCw className="w-5 h-5 text-[var(--muted)]"/>
                             </button>

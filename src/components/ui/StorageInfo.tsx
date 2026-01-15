@@ -68,7 +68,7 @@ export default function StorageInfo({ open, onClose }: { open: boolean; onClose:
         try {
             // Clear all cached data and force fresh download
             await offlineManager.clearAllData(true)
-            const result = await offlineManager.downloadEssentialData(true)
+            const result = await offlineManager.downloadAllData(true)
 
             if (result.success) {
                 await loadInfo()

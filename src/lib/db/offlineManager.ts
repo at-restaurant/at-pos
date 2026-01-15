@@ -398,6 +398,63 @@ class OfflineManager {
 
         await Promise.all(storesToClear.map(store => db.clear(store)))
     }
+    async getStorageInfo() {
+        try {
+            const [categoriesData, itemsData, ordersData] = await Promise.all([
+                db.getAll(STORES.MENU_CATEGORIES),
+                db.getAll(STORES.MENU_ITEMS),
+                db.getAll(STORES.ORDERS)
+            ])
+
+            const categories = Array.isArray(categoriesData) ? categoriesData : []
+            const items = Array.isArray(itemsData) ? itemsData : []
+            const orders = Array.isArray(ordersData) ? ordersData : []
+
+            const menuSize = items.length * 2
+            const ordersSize = orders.length * 5
+            const imagesSize = items.filter((i: any) => i.image_url).length * 100
+
+            let used = 0
+            let limit = 0
+
+            if (navigator.storage?.estimate) {
+                const estimate = await navigator.storage.estimate()
+                used = Math.round((estimate.usage || 0) / 1024 / 1024)
+                limit = Math.round((estimate.quota || 0) / 1024 / 1024)
+            }
+
+            return {
+                used,
+                limit,
+                percentage: limit > 0 ? Math.round((used / limit) * 100) : 0,
+                hasData: categories.length > 0 && items.length > 0,
+                ordersCount: orders.length,
+                menuItemsCount: items.length,
+                breakdown: {
+                    menu: menuSize,
+                    orders: ordersSize,
+                    images: imagesSize,
+                    total: menuSize + ordersSize + imagesSize
+                }
+            }
+        } catch (error) {
+            return {
+                used: 0,
+                limit: 0,
+                percentage: 0,
+                hasData: false,
+                ordersCount: 0,
+                menuItemsCount: 0,
+                breakdown: { menu: 0, orders: 0, images: 0, total: 0 }
+            }
+        }
+    }
+
+    destroy() {
+        if (this.autoCleanupInterval) {
+            clearInterval(this.autoCleanupInterval)
+        }
+    }
 }
 
 export const offlineManager = new OfflineManager()
