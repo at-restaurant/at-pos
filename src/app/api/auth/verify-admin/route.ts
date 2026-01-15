@@ -3,8 +3,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import bcrypt from 'bcryptjs'
 
-// ✅ Required for static export
-export const dynamic = 'force-static'
+export const dynamic = 'force-dynamic'
 export const revalidate = false
 
 export async function POST(request: Request) {

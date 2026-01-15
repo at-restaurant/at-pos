@@ -7,8 +7,7 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 })
 
-// ✅ REQUIRED for static export in Electron build
-export const dynamic = 'force-static'
+export const dynamic = 'force-dynamic'
 export const revalidate = false
 
 export async function GET() {
