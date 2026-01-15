@@ -1,4 +1,4 @@
-// src/lib/print/ThermalFormatter.ts - FIXED: No extra spacing
+// src/lib/print/ThermalFormatter.ts - FIXED: Support takeaway
 // ✅ Minimal top space, NO bottom space wastage
 
 import type { ReceiptData } from '@/types'
@@ -47,7 +47,7 @@ export class ThermalFormatter {
             receipt += this.formatNotes(data.notes)
         }
 
-        // Footer (order type aware)
+        // ✅ FIXED: Footer now accepts takeaway
         receipt += this.formatFooter(data.orderType)
 
         return receipt
@@ -80,7 +80,14 @@ export class ThermalFormatter {
 
         text += this.leftRight('Order #:', data.orderNumber)
         text += this.leftRight('Date:', data.date)
-        text += this.leftRight('Type:', data.orderType === 'delivery' ? 'DELIVERY' : 'DINE-IN')
+
+        // ✅ FIXED: Display all 3 order types correctly
+        const orderTypeLabel =
+            data.orderType === 'delivery' ? 'DELIVERY' :
+                data.orderType === 'takeaway' ? 'TAKEAWAY' :
+                    'DINE-IN'
+
+        text += this.leftRight('Type:', orderTypeLabel)
 
         if (data.tableNumber) {
             text += this.leftRight('Table:', `#${data.tableNumber}`)
@@ -179,15 +186,19 @@ export class ThermalFormatter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // FOOTER - Order type aware message
+    // ✅ FIXED: Footer now accepts all 3 order types
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private formatFooter(orderType?: 'dine-in' | 'delivery'): string {
+    private formatFooter(orderType?: 'dine-in' | 'delivery' | 'takeaway'): string {
         let text = '\n' + this.line('=')
 
         if (orderType === 'delivery') {
             text += this.center('Thank you for your order!')
             text += '\n'
             text += this.center('Order again soon!')
+        } else if (orderType === 'takeaway') {
+            text += this.center('Thank you for your order!')
+            text += '\n'
+            text += this.center('Enjoy your meal!')
         } else {
             text += this.center('Thank you for dining with us!')
             text += '\n'

@@ -1,4 +1,4 @@
-// src/lib/db/offlineManager.ts - PRODUCTION CLEAN VERSION
+// src/lib/db/offlineManager.ts - WITH IMAGE COMPRESSION
 import { createClient } from '@/lib/supabase/client'
 import { db } from './indexedDB'
 import { STORES } from './schema'
@@ -13,6 +13,79 @@ interface DownloadResult {
     message?: string
     counts?: { categories: number; items: number; tables: number; waiters: number }
     error?: string
+}
+
+// ✅ NEW: Image compression utility
+async function compressImage(url: string, maxWidth = 400): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+
+        img.onload = () => {
+            const canvas = document.createElement('canvas')
+
+            // Calculate scaled dimensions
+            let width = img.width
+            let height = img.height
+
+            if (width > maxWidth) {
+                height = (height * maxWidth) / width
+                width = maxWidth
+            }
+
+            canvas.width = width
+            canvas.height = height
+
+            const ctx = canvas.getContext('2d')
+            if (!ctx) {
+                resolve(url) // Fallback to original
+                return
+            }
+
+            ctx.drawImage(img, 0, 0, width, height)
+
+            // Compress to JPEG with 70% quality
+            try {
+                const compressed = canvas.toDataURL('image/jpeg', 0.7)
+                resolve(compressed)
+            } catch (err) {
+                console.warn('Compression failed, using original:', err)
+                resolve(url)
+            }
+        }
+
+        img.onerror = () => {
+            console.warn('Image load failed, using original URL')
+            resolve(url) // Fallback to original
+        }
+
+        img.src = url
+    })
+}
+
+// ✅ NEW: Compress menu item images
+async function compressMenuItems(items: any[]): Promise<any[]> {
+    const compressed = []
+
+    for (const item of items) {
+        if (item.image_url && item.image_url.startsWith('http')) {
+            try {
+                const compressedUrl = await compressImage(item.image_url, 400)
+                compressed.push({
+                    ...item,
+                    image_url: compressedUrl, // Compressed version
+                    original_image_url: item.image_url // Keep original URL
+                })
+            } catch (err) {
+                console.warn(`Failed to compress image for ${item.name}`)
+                compressed.push(item)
+            }
+        } else {
+            compressed.push(item)
+        }
+    }
+
+    return compressed
 }
 
 class OfflineManager {
@@ -141,9 +214,19 @@ class OfflineManager {
                 updateProgress(1)
             }
 
+            // ✅ NEW: Compress menu item images before storing
             if (itemsData.length > 0) {
+                dispatchSyncEvent('sync-progress', {
+                    progress: 40,
+                    current: 2,
+                    total: 4,
+                    message: 'Compressing images...'
+                })
+
+                const compressedItems = await compressMenuItems(itemsData)
+
                 await db.clear(STORES.MENU_ITEMS)
-                await db.bulkPut(STORES.MENU_ITEMS, itemsData)
+                await db.bulkPut(STORES.MENU_ITEMS, compressedItems)
                 await db.put(STORES.SETTINGS, {
                     key: 'menu_version',
                     value: Date.now()
@@ -165,18 +248,6 @@ class OfflineManager {
                     value: waitersData
                 })
                 updateProgress(4)
-            }
-
-            const imageUrls = itemsData
-                .map(i => i.image_url)
-                .filter(Boolean)
-                .slice(0, 30)
-
-            if (imageUrls.length > 0 && navigator.serviceWorker?.controller) {
-                navigator.serviceWorker.controller.postMessage({
-                    type: 'CACHE_IMAGES',
-                    urls: imageUrls
-                })
             }
 
             localStorage.setItem('menu_last_sync', Date.now().toString())
@@ -384,7 +455,6 @@ class OfflineManager {
                 db.getAll(STORES.ORDERS)
             ])
 
-            // Explicitly type the arrays
             const categories = Array.isArray(categoriesData) ? categoriesData : []
             const items = Array.isArray(itemsData) ? itemsData : []
             const orders = Array.isArray(ordersData) ? ordersData : []
