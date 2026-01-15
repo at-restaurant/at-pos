@@ -56,6 +56,7 @@ export type MenuItem = {
     description?: string
     price: number
     image_url?: string
+    thumbnail_url?: string // ✅ NEW: For offline thumbnails
     is_available: boolean
     preparation_time?: number
     created_at: string
@@ -70,6 +71,20 @@ export type Order = {
     tax: number
     total_amount: number
     notes?: string
+
+    // ✅ NEW: Support 3 order types
+    order_type: 'dine-in' | 'delivery' | 'takeaway'
+
+    // ✅ NEW: Delivery/Takeaway fields
+    customer_name?: string | null
+    customer_phone?: string | null
+    delivery_address?: string | null
+    delivery_charges?: number | null
+
+    // ✅ NEW: Payment tracking
+    payment_method?: 'cash' | 'online' | 'card' | null
+    receipt_printed?: boolean
+
     created_at: string
     updated_at: string
 }
@@ -176,7 +191,8 @@ export interface ReceiptData {
     // Order details
     orderNumber: string
     date: string
-    orderType: 'dine-in' | 'delivery'
+    orderType: 'dine-in' | 'delivery' | 'takeaway'
+
 
     // Dine-in specific
     tableNumber?: number

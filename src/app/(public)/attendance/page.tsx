@@ -1,29 +1,38 @@
-// src/app/(public)/attendance/page.tsx - FIXED CLOCK IN/OUT LOGIC
+// src/app/(public)/attendance/page.tsx
+// ✅ MODERN DESIGN + FULL INDEXEDDB INTEGRATION + OFFLINE-FIRST
+
 'use client'
 export const dynamic = 'force-dynamic'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Timer, LogIn, LogOut, AlertCircle, WifiOff, RefreshCw } from 'lucide-react'
+import { Users, RefreshCw, WifiOff, CheckCircle } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { getWaiterStatusColor } from '@/lib/utils/statusHelpers'
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
 
+interface Waiter {
+    id: string
+    name: string
+    phone: string
+    profile_pic?: string
+    is_active: boolean
+    is_on_duty: boolean
+    created_at: string
+}
+
 export default function AttendancePage() {
-    const [waiters, setWaiters] = useState<any[]>([])
+    const [waiters, setWaiters] = useState<Waiter[]>([])
     const [loading, setLoading] = useState(false)
     const [processingId, setProcessingId] = useState<string | null>(null)
     const supabase = createClient()
     const toast = useToast()
-    const { isOnline } = useOfflineStatus()
+    const { isOnline, pendingCount } = useOfflineStatus()
 
     useEffect(() => {
         load()
-
-        // ✅ Auto-refresh every 5 seconds to get latest status
         const interval = setInterval(load, 5000)
         return () => clearInterval(interval)
     }, [isOnline])
@@ -31,6 +40,7 @@ export default function AttendancePage() {
     const load = async () => {
         try {
             if (isOnline) {
+                // ✅ Load from Supabase
                 const { data } = await supabase
                     .from('waiters')
                     .select('*')
@@ -38,17 +48,23 @@ export default function AttendancePage() {
                     .order('name')
 
                 if (data) {
-                    setWaiters(data)
+                    // ✅ Sort: Present first, then by name
+                    const sorted = data.sort((a: any, b: any) => {
+                        if (a.is_on_duty && !b.is_on_duty) return -1
+                        if (!a.is_on_duty && b.is_on_duty) return 1
+                        return a.name.localeCompare(b.name)
+                    })
+                    setWaiters(sorted)
 
-                    // ✅ Cache for offline
+                    // ✅ Cache in IndexedDB
                     await db.put(STORES.SETTINGS, {
-                        key: 'waiters',
-                        value: data
+                        key: 'waiters_cache',
+                        value: sorted
                     })
                 }
             } else {
-                // Load from cache
-                const cached = await db.get(STORES.SETTINGS, 'waiters')
+                // ✅ Load from IndexedDB cache
+                const cached = await db.get(STORES.SETTINGS, 'waiters_cache')
                 if (cached && (cached as any).value) {
                     setWaiters((cached as any).value)
                 }
@@ -58,9 +74,63 @@ export default function AttendancePage() {
         }
     }
 
-    const handleClockIn = async (waiterId: string) => {
+    // ✅ MARK ALL PRESENT
+    const markAllPresent = async () => {
+        if (loading || !confirm('✅ Mark everyone as present?')) return
+        setLoading(true)
+
+        try {
+            const now = new Date().toISOString()
+            const absentWaiters = waiters.filter(w => !w.is_on_duty)
+
+            if (absentWaiters.length === 0) {
+                toast.add('warning', 'ℹ️ Everyone is already present!')
+                setLoading(false)
+                return
+            }
+
+            for (const waiter of absentWaiters) {
+                const shiftId = isOnline
+                    ? `shift_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                    : `offline_shift_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+
+                const shiftRecord = {
+                    id: shiftId,
+                    waiter_id: waiter.id,
+                    clock_in: now,
+                    clock_out: null,
+                    synced: isOnline,
+                    created_at: now
+                }
+
+                // ✅ Save to IndexedDB
+                await db.put(STORES.WAITER_SHIFTS, shiftRecord)
+
+                if (isOnline) {
+                    // ✅ Update Supabase
+                    await supabase.from('waiters').update({ is_on_duty: true }).eq('id', waiter.id)
+                    await supabase.from('waiter_shifts').insert({
+                        waiter_id: waiter.id,
+                        clock_in: now,
+                        clock_out: null
+                    })
+                }
+            }
+
+            toast.add('success', `✅ Marked ${absentWaiters.length} staff as present!${!isOnline ? ' Will sync when online.' : ''}`)
+            await load()
+        } catch (error: any) {
+            console.error('Mark all present error:', error)
+            toast.add('error', `❌ Failed: ${error.message}`)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    // ✅ TOGGLE INDIVIDUAL
+    const togglePresent = async (waiterId: string, currentStatus: boolean) => {
         if (processingId) {
-            toast.add('warning', '⚠️ Please wait, processing...')
+            toast.add('warning', '⚠️ Please wait...')
             return
         }
 
@@ -68,305 +138,256 @@ export default function AttendancePage() {
         setLoading(true)
 
         try {
+            const newStatus = !currentStatus
             const now = new Date().toISOString()
 
-            if (isOnline) {
-                // ✅ FIX: Check if already clocked in (more robust query)
-                const { data: existingShifts, error: checkError } = await supabase
-                    .from('waiter_shifts')
-                    .select('id, clock_in, clock_out')
-                    .eq('waiter_id', waiterId)
-                    .is('clock_out', null)
+            if (newStatus) {
+                // ✅ MARKING PRESENT
+                if (isOnline) {
+                    // Check if already has active shift
+                    const { data: existingShifts } = await supabase
+                        .from('waiter_shifts')
+                        .select('id')
+                        .eq('waiter_id', waiterId)
+                        .is('clock_out', null)
 
-                if (checkError) {
-                    console.error('Check shift error:', checkError)
-                    throw checkError
-                }
+                    if (existingShifts && existingShifts.length > 0) {
+                        toast.add('error', '⚠️ Already marked present!')
+                        setLoading(false)
+                        setProcessingId(null)
+                        return
+                    }
 
-                if (existingShifts && existingShifts.length > 0) {
-                    toast.add('error', '⚠️ Already clocked in!')
-                    setLoading(false)
-                    setProcessingId(null)
-                    return
-                }
-
-                // ✅ Create new shift
-                const { error: insertError } = await supabase
-                    .from('waiter_shifts')
-                    .insert({
+                    // Insert new shift
+                    await supabase.from('waiter_shifts').insert({
                         waiter_id: waiterId,
                         clock_in: now,
                         clock_out: null
                     })
 
-                if (insertError) {
-                    console.error('Insert shift error:', insertError)
-                    throw insertError
-                }
+                    // Update waiter status
+                    await supabase.from('waiters').update({ is_on_duty: true }).eq('id', waiterId)
 
-                // ✅ Update waiter status
-                const { error: updateError } = await supabase
-                    .from('waiters')
-                    .update({ is_on_duty: true })
-                    .eq('id', waiterId)
-
-                if (updateError) {
-                    console.error('Update waiter error:', updateError)
-                    throw updateError
-                }
-
-                toast.add('success', '✅ Clocked in!')
-
-                // ✅ Refresh immediately after success
-                await load()
-
-            } else {
-                // ✅ Offline clock-in
-                const offlineId = `offline_shift_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-
-                await db.put('waiter_shifts', {
-                    id: offlineId,
-                    waiter_id: waiterId,
-                    clock_in: now,
-                    clock_out: null,
-                    synced: false,
-                    created_at: now
-                })
-
-                // Update local waiter status
-                const updatedWaiters = waiters.map(w =>
-                    w.id === waiterId ? { ...w, is_on_duty: true } : w
-                )
-                setWaiters(updatedWaiters)
-
-                toast.add('success', '✅ Clocked in offline! Will sync when online.')
-            }
-
-        } catch (error: any) {
-            console.error('Clock in error:', error)
-            toast.add('error', `❌ Failed: ${error.message || 'Unknown error'}`)
-        } finally {
-            setLoading(false)
-            setProcessingId(null)
-        }
-    }
-
-    const handleClockOut = async (waiterId: string) => {
-        if (processingId) {
-            toast.add('warning', '⚠️ Please wait, processing...')
-            return
-        }
-
-        setProcessingId(waiterId)
-        setLoading(true)
-
-        try {
-            const now = new Date().toISOString()
-
-            if (isOnline) {
-                // ✅ FIX: Find the active shift (more robust)
-                const { data: shifts, error: findError } = await supabase
-                    .from('waiter_shifts')
-                    .select('id, clock_in')
-                    .eq('waiter_id', waiterId)
-                    .is('clock_out', null)
-                    .order('clock_in', { ascending: false })
-                    .limit(1)
-
-                if (findError) {
-                    console.error('Find shift error:', findError)
-                    throw findError
-                }
-
-                if (!shifts || shifts.length === 0) {
-                    toast.add('error', '❌ No active shift found!')
-                    setLoading(false)
-                    setProcessingId(null)
-                    return
-                }
-
-                const shift = shifts[0]
-
-                // ✅ Update shift with clock_out
-                const { error: updateShiftError } = await supabase
-                    .from('waiter_shifts')
-                    .update({ clock_out: now })
-                    .eq('id', shift.id)
-
-                if (updateShiftError) {
-                    console.error('Update shift error:', updateShiftError)
-                    throw updateShiftError
-                }
-
-                // ✅ Update waiter status
-                const { error: updateWaiterError } = await supabase
-                    .from('waiters')
-                    .update({ is_on_duty: false })
-                    .eq('id', waiterId)
-
-                if (updateWaiterError) {
-                    console.error('Update waiter error:', updateWaiterError)
-                    throw updateWaiterError
-                }
-
-                toast.add('success', '✅ Clocked out!')
-
-                // ✅ Refresh immediately after success
-                await load()
-
-            } else {
-                // ✅ Offline clock-out
-                const allShifts = await db.getAll('waiter_shifts') as any[]
-                const activeShift = allShifts.find(s =>
-                    s.waiter_id === waiterId && !s.clock_out
-                )
-
-                if (activeShift) {
-                    await db.put('waiter_shifts', {
-                        ...activeShift,
-                        clock_out: now
+                    toast.add('success', '✅ Marked Present!')
+                } else {
+                    // ✅ Offline mode
+                    const offlineShiftId = `offline_shift_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                    await db.put(STORES.WAITER_SHIFTS, {
+                        id: offlineShiftId,
+                        waiter_id: waiterId,
+                        clock_in: now,
+                        clock_out: null,
+                        synced: false,
+                        created_at: now
                     })
 
-                    // Update local waiter status
-                    const updatedWaiters = waiters.map(w =>
-                        w.id === waiterId ? { ...w, is_on_duty: false } : w
-                    )
-                    setWaiters(updatedWaiters)
+                    toast.add('success', '✅ Marked Present offline! Will sync when online.')
+                }
+            } else {
+                // ✅ MARKING ABSENT
+                if (isOnline) {
+                    // Find active shift
+                    const { data: shifts } = await supabase
+                        .from('waiter_shifts')
+                        .select('id')
+                        .eq('waiter_id', waiterId)
+                        .is('clock_out', null)
+                        .order('clock_in', { ascending: false })
+                        .limit(1)
 
-                    toast.add('success', '✅ Clocked out offline! Will sync when online.')
+                    if (shifts && shifts.length > 0) {
+                        await supabase
+                            .from('waiter_shifts')
+                            .update({ clock_out: now })
+                            .eq('id', shifts[0].id)
+                    }
+
+                    await supabase.from('waiters').update({ is_on_duty: false }).eq('id', waiterId)
+
+                    toast.add('success', '✅ Marked Absent!')
                 } else {
-                    toast.add('error', '❌ No active shift found!')
+                    // ✅ Offline mode
+                    const allShifts = await db.getAll(STORES.WAITER_SHIFTS) as any[]
+                    const activeShift = allShifts.find(s =>
+                        s.waiter_id === waiterId && !s.clock_out
+                    )
+
+                    if (activeShift) {
+                        await db.put(STORES.WAITER_SHIFTS, {
+                            ...activeShift,
+                            clock_out: now
+                        })
+                    }
+
+                    toast.add('success', '✅ Marked Absent offline! Will sync when online.')
                 }
             }
 
+            // ✅ Update local state immediately
+            setWaiters(prev => prev.map(w =>
+                w.id === waiterId ? { ...w, is_on_duty: newStatus } : w
+            ).sort((a, b) => {
+                if (a.is_on_duty && !b.is_on_duty) return -1
+                if (!a.is_on_duty && b.is_on_duty) return 1
+                return a.name.localeCompare(b.name)
+            }))
+
+            await load()
         } catch (error: any) {
-            console.error('Clock out error:', error)
-            toast.add('error', `❌ Failed: ${error.message || 'Unknown error'}`)
+            console.error('Toggle present error:', error)
+            toast.add('error', `❌ Failed: ${error.message}`)
         } finally {
             setLoading(false)
             setProcessingId(null)
         }
     }
 
+    const presentCount = waiters.filter(w => w.is_on_duty).length
+    const totalCount = waiters.length
+
     return (
-        <div className="min-h-screen bg-[var(--bg)]">
+        <div className="min-h-screen bg-[var(--bg)] pb-20">
             <PageHeader
                 title="Attendance"
-                subtitle={`Mark your presence${!isOnline ? ' • Offline mode' : ''}`}
+                subtitle={`${presentCount}/${totalCount} present${pendingCount > 0 ? ` • ${pendingCount} pending sync` : ''}${!isOnline ? ' • Offline' : ''}`}
                 action={
-                    <button
-                        onClick={load}
-                        disabled={loading}
-                        className="p-2 hover:bg-[var(--bg)] rounded-lg active:scale-95 transition-all disabled:opacity-50"
-                    >
-                        <RefreshCw className={`w-5 h-5 text-[var(--muted)] ${loading ? 'animate-spin' : ''}`} />
-                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={markAllPresent}
+                            disabled={loading}
+                            className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 active:scale-95 disabled:opacity-50 flex items-center gap-2 text-sm"
+                        >
+                            <Users className="w-4 h-4" />
+                            <span className="hidden sm:inline">Mark All</span>
+                        </button>
+                        <button
+                            onClick={load}
+                            disabled={loading}
+                            className="p-2 hover:bg-[var(--bg)] rounded-lg active:scale-95 disabled:opacity-50"
+                        >
+                            <RefreshCw className={`w-5 h-5 text-[var(--muted)] ${loading ? 'animate-spin' : ''}`} />
+                        </button>
+                    </div>
                 }
             />
 
-            <div className="max-w-4xl mx-auto px-3 sm:px-4 lg:px-8 py-6">
+            <div className="max-w-5xl mx-auto px-3 sm:px-4 py-6">
+                {/* Offline Warning */}
                 {!isOnline && (
-                    <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-3">
+                    <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl flex items-start gap-3">
                         <WifiOff className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                         <div className="text-sm">
-                            <p className="font-semibold text-[var(--fg)] mb-1">Offline Mode Active</p>
-                            <p className="text-[var(--muted)]">
-                                Attendance will sync automatically when you're back online.
-                            </p>
+                            <p className="font-semibold text-[var(--fg)] mb-1">Offline Mode</p>
+                            <p className="text-[var(--muted)]">Attendance will sync when you're back online.</p>
                         </div>
                     </div>
                 )}
 
-                <div className="mb-6 p-4 bg-blue-600/10 border border-blue-600/30 rounded-lg flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm">
-                        <p className="font-semibold text-[var(--fg)] mb-1">Auto Clock-In Enabled</p>
-                        <p className="text-[var(--muted)]">
-                            Staff automatically clock in when assigned to an order. Manual clock-in available below.
-                        </p>
+                {/* Stats */}
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-6">
+                    <div className="bg-gradient-to-br from-green-500/10 to-green-600/20 border border-green-500/30 rounded-xl p-4 sm:p-6">
+                        <div className="flex items-center gap-2 sm:gap-3">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-600 rounded-full flex items-center justify-center flex-shrink-0">
+                                <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                            </div>
+                            <div>
+                                <p className="text-xs sm:text-sm text-[var(--muted)]">Present</p>
+                                <p className="text-2xl sm:text-4xl font-bold text-green-600">{presentCount}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-gray-500/10 to-gray-600/20 border border-gray-500/30 rounded-xl p-4 sm:p-6">
+                        <div className="flex items-center gap-2 sm:gap-3">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-600 rounded-full flex items-center justify-center text-white font-bold text-base sm:text-lg flex-shrink-0">
+                                {totalCount - presentCount}
+                            </div>
+                            <div>
+                                <p className="text-xs sm:text-sm text-[var(--muted)]">Absent</p>
+                                <p className="text-2xl sm:text-4xl font-bold text-gray-600">{totalCount - presentCount}</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div className="space-y-4">
+                {/* Info Banner */}
+                <div className="mb-6 p-3 sm:p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <p className="text-xs sm:text-sm text-[var(--fg)]">
+                        <strong>💡 Tip:</strong> Tap any staff member to toggle present/absent status.
+                    </p>
+                </div>
+
+                {/* Staff List */}
+                <div className="space-y-3">
                     {waiters.map(waiter => (
-                        <div
+                        <button
                             key={waiter.id}
-                            className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6 flex items-center justify-between gap-4 hover:shadow-lg transition-shadow"
+                            onClick={() => togglePresent(waiter.id, waiter.is_on_duty)}
+                            disabled={loading || processingId === waiter.id}
+                            className={`w-full bg-[var(--card)] border rounded-xl p-4 sm:p-5 flex items-center gap-3 sm:gap-4 transition-all text-left disabled:opacity-50 active:scale-[0.98] ${
+                                waiter.is_on_duty
+                                    ? 'border-green-500/30 shadow-lg shadow-green-500/10'
+                                    : 'border-[var(--border)] hover:border-[var(--border)]/60 hover:shadow-md'
+                            }`}
                         >
-                            <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-                                {waiter.profile_pic ? (
-                                    <img
-                                        src={waiter.profile_pic}
-                                        alt={waiter.name}
-                                        className="w-12 h-12 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-blue-600"
-                                    />
+                            {/* Avatar */}
+                            {waiter.profile_pic ? (
+                                <img
+                                    src={waiter.profile_pic}
+                                    alt={waiter.name}
+                                    className={`w-12 h-12 sm:w-16 sm:h-16 rounded-full object-cover border-2 flex-shrink-0 ${
+                                        waiter.is_on_duty ? 'border-green-600' : 'border-gray-400'
+                                    }`}
+                                />
+                            ) : (
+                                <div className={`w-12 h-12 sm:w-16 sm:h-16 rounded-full flex items-center justify-center text-white font-bold text-lg sm:text-2xl flex-shrink-0 ${
+                                    waiter.is_on_duty ? 'bg-green-600' : 'bg-gray-600'
+                                }`}>
+                                    {waiter.name[0]}
+                                </div>
+                            )}
+
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                                <h3 className="font-bold text-base sm:text-lg text-[var(--fg)] truncate mb-1">
+                                    {waiter.name}
+                                </h3>
+                                <p className="text-xs sm:text-sm text-[var(--muted)] truncate mb-2">
+                                    {waiter.phone}
+                                </p>
+
+                                {/* Status Badge */}
+                                {waiter.is_on_duty ? (
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-500/20 border border-green-500/30 rounded-full">
+                                        <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-600 rounded-full animate-pulse" />
+                                        <span className="text-[10px] sm:text-xs font-semibold text-green-600">PRESENT</span>
+                                    </div>
                                 ) : (
-                                    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg sm:text-xl">
-                                        {waiter.name[0]}
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-500/20 border border-gray-500/30 rounded-full">
+                                        <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-gray-600 rounded-full" />
+                                        <span className="text-[10px] sm:text-xs font-semibold text-gray-600">ABSENT</span>
                                     </div>
                                 )}
-                                <div className="min-w-0 flex-1">
-                                    <h3 className="font-bold text-[var(--fg)] text-base sm:text-lg truncate">
-                                        {waiter.name}
-                                    </h3>
-                                    <p className="text-xs sm:text-sm text-[var(--muted)] truncate">
-                                        {waiter.phone}
-                                    </p>
-                                    {(() => {
-                                        const statusColors = getWaiterStatusColor(waiter.is_on_duty)
-                                        return (
-                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 mt-1 rounded-full text-xs font-medium ${statusColors.bgColor} ${statusColors.textColor}`}>
-                                                <span
-                                                    className="w-1.5 h-1.5 rounded-full"
-                                                    style={{ backgroundColor: statusColors.dotColor }}
-                                                />
-                                                {statusColors.label}
-                                            </span>
-                                        )
-                                    })()}
-                                </div>
                             </div>
 
-                            <div className="flex-shrink-0">
-                                {waiter.is_on_duty ? (
-                                    <button
-                                        onClick={() => handleClockOut(waiter.id)}
-                                        disabled={loading || processingId === waiter.id}
-                                        className="px-4 sm:px-6 py-2 sm:py-3 bg-red-600 text-white rounded-lg font-medium flex items-center gap-2 hover:bg-red-700 active:scale-95 disabled:opacity-50 text-sm sm:text-base transition-all shadow-md"
-                                    >
-                                        {processingId === waiter.id ? (
-                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                        ) : (
-                                            <LogOut className="w-4 h-4" />
-                                        )}
-                                        <span className="hidden sm:inline">Clock Out</span>
-                                        <span className="sm:hidden">Out</span>
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={() => handleClockIn(waiter.id)}
-                                        disabled={loading || processingId === waiter.id}
-                                        className="px-4 sm:px-6 py-2 sm:py-3 bg-green-600 text-white rounded-lg font-medium flex items-center gap-2 hover:bg-green-700 active:scale-95 disabled:opacity-50 text-sm sm:text-base transition-all shadow-md"
-                                    >
-                                        {processingId === waiter.id ? (
-                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                        ) : (
-                                            <LogIn className="w-4 h-4" />
-                                        )}
-                                        <span className="hidden sm:inline">Clock In</span>
-                                        <span className="sm:hidden">In</span>
-                                    </button>
-                                )}
-                            </div>
-                        </div>
+                            {/* Spinner or Checkmark */}
+                            {processingId === waiter.id ? (
+                                <div className="w-6 h-6 sm:w-8 sm:h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                            ) : (
+                                <CheckCircle className={`w-6 h-6 sm:w-8 sm:h-8 flex-shrink-0 ${
+                                    waiter.is_on_duty ? 'text-green-600' : 'text-gray-400'
+                                }`} />
+                            )}
+                        </button>
                     ))}
 
+                    {/* Empty State */}
                     {waiters.length === 0 && (
-                        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-12 text-center">
-                            <Timer className="w-16 h-16 mx-auto mb-4 text-[var(--muted)]" />
-                            <p className="text-[var(--fg)] font-medium mb-2">No staff members found</p>
-                            <p className="text-sm text-[var(--muted)]">
-                                {!isOnline ? 'Go online to see staff members' : 'Add staff members in admin panel'}
+                        <div className="bg-[var(--card)] border rounded-xl p-12 sm:p-16 text-center">
+                            <div className="text-5xl sm:text-7xl mb-4">👥</div>
+                            <p className="text-lg sm:text-xl font-semibold text-[var(--fg)] mb-2">No Staff Members</p>
+                            <p className="text-xs sm:text-sm text-[var(--muted)]">
+                                {!isOnline ? 'Go online to see staff' : 'Add staff in admin panel'}
                             </p>
                         </div>
                     )}

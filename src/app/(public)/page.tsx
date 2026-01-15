@@ -1,4 +1,3 @@
-// src/app/(public)/page.tsx - FIXED TYPE ERROR
 'use client'
 export const dynamic = 'force-dynamic'
 
@@ -8,22 +7,37 @@ import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import CartDrawer from '@/components/cart/CartDrawer'
 import { useCart } from '@/lib/store/cart-store'
 import { useHydration } from '@/lib/hooks/useHydration'
-import { useSupabase } from '@/lib/hooks'
+import { useOfflineFirst } from '@/lib/hooks/useOfflineFirst' // ✅ NEW
 import { offlineManager } from '@/lib/db/offlineManager'
 
 export default function MenuPage() {
-    const { data: categories } = useSupabase('menu_categories', {
+    // ✅ NEW: Use offline-first hook
+    const { data: categories, loading: catLoading } = useOfflineFirst({
+        store: 'menu_categories',
+        table: 'menu_categories',
         filter: { is_active: true },
         order: { column: 'display_order' }
     })
 
-    const { data: items, loading, isOffline } = useSupabase('menu_items', {
+    const { data: items, loading: itemsLoading, isOffline } = useOfflineFirst({
+        store: 'menu_items',
+        table: 'menu_items',
         filter: { is_available: true },
         order: { column: 'name' }
     })
 
-    const { data: tables } = useSupabase('restaurant_tables')
-    const { data: waiters } = useSupabase('waiters', { filter: { is_active: true } })
+    const { data: tables } = useOfflineFirst({
+        store: 'restaurant_tables',
+        table: 'restaurant_tables'
+    })
+
+    const { data: waiters } = useOfflineFirst({
+        store: 'waiters',
+        table: 'waiters',
+        filter: { is_active: true }
+    })
+
+    const loading = catLoading || itemsLoading
 
     const cart = useCart()
     const hydrated = useHydration()

@@ -1,5 +1,5 @@
 // src/components/cart/CartDrawer.tsx
-// ✅ FIXED: Direct print, NO receipt modal
+// ✅ COMPLETE WITH 3 ORDER TYPES: dine-in | delivery | takeaway
 
 'use client'
 
@@ -24,7 +24,12 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
     const [orderType, setOrderType] = useState<'dine-in' | 'delivery'>('dine-in')
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('cash')
     const [showDetails, setShowDetails] = useState(false)
-    const [details, setDetails] = useState({ customer_name: '', customer_phone: '', delivery_address: '', delivery_charges: 0 })
+    const [details, setDetails] = useState({
+        customer_name: '',
+        customer_phone: '',
+        delivery_address: '',
+        delivery_charges: 0
+    })
     const [tableWarning, setTableWarning] = useState<{ show: boolean; tableNumber: number; currentOrder?: any } | null>(null)
     const [confirmAddMore, setConfirmAddMore] = useState(false)
     const [editingQuantity, setEditingQuantity] = useState<{ [key: string]: string }>({})
@@ -154,7 +159,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         return 'cash'
     }
 
-    // ✅ FIXED: Direct print, NO modal
+    // ✅ MAIN PLACE ORDER LOGIC - WITH 3 ORDER TYPES
     const placeOrder = async () => {
         if (cart.items.length === 0) return
         if (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId)) return
@@ -169,21 +174,40 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         const deliveryFee = orderType === 'delivery' ? details.delivery_charges : 0
         const total = subtotal + tax + deliveryFee
 
+        // ✅ STEP 1: Determine actual order type (3 types now!)
+        let finalOrderType: 'dine-in' | 'delivery' | 'takeaway'
+
+        if (orderType === 'dine-in') {
+            finalOrderType = 'dine-in'
+        } else {
+            // User selected "Delivery" mode - check if they provided customer details
+            const hasCustomerDetails = !!(
+                details.customer_name?.trim() ||
+                details.customer_phone?.trim() ||
+                details.delivery_address?.trim()
+            )
+
+            finalOrderType = hasCustomerDetails ? 'delivery' : 'takeaway'
+        }
+
+        // ✅ STEP 2: Build order data
         const orderData: any = {
             waiter_id: cart.waiterId || null,
-            status: orderType === 'delivery' ? 'completed' : 'pending', // ✅ Auto-complete delivery
+            status: finalOrderType === 'dine-in' ? 'pending' : 'completed',
             subtotal,
             tax,
             total_amount: total,
             notes: cart.notes || null,
-            order_type: orderType,
-            payment_method: orderType === 'delivery' ? paymentMethod : null,
-            receipt_printed: true // ✅ Mark as printed
+            order_type: finalOrderType, // ✅ Now supports 3 types!
+            payment_method: finalOrderType !== 'dine-in' ? paymentMethod : null,
+            receipt_printed: true
         }
 
-        if (orderType === 'dine-in') {
+        // ✅ STEP 3: Add type-specific fields
+        if (finalOrderType === 'dine-in') {
             orderData.table_id = cart.tableId || null
         } else {
+            // Delivery or Takeaway
             orderData.customer_name = details.customer_name || null
             orderData.customer_phone = details.customer_phone || null
             orderData.delivery_address = details.delivery_address || null
@@ -193,7 +217,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         const result = await createOrder(orderData, cart.items)
 
         if (result.success && result.order) {
-            console.log('🖨️ Auto-printing receipt...')
+            console.log(`🖨️ Auto-printing receipt for ${finalOrderType}...`)
 
             const receiptData: ReceiptData = {
                 restaurantName: 'AT RESTAURANT',
@@ -201,12 +225,12 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 address: 'Sooter Mills Rd, Lahore',
                 orderNumber: result.order.id.slice(0, 8).toUpperCase(),
                 date: new Date(result.order.created_at).toLocaleString('en-PK'),
-                orderType,
-                customerName: orderType === 'delivery' ? details.customer_name : undefined,
-                customerPhone: orderType === 'delivery' ? details.customer_phone : undefined,
-                deliveryAddress: orderType === 'delivery' ? details.delivery_address : undefined,
-                deliveryCharges: orderType === 'delivery' ? details.delivery_charges : undefined,
-                tableNumber: orderType === 'dine-in' ? tables.find(t => t.id === cart.tableId)?.table_number : undefined,
+                orderType: finalOrderType, // ✅ Will show: dine-in | delivery | takeaway
+                customerName: finalOrderType !== 'dine-in' ? details.customer_name : undefined,
+                customerPhone: finalOrderType !== 'dine-in' ? details.customer_phone : undefined,
+                deliveryAddress: finalOrderType === 'delivery' ? details.delivery_address : undefined,
+                deliveryCharges: finalOrderType === 'delivery' ? details.delivery_charges : undefined,
+                tableNumber: finalOrderType === 'dine-in' ? tables.find(t => t.id === cart.tableId)?.table_number : undefined,
                 waiter: waiters.find(w => w.id === cart.waiterId)?.name,
                 items: cart.items.map(i => {
                     const category = menuCategories[i.id]
@@ -221,7 +245,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 subtotal,
                 tax,
                 total,
-                paymentMethod: orderType === 'delivery' ? validatePaymentMethod(paymentMethod) : undefined,
+                paymentMethod: finalOrderType !== 'dine-in' ? validatePaymentMethod(paymentMethod) : undefined,
                 notes: cart.notes
             }
 
@@ -351,9 +375,20 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                     {orderType === 'delivery' && (
                         <>
                             <button onClick={() => setShowDetails(!showDetails)} className="w-full flex items-center justify-between px-4 py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg hover:border-blue-600 transition-colors">
-                                <span className="text-sm font-medium text-[var(--fg)]">Delivery Details (Optional)</span>
+                                <span className="text-sm font-medium text-[var(--fg)]">Customer Details (Optional)</span>
                                 {showDetails ? <ChevronUp className="w-5 h-5 text-[var(--fg)]" /> : <ChevronDown className="w-5 h-5 text-[var(--fg)]" />}
                             </button>
+
+                            {/* ✅ NEW: Smart detection info */}
+                            <div className="p-3 bg-blue-600/10 border border-blue-600/30 rounded-lg">
+                                <p className="text-xs text-blue-600 font-medium">
+                                    💡 <strong>Smart Detection:</strong><br/>
+                                    {(details.customer_name || details.customer_phone || details.delivery_address)
+                                        ? '✅ Will be marked as DELIVERY (customer details provided)'
+                                        : '📦 Will be marked as TAKEAWAY (no customer details)'}
+                                </p>
+                            </div>
+
                             {showDetails && (
                                 <div className="space-y-3 p-4 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
                                     <input type="text" value={details.customer_name} onChange={e => setDetails({ ...details, customer_name: e.target.value })} placeholder="Customer name" className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-lg text-sm text-[var(--fg)] placeholder:text-[var(--muted)] focus:ring-2 focus:ring-blue-600 focus:outline-none" />
@@ -365,6 +400,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         </>
                     )}
 
+                    {/* Cart items display - existing code continues... */}
                     {cart.items.length > 0 && (
                         <div className="space-y-4">
                             <h3 className="text-sm font-semibold text-[var(--fg)] px-1">Order Items by Category</h3>

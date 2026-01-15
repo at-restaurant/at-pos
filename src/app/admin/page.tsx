@@ -1,4 +1,4 @@
-// src/app/admin/page.tsx - FIXED ADMIN DASHBOARD
+// src/app/admin/page.tsx - FIXED: Online-only + Daily Reset
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -30,22 +30,35 @@ export default function AdminDashboard() {
         return () => clearInterval(interval)
     }, [])
 
+    // ✅ FIXED: Proper daily reset (midnight to midnight)
+    const getTodayRange = () => {
+        const now = new Date()
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+        const tomorrow = new Date(today)
+        tomorrow.setDate(tomorrow.getDate() + 1)
+
+        return {
+            start: today.toISOString(),
+            end: tomorrow.toISOString()
+        }
+    }
+
     const load = async () => {
         setLoading(true)
         try {
-            const today = new Date()
-            today.setHours(0, 0, 0, 0)
+            const { start, end } = getTodayRange()
 
             const [inv, wait, tab, ord, todayOrd, invItems] = await Promise.all([
                 supabase.from('inventory_items').select('id', { count: 'exact', head: true }),
                 supabase.from('waiters').select('id, is_on_duty', { count: 'exact' }),
                 supabase.from('restaurant_tables').select('id', { count: 'exact', head: true }),
                 supabase.from('orders').select('total_amount, status'),
-                supabase.from('orders').select('id, total_amount, status, created_at').gte('created_at', today.toISOString()),
+                supabase.from('orders').select('id, total_amount, status, created_at')
+                    .gte('created_at', start)
+                    .lt('created_at', end),
                 supabase.from('inventory_items').select('quantity, reorder_level')
             ])
 
-            // ✅ SAFE DATA EXTRACTION
             const ordersData = Array.isArray(ord.data) ? ord.data : []
             const todayOrdersData = Array.isArray(todayOrd.data) ? todayOrd.data : []
             const inventoryData = Array.isArray(invItems.data) ? invItems.data : []
@@ -58,7 +71,7 @@ export default function AdminDashboard() {
             const activeWaiters = waitersData.filter(w => w?.is_on_duty).length
             const completedToday = todayOrdersData.filter(o => o?.status === 'completed').length
 
-            // Calculate hourly data for chart
+            // ✅ Hourly breakdown (today only)
             const hourly = Array.from({ length: 24 }, (_, i) => ({
                 hour: i,
                 orders: 0,
@@ -154,17 +167,13 @@ export default function AdminDashboard() {
 
     return (
         <div className="min-h-screen bg-[var(--bg)]">
-            {/* Header */}
             <header className="sticky top-0 z-30 bg-[var(--card)] border-b border-[var(--border)] backdrop-blur-lg bg-opacity-80">
                 <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-3 sm:py-4 lg:py-5">
                     <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
                             <AdminProfileBadge onClick={() => setShowProfileModal(true)} />
-
                             <div>
-                                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-[var(--fg)]">
-                                    Dashboard
-                                </h1>
+                                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-[var(--fg)]">Dashboard</h1>
                                 <p className="text-xs sm:text-sm text-[var(--muted)] mt-1 flex items-center gap-2">
                                     <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />
                                     {new Date().toLocaleDateString('en-US', {
@@ -188,8 +197,6 @@ export default function AdminDashboard() {
             </header>
 
             <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-8 py-4 sm:py-6 lg:py-8 space-y-6 sm:space-y-8">
-
-                {/* Quick Stats */}
                 <section>
                     <div className="flex items-center gap-2 mb-4">
                         <Target className="w-5 h-5 text-blue-600" />
@@ -244,9 +251,7 @@ export default function AdminDashboard() {
                     </div>
                 </section>
 
-                {/* Charts Section */}
                 <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-                    {/* Hourly Orders Chart */}
                     <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6">
                         <div className="flex items-center gap-2 mb-4">
                             <BarChart3 className="w-5 h-5 text-blue-600" />
@@ -271,13 +276,10 @@ export default function AdminDashboard() {
                                 ))}
                             </div>
                         ) : (
-                            <div className="text-center py-8 text-[var(--muted)] text-sm">
-                                No orders yet today
-                            </div>
+                            <div className="text-center py-8 text-[var(--muted)] text-sm">No orders yet today</div>
                         )}
                     </div>
 
-                    {/* Revenue Chart */}
                     <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6">
                         <div className="flex items-center gap-2 mb-4">
                             <PieChart className="w-5 h-5 text-green-600" />
@@ -302,22 +304,17 @@ export default function AdminDashboard() {
                                 ))}
                             </div>
                         ) : (
-                            <div className="text-center py-8 text-[var(--muted)] text-sm">
-                                No revenue yet today
-                            </div>
+                            <div className="text-center py-8 text-[var(--muted)] text-sm">No revenue yet today</div>
                         )}
                     </div>
                 </section>
 
-                {/* Alerts Section */}
                 {(data.lowStock > 0 || data.pendingOrders > 5) && (
                     <section className="bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 border-2 border-yellow-500/50 rounded-xl p-4 sm:p-6">
                         <div className="flex items-start gap-3">
                             <AlertCircle className="w-6 h-6 text-yellow-600 flex-shrink-0" />
                             <div className="flex-1">
-                                <h3 className="font-bold text-yellow-900 dark:text-yellow-100 mb-2 text-sm sm:text-base">
-                                    ⚠️ Attention Required
-                                </h3>
+                                <h3 className="font-bold text-yellow-900 dark:text-yellow-100 mb-2 text-sm sm:text-base">⚠️ Attention Required</h3>
                                 <ul className="space-y-1 text-xs sm:text-sm">
                                     {data.lowStock > 0 && (
                                         <li className="text-yellow-800 dark:text-yellow-200">
@@ -335,7 +332,6 @@ export default function AdminDashboard() {
                     </section>
                 )}
 
-                {/* Quick Actions */}
                 <section>
                     <div className="flex items-center gap-2 mb-4">
                         <Award className="w-5 h-5 text-blue-600" />
@@ -365,17 +361,11 @@ export default function AdminDashboard() {
                                     </div>
 
                                     <div>
-                                        <h3 className="font-bold text-[var(--fg)] mb-1 text-sm sm:text-base">
-                                            {action.label}
-                                        </h3>
-                                        <p className="text-xs sm:text-sm text-[var(--muted)]">
-                                            {action.description}
-                                        </p>
+                                        <h3 className="font-bold text-[var(--fg)] mb-1 text-sm sm:text-base">{action.label}</h3>
+                                        <p className="text-xs sm:text-sm text-[var(--muted)]">{action.description}</p>
                                     </div>
 
-                                    <ArrowRight
-                                        className="absolute bottom-4 right-4 w-4 h-4 text-[var(--muted)] group-hover:text-blue-600 group-hover:translate-x-1 transition-all"
-                                    />
+                                    <ArrowRight className="absolute bottom-4 right-4 w-4 h-4 text-[var(--muted)] group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
                                 </Link>
                             )
                         })}
