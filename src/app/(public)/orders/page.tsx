@@ -1,5 +1,5 @@
 // src/app/(public)/orders/page.tsx
-// ✅ COMPLETE - CLICK ANY COMPLETED ORDER OR SUMMARY BUTTON
+// ✅ FIXED: Print only ONCE when completing order
 
 "use client"
 export const dynamic = 'force-dynamic'
@@ -9,15 +9,11 @@ import { Printer, Users, RefreshCw, CreditCard, Banknote, WifiOff, DollarSign, T
 import { UniversalDataTable } from '@/components/ui/UniversalDataTable'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
-import UniversalModal from '@/components/ui/UniversalModal'
 import SplitBillModal from '@/components/features/split-bill/SplitBillModal'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { useOrderManagement } from '@/lib/hooks'
 import { getOrderStatusColor } from '@/lib/utils/statusHelpers'
 import { createClient } from '@/lib/supabase/client'
-import { db } from '@/lib/db/indexedDB'
-import { STORES } from '@/lib/db/schema'
 import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
 import type { ReceiptData } from '@/types'
@@ -26,13 +22,12 @@ export default function OrdersPage() {
     const [filter, setFilter] = useState<'active' | 'today-dinein' | 'today-delivery' | 'today-takeaway'>('active')
     const [selectedOrder, setSelectedOrder] = useState<any>(null)
     const [showSplitBill, setShowSplitBill] = useState<any>(null)
-    const [showPaymentModal, setShowPaymentModal] = useState<any>(null)
     const [showDailySummary, setShowDailySummary] = useState(false)
     const [orders, setOrders] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
+    const [actionLoading, setActionLoading] = useState(false)
     const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
 
-    const {printAndComplete, cancelOrder, loading: actionLoading} = useOrderManagement()
     const {isOnline, pendingCount} = useOfflineStatus()
     const supabase = createClient()
 
@@ -65,28 +60,27 @@ export default function OrdersPage() {
     const loadOrders = async () => {
         setLoading(true)
         try {
-            let allOrders: any[] = []
+            const {data: allOrders} = await supabase
+                .from('orders')
+                .select('*, restaurant_tables(table_number), waiters(name), order_items(*, menu_items(name, price, category_id))')
+                .order('created_at', {ascending: false})
+                .limit(500)
 
-            if (isOnline) {
-                const {data: onlineOrders} = await supabase
-                    .from('orders')
-                    .select('*, restaurant_tables(table_number), waiters(name), order_items(*, menu_items(name, price, category_id))')
-                    .order('created_at', {ascending: false})
-                    .limit(100)
+            if (allOrders) {
+                const enrichedOrders = allOrders.map(order => {
+                    const itemsTotal = order.order_items?.reduce((sum: number, item: any) =>
+                        sum + (item.total_price || 0), 0) || 0
 
-                allOrders = onlineOrders || []
+                    return {
+                        ...order,
+                        display_total: itemsTotal > 0 ? itemsTotal : order.total_amount,
+                        item_count: order.order_items?.reduce((sum: number, item: any) =>
+                            sum + item.quantity, 0) || 0
+                    }
+                })
+
+                setOrders(enrichedOrders)
             }
-
-            const offlineOrders = await db.getAll(STORES.ORDERS) as any[]
-            const pendingOffline = offlineOrders.filter(o => !o.synced && o.id.startsWith('offline_'))
-
-            for (const order of pendingOffline) {
-                const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
-                order.order_items = items.filter((i: any) => i.order_id === order.id)
-            }
-
-            allOrders = [...pendingOffline, ...allOrders]
-            setOrders(allOrders)
         } catch (error) {
             console.error('Failed to load orders:', error)
         } finally {
@@ -105,57 +99,28 @@ export default function OrdersPage() {
     const filtered = useMemo(() => {
         const { start, end } = getTodayRange()
 
-        // 1️⃣ Filter orders based on current bucket
-        let relevantOrders = []
         switch (filter) {
             case 'active':
-                relevantOrders = orders.filter(o => o.status === 'pending' && o.order_type === 'dine-in')
-                break
+                return orders.filter(o => o.status === 'pending' && o.order_type === 'dine-in')
             case 'today-dinein':
-                relevantOrders = orders.filter(o => {
+                return orders.filter(o => {
                     const d = new Date(o.created_at)
                     return d >= start && d < end && o.status === 'completed' && o.order_type === 'dine-in'
                 })
-                break
             case 'today-delivery':
-                relevantOrders = orders.filter(o => {
+                return orders.filter(o => {
                     const d = new Date(o.created_at)
                     return d >= start && d < end && o.status === 'completed' && o.order_type === 'delivery'
                 })
-                break
             case 'today-takeaway':
-                relevantOrders = orders.filter(o => {
+                return orders.filter(o => {
                     const d = new Date(o.created_at)
                     return d >= start && d < end && o.status === 'completed' && o.order_type === 'takeaway'
                 })
-                break
             default:
-                relevantOrders = orders
+                return orders
         }
-
-        // 2️⃣ Only for active orders: merge by table_id
-        if (filter === 'active') {
-            const map = new Map<string, any>()
-            for (const o of relevantOrders) {
-                const key = o.table_id || o.id
-                if (!map.has(key)) {
-                    map.set(key, { ...o })
-                } else {
-                    const existing = map.get(key)
-                    // Merge totals
-                    existing.subtotal += o.subtotal
-                    existing.tax += o.tax
-                    existing.total_amount += o.total_amount
-                    // Merge order_items
-                    existing.order_items = [...existing.order_items, ...o.order_items]
-                }
-            }
-            return Array.from(map.values())
-        }
-
-        return relevantOrders
     }, [orders, filter])
-
 
     const stats = useMemo(() => {
         const {start, end} = getTodayRange()
@@ -202,75 +167,133 @@ export default function OrdersPage() {
         return 'cash'
     }
 
-    const handlePrintAndComplete = async (paymentMethod: 'cash' | 'online') => {
-        if (!showPaymentModal) return
+    // ✅ FIXED: Single print + complete function
+    const handlePrintAndComplete = async (order: any, paymentMethod: 'cash' | 'online') => {
+        if (actionLoading) return
 
-        if (isOnline) {
+        setActionLoading(true)
+        try {
+            // 1. Update payment method
             await supabase
                 .from('orders')
                 .update({ payment_method: paymentMethod })
-                .eq('id', showPaymentModal.id)
-        }
+                .eq('id', order.id)
 
-        // 🔹 Merge items by menu_items.id
-        const mergedItems: any[] = []
-        const itemMap = new Map<string, any>()
-        showPaymentModal.order_items.forEach((item: any) => {
-            const key = item.menu_items?.id
-            if (!itemMap.has(key)) {
-                itemMap.set(key, { ...item })
-            } else {
-                const existing = itemMap.get(key)
-                existing.quantity += item.quantity
-                existing.total_price += item.total_price
+            // 2. Build receipt
+            const receiptData: ReceiptData = {
+                restaurantName: 'AT RESTAURANT',
+                tagline: 'Delicious Food, Memorable Moments',
+                address: 'Sooter Mills Rd, Lahore',
+                orderNumber: order.id.slice(0, 8).toUpperCase(),
+                date: new Date(order.created_at).toLocaleString('en-PK'),
+                orderType: order.order_type || 'dine-in',
+                customerName: order.customer_name,
+                customerPhone: order.customer_phone,
+                deliveryAddress: order.delivery_address,
+                deliveryCharges: order.delivery_charges,
+                tableNumber: order.restaurant_tables?.table_number,
+                waiter: order.waiters?.name,
+                items: order.order_items.map((item: any) => {
+                    const category = menuCategories[item.menu_items?.id]
+                    return {
+                        name: item.menu_items?.name,
+                        quantity: item.quantity,
+                        price: item.menu_items?.price,
+                        total: item.total_price,
+                        category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
+                    }
+                }),
+                subtotal: order.display_total || order.total_amount,
+                tax: order.tax,
+                total: order.display_total || order.total_amount,
+                paymentMethod: validatePaymentMethod(paymentMethod),
+                notes: order.notes
             }
-        })
-        mergedItems.push(...itemMap.values())
 
-        const receiptData: ReceiptData = {
-            restaurantName: 'AT RESTAURANT',
-            tagline: 'Delicious Food, Memorable Moments',
-            address: 'Sooter Mills Rd, Lahore',
-            orderNumber: showPaymentModal.id.slice(0, 8).toUpperCase(),
-            date: new Date(showPaymentModal.created_at).toLocaleString('en-PK'),
-            orderType: showPaymentModal.order_type || 'dine-in',
-            customerName: showPaymentModal.customer_name,
-            customerPhone: showPaymentModal.customer_phone,
-            deliveryAddress: showPaymentModal.delivery_address,
-            deliveryCharges: showPaymentModal.delivery_charges,
-            tableNumber: showPaymentModal.restaurant_tables?.table_number,
-            waiter: showPaymentModal.waiters?.name,
-            items: mergedItems.map((item: any) => {
-                const category = menuCategories[item.menu_items?.id]
-                return {
-                    name: item.menu_items?.name,
-                    quantity: item.quantity,
-                    price: item.menu_items?.price,
-                    total: item.total_price,
-                    category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
-                }
-            }),
-            subtotal: mergedItems.reduce((sum, i) => sum + i.total_price, 0),
-            tax: showPaymentModal.tax,
-            total: mergedItems.reduce((sum, i) => sum + i.total_price, 0),
-            paymentMethod: validatePaymentMethod(paymentMethod),
-            notes: showPaymentModal.notes
+            // 3. Print ONCE
+            console.log('🖨️ Printing receipt...')
+            await productionPrinter.print(receiptData)
+
+            // 4. Complete order
+            const { error: updateError } = await supabase
+                .from('orders')
+                .update({
+                    status: 'completed',
+                    receipt_printed: true,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', order.id)
+
+            if (updateError) throw updateError
+
+            // 5. Free table if dine-in
+            if (order.order_type === 'dine-in' && order.table_id) {
+                await supabase
+                    .from('restaurant_tables')
+                    .update({
+                        status: 'available',
+                        current_order_id: null,
+                        waiter_id: null
+                    })
+                    .eq('id', order.table_id)
+            }
+
+            setSelectedOrder(null)
+            loadOrders()
+
+            // Show success toast
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('toast-add', {
+                    detail: { type: 'success', message: '✅ Order completed & printed!' }
+                }))
+            }
+        } catch (error: any) {
+            console.error('Print and complete failed:', error)
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('toast-add', {
+                    detail: { type: 'error', message: `❌ ${error.message}` }
+                }))
+            }
+        } finally {
+            setActionLoading(false)
         }
-
-        await productionPrinter.print(receiptData)
-        await printAndComplete(showPaymentModal.id, showPaymentModal.table_id, showPaymentModal.order_type)
-        setShowPaymentModal(null)
-        setSelectedOrder(null)
-        loadOrders()
     }
-
 
     const handleCancel = async (order: any) => {
         if (!confirm('⚠️ Cancel this order?')) return
-        const result = await cancelOrder(order.id, order.table_id, order.order_type)
-        if (result.success) {
+
+        setActionLoading(true)
+        try {
+            const { error } = await supabase
+                .from('orders')
+                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                .eq('id', order.id)
+
+            if (error) throw error
+
+            if (order.order_type === 'dine-in' && order.table_id) {
+                await supabase
+                    .from('restaurant_tables')
+                    .update({ status: 'available', current_order_id: null, waiter_id: null })
+                    .eq('id', order.table_id)
+            }
+
             setSelectedOrder(null)
             loadOrders()
+
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('toast-add', {
+                    detail: { type: 'success', message: '✅ Order cancelled' }
+                }))
+            }
+        } catch (error: any) {
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('toast-add', {
+                    detail: { type: 'error', message: `❌ ${error.message}` }
+                }))
+            }
+        } finally {
+            setActionLoading(false)
         }
     }
 
@@ -285,7 +308,10 @@ export default function OrdersPage() {
                     )}
                     <div>
                         <p className="font-medium text-[var(--fg)] text-sm">#{row.id.slice(0, 8).toUpperCase()}</p>
-                        <p className="text-xs text-[var(--muted)]">{new Date(row.created_at).toLocaleString()}</p>
+                        <p className="text-xs text-[var(--muted)]">
+                            {new Date(row.created_at).toLocaleString()}
+                            {row.item_count > 0 && ` • ${row.item_count} items`}
+                        </p>
                     </div>
                 </div>
             )
@@ -332,7 +358,9 @@ export default function OrdersPage() {
         },
         {
             key: 'amount', label: 'Amount', align: 'right' as const, render: (row: any) => (
-                <p className="text-base sm:text-lg font-bold text-blue-600">PKR {row.total_amount.toLocaleString()}</p>
+                <p className="text-base sm:text-lg font-bold text-blue-600">
+                    PKR {(row.display_total || row.total_amount).toLocaleString()}
+                </p>
             )
         }
     ]
@@ -344,7 +372,6 @@ export default function OrdersPage() {
         {id: 'today-takeaway', label: 'Today Takeaway', icon: '📦', count: stats[3].value}
     ], filter, (id: string) => setFilter(id as any))
 
-    // ✅ DAILY SUMMARY MODAL - Mobile Optimized
     const DailySummaryModal = () => {
         const {start, end} = getTodayRange()
         const todayCompleted = orders.filter(o => {
@@ -352,17 +379,11 @@ export default function OrdersPage() {
             return orderDate >= start && orderDate < end && o.status === 'completed'
         })
 
-        const totalRevenue = todayCompleted.reduce((sum, o) => sum + o.total_amount, 0)
-        const totalDeliveryCharges = todayCompleted
-            .filter(o => o.order_type === 'delivery')
-            .reduce((sum, o) => sum + (o.delivery_charges || 0), 0)
-        const avgOrder = todayCompleted.length > 0 ? totalRevenue / todayCompleted.length : 0
-
+        const totalRevenue = todayCompleted.reduce((sum, o) => sum + (o.display_total || o.total_amount), 0)
         const cashOrders = todayCompleted.filter(o => o.payment_method === 'cash')
         const onlineOrders = todayCompleted.filter(o => o.payment_method === 'online')
-
-        const cashTotal = cashOrders.reduce((sum, o) => sum + o.total_amount, 0)
-        const onlineTotal = onlineOrders.reduce((sum, o) => sum + o.total_amount, 0)
+        const cashTotal = cashOrders.reduce((sum, o) => sum + (o.display_total || o.total_amount), 0)
+        const onlineTotal = onlineOrders.reduce((sum, o) => sum + (o.display_total || o.total_amount), 0)
 
         return (
             <div
@@ -371,117 +392,178 @@ export default function OrdersPage() {
                 <div
                     className="bg-[var(--card)] border border-[var(--border)] rounded-t-2xl sm:rounded-xl w-full sm:max-w-2xl shadow-2xl max-h-[85vh] sm:max-h-[90vh] overflow-y-auto"
                     onClick={e => e.stopPropagation()}>
-                    {/* Header - Sticky on mobile */}
-                    <div className="sticky top-0 bg-[var(--card)] border-b border-[var(--border)] z-10">
-                        <div className="p-4 sm:p-6">
-                            <div className="flex items-center gap-3">
-                                <div
-                                    className="w-10 h-10 sm:w-12 sm:h-12 bg-green-600/20 rounded-xl flex items-center justify-center flex-shrink-0">
-                                    <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-green-600"/>
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <h3 className="text-lg sm:text-xl font-bold text-[var(--fg)]">Today's Summary</h3>
-                                    <p className="text-xs sm:text-sm text-[var(--muted)] truncate">
-                                        {new Date().toLocaleDateString('en-PK', {
-                                            weekday: 'short',
-                                            month: 'short',
-                                            day: 'numeric'
-                                        })}
-                                    </p>
-                                </div>
+                    <div className="sticky top-0 bg-[var(--card)] border-b border-[var(--border)] z-10 p-4 sm:p-6">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-600/20 rounded-xl flex items-center justify-center flex-shrink-0">
+                                <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-green-600"/>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-lg sm:text-xl font-bold text-[var(--fg)]">Today's Summary</h3>
+                                <p className="text-xs sm:text-sm text-[var(--muted)] truncate">
+                                    {new Date().toLocaleDateString('en-PK', {weekday: 'short', month: 'short', day: 'numeric'})}
+                                </p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 pb-20 sm:pb-6">
-                        {/* Main Stats - Responsive Grid */}
-                        <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                            <div
-                                className="p-3 sm:p-4 bg-[var(--bg)] rounded-lg sm:rounded-xl border border-[var(--border)]">
-                                <p className="text-[10px] sm:text-xs text-[var(--muted)] mb-1">Orders</p>
-                                <p className="text-xl sm:text-3xl font-bold text-[var(--fg)]">{todayCompleted.length}</p>
+                    <div className="p-4 sm:p-6 space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
+                                <p className="text-xs text-[var(--muted)] mb-1">Orders</p>
+                                <p className="text-2xl font-bold text-[var(--fg)]">{todayCompleted.length}</p>
                             </div>
-                            <div
-                                className="p-3 sm:p-4 bg-[var(--bg)] rounded-lg sm:rounded-xl border border-[var(--border)]">
-                                <p className="text-[10px] sm:text-xs text-[var(--muted)] mb-1">Revenue</p>
-                                <p className="text-base sm:text-2xl font-bold text-green-600">₨{(totalRevenue / 1000).toFixed(1)}k</p>
-                                <p className="text-[10px] text-[var(--muted)]">{totalRevenue.toLocaleString()}</p>
-                            </div>
-                            <div
-                                className="p-3 sm:p-4 bg-[var(--bg)] rounded-lg sm:rounded-xl border border-[var(--border)]">
-                                <p className="text-[10px] sm:text-xs text-[var(--muted)] mb-1">Delivery</p>
-                                <p className="text-base sm:text-2xl font-bold text-blue-600">₨{(totalDeliveryCharges / 1000).toFixed(1)}k</p>
-                                <p className="text-[10px] text-[var(--muted)]">{totalDeliveryCharges.toLocaleString()}</p>
-                            </div>
-                            <div
-                                className="p-3 sm:p-4 bg-[var(--bg)] rounded-lg sm:rounded-xl border border-[var(--border)]">
-                                <p className="text-[10px] sm:text-xs text-[var(--muted)] mb-1">Avg Order</p>
-                                <p className="text-base sm:text-2xl font-bold text-purple-600">₨{(avgOrder / 1000).toFixed(1)}k</p>
-                                <p className="text-[10px] text-[var(--muted)]">{Math.round(avgOrder).toLocaleString()}</p>
+                            <div className="p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
+                                <p className="text-xs text-[var(--muted)] mb-1">Revenue</p>
+                                <p className="text-xl font-bold text-green-600">₨{(totalRevenue / 1000).toFixed(1)}k</p>
                             </div>
                         </div>
 
-                        {/* Order Types */}
-                        <div>
-                            <h4 className="text-xs sm:text-sm font-semibold text-[var(--fg)] mb-2 sm:mb-3">Order
-                                Types</h4>
-                            <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                                {['dine-in', 'delivery', 'takeaway'].map(type => {
-                                    const count = todayCompleted.filter(o => o.order_type === type).length
-                                    const revenue = todayCompleted.filter(o => o.order_type === type).reduce((sum, o) => sum + o.total_amount, 0)
-                                    return (
-                                        <div key={type}
-                                             className="p-3 sm:p-4 bg-[var(--bg)] rounded-lg sm:rounded-xl border border-[var(--border)] text-center">
-                                            <p className="text-xl sm:text-2xl mb-1">{type === 'dine-in' ? '🏠' : type === 'delivery' ? '🚚' : '📦'}</p>
-                                            <p className="text-[10px] sm:text-xs text-[var(--muted)] capitalize mb-1 truncate">{type.replace('-', ' ')}</p>
-                                            <p className="text-lg sm:text-xl font-bold text-[var(--fg)]">{count}</p>
-                                            <p className="text-[10px] sm:text-xs text-[var(--muted)] mt-1">₨{(revenue / 1000).toFixed(0)}k</p>
-                                        </div>
-                                    )
-                                })}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="p-4 bg-green-600/10 rounded-lg border border-green-600/30">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Banknote className="w-4 h-4 text-green-600"/>
+                                    <p className="text-xs font-semibold text-green-600">Cash</p>
+                                </div>
+                                <p className="text-xl font-bold text-green-600">PKR {cashTotal.toLocaleString()}</p>
+                                <p className="text-xs text-[var(--muted)] mt-1">{cashOrders.length} orders</p>
                             </div>
-                        </div>
-
-                        {/* Payment Methods */}
-                        <div>
-                            <h4 className="text-xs sm:text-sm font-semibold text-[var(--fg)] mb-2 sm:mb-3">Payment
-                                Collection</h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div
-                                    className="p-4 bg-green-600/10 rounded-lg sm:rounded-xl border border-green-600/30">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <Banknote className="w-4 h-4 sm:w-5 sm:h-5 text-green-600"/>
-                                            <p className="text-xs sm:text-sm font-semibold text-green-600">Cash</p>
-                                        </div>
-                                        <span className="text-xs text-[var(--muted)]">{cashOrders.length} orders</span>
-                                    </div>
-                                    <p className="text-xl sm:text-2xl font-bold text-green-600">PKR {cashTotal.toLocaleString()}</p>
+                            <div className="p-4 bg-blue-600/10 rounded-lg border border-blue-600/30">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <CreditCard className="w-4 h-4 text-blue-600"/>
+                                    <p className="text-xs font-semibold text-blue-600">Online</p>
                                 </div>
-                                <div className="p-4 bg-blue-600/10 rounded-lg sm:rounded-xl border border-blue-600/30">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600"/>
-                                            <p className="text-xs sm:text-sm font-semibold text-blue-600">Online</p>
-                                        </div>
-                                        <span
-                                            className="text-xs text-[var(--muted)]">{onlineOrders.length} orders</span>
-                                    </div>
-                                    <p className="text-xl sm:text-2xl font-bold text-blue-600">PKR {onlineTotal.toLocaleString()}</p>
-                                </div>
+                                <p className="text-xl font-bold text-blue-600">PKR {onlineTotal.toLocaleString()}</p>
+                                <p className="text-xs text-[var(--muted)] mt-1">{onlineOrders.length} orders</p>
                             </div>
                         </div>
                     </div>
 
-                    {/* Footer - Sticky on mobile */}
-                    <div className="sticky bottom-0 bg-[var(--card)] border-t border-[var(--border)] p-4 sm:p-6">
+                    <div className="sticky bottom-0 bg-[var(--card)] border-t border-[var(--border)] p-4">
                         <button
                             onClick={() => setShowDailySummary(false)}
-                            className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg sm:rounded-xl hover:bg-blue-700 font-medium transition-colors active:scale-95"
+                            className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors active:scale-95"
                         >
                             Close
                         </button>
                     </div>
+                </div>
+            </div>
+        )
+    }
+
+    const OrderDetailsModal = () => {
+        if (!selectedOrder) return null
+
+        return (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
+                 onClick={() => setSelectedOrder(null)}>
+                <div className="bg-[var(--card)] border border-[var(--border)] rounded-t-2xl sm:rounded-xl w-full sm:max-w-2xl shadow-2xl max-h-[85vh] overflow-y-auto"
+                     onClick={e => e.stopPropagation()}>
+
+                    <div className="sticky top-0 bg-[var(--card)] border-b border-[var(--border)] p-4 sm:p-6">
+                        <h3 className="text-lg sm:text-xl font-bold text-[var(--fg)]">
+                            Order #{selectedOrder.id.slice(0, 8).toUpperCase()}
+                        </h3>
+                        <p className="text-xs sm:text-sm text-[var(--muted)] mt-1">
+                            {new Date(selectedOrder.created_at).toLocaleString('en-PK')} • {selectedOrder.item_count} items
+                        </p>
+                    </div>
+
+                    <div className="p-4 sm:p-6 space-y-3">
+                        {selectedOrder.order_items?.map((item: any) => (
+                            <div key={item.id} className="flex justify-between p-3 bg-[var(--bg)] rounded-lg">
+                                <span className="font-medium text-sm text-[var(--fg)]">
+                                    {item.quantity}× {item.menu_items?.name}
+                                </span>
+                                <span className="font-bold text-sm text-[var(--fg)]">
+                                    PKR {item.total_price.toLocaleString()}
+                                </span>
+                            </div>
+                        ))}
+
+                        <div className="p-4 bg-blue-600/10 rounded-lg border border-blue-600/30 mt-4">
+                            <div className="flex justify-between text-xl sm:text-2xl font-bold">
+                                <span className="text-[var(--fg)]">Total</span>
+                                <span className="text-blue-600">PKR {(selectedOrder.display_total || selectedOrder.total_amount).toLocaleString()}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {selectedOrder.status === 'pending' && (
+                        <div className="sticky bottom-0 bg-[var(--card)] border-t border-[var(--border)] p-4 sm:p-6">
+                            <div className="space-y-3">
+                                <button
+                                    onClick={() => {
+                                        setShowSplitBill(selectedOrder)
+                                        setSelectedOrder(null)
+                                    }}
+                                    disabled={actionLoading}
+                                    className="w-full px-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--card)] flex items-center justify-center gap-2 font-medium transition-colors active:scale-95 disabled:opacity-50"
+                                >
+                                    <Users className="w-4 h-4"/> Split Bill
+                                </button>
+
+                                {selectedOrder.order_type === 'dine-in' && !selectedOrder.payment_method ? (
+                                    <>
+                                        <p className="text-xs text-center text-[var(--muted)]">Select payment & print:</p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <button
+                                                onClick={() => handlePrintAndComplete(selectedOrder, 'cash')}
+                                                disabled={actionLoading || !isOnline}
+                                                className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95"
+                                            >
+                                                {actionLoading ? (
+                                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                ) : (
+                                                    <>
+                                                        <Banknote className="w-5 h-5"/>
+                                                        <span className="text-sm">Cash</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                            <button
+                                                onClick={() => handlePrintAndComplete(selectedOrder, 'online')}
+                                                disabled={actionLoading || !isOnline}
+                                                className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95"
+                                            >
+                                                {actionLoading ? (
+                                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                ) : (
+                                                    <>
+                                                        <CreditCard className="w-5 h-5"/>
+                                                        <span className="text-sm">Online</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <button
+                                        onClick={() => handlePrintAndComplete(selectedOrder, selectedOrder.payment_method || 'cash')}
+                                        disabled={actionLoading || !isOnline}
+                                        className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95"
+                                    >
+                                        {actionLoading ? (
+                                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                        ) : (
+                                            <>
+                                                <Printer className="w-4 h-4"/>
+                                                Print & Complete
+                                            </>
+                                        )}
+                                    </button>
+                                )}
+
+                                <button
+                                    onClick={() => handleCancel(selectedOrder)}
+                                    disabled={actionLoading}
+                                    className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors disabled:opacity-50 active:scale-95"
+                                >
+                                    Cancel Order
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         )
@@ -524,7 +606,6 @@ export default function OrdersPage() {
                     </div>
                 </div>
 
-                {/* ✅ FLOATING SUMMARY BUTTON - Responsive positioning */}
                 <button
                     onClick={() => setShowDailySummary(true)}
                     className="fixed bottom-20 sm:bottom-6 right-4 sm:right-6 w-14 h-14 bg-gradient-to-br from-green-600 to-green-700 text-white rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-transform flex items-center justify-center z-40"
@@ -534,166 +615,7 @@ export default function OrdersPage() {
                 </button>
 
                 {showDailySummary && <DailySummaryModal/>}
-
-                {selectedOrder && (
-                    <UniversalModal
-                        open={!!selectedOrder}
-                        onClose={() => setSelectedOrder(null)}
-                        title={`Order #${selectedOrder.id.slice(0, 8)}`}
-                        footer={
-                            <div className="flex flex-wrap gap-2 w-full">
-                                <button
-                                    onClick={() => setShowSplitBill(selectedOrder)}
-                                    className="flex-1 px-4 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--card)] flex items-center justify-center gap-2 text-sm font-medium transition-colors active:scale-95"
-                                >
-                                    <Users className="w-4 h-4"/> Split
-                                </button>
-
-                                {selectedOrder.status === 'pending' && (
-                                    <>
-                                        <button
-                                            onClick={() => handleCancel(selectedOrder)}
-                                            disabled={actionLoading}
-                                            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium transition-colors disabled:opacity-50 active:scale-95"
-                                        >
-                                            Cancel
-                                        </button>
-
-                                        <button
-                                            onClick={() => {
-                                                if (selectedOrder.order_type === 'dine-in' && !selectedOrder.payment_method) {
-                                                    setShowPaymentModal(selectedOrder)
-                                                } else {
-                                                    const receiptData: ReceiptData = {
-                                                        restaurantName: 'AT RESTAURANT',
-                                                        tagline: 'Delicious Food, Memorable Moments',
-                                                        address: 'Sooter Mills Rd, Lahore',
-                                                        orderNumber: selectedOrder.id.slice(0, 8).toUpperCase(),
-                                                        date: new Date(selectedOrder.created_at).toLocaleString('en-PK'),
-                                                        orderType: selectedOrder.order_type || 'dine-in',
-                                                        customerName: selectedOrder.customer_name,
-                                                        customerPhone: selectedOrder.customer_phone,
-                                                        deliveryAddress: selectedOrder.delivery_address,
-                                                        deliveryCharges: selectedOrder.delivery_charges,
-                                                        tableNumber: selectedOrder.restaurant_tables?.table_number,
-                                                        waiter: selectedOrder.waiters?.name,
-                                                        items: selectedOrder.order_items.map((item: any) => {
-                                                            const category = menuCategories[item.menu_items?.id]
-                                                            return {
-                                                                name: item.menu_items?.name,
-                                                                quantity: item.quantity,
-                                                                price: item.menu_items?.price,
-                                                                total: item.total_price,
-                                                                category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
-                                                            }
-                                                        }),
-                                                        subtotal: selectedOrder.subtotal,
-                                                        tax: selectedOrder.tax,
-                                                        total: selectedOrder.total_amount,
-                                                        paymentMethod: validatePaymentMethod(selectedOrder.payment_method),
-                                                        notes: selectedOrder.notes
-                                                    }
-
-                                                    productionPrinter.print(receiptData).then(() => {
-                                                        printAndComplete(
-                                                            selectedOrder.id,
-                                                            selectedOrder.table_id,
-                                                            selectedOrder.order_type
-                                                        ).then(() => {
-                                                            setSelectedOrder(null)
-                                                            loadOrders()
-                                                        })
-                                                    })
-                                                }
-                                            }}
-                                            disabled={actionLoading || !isOnline}
-                                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 text-sm font-medium transition-colors disabled:opacity-50 active:scale-95"
-                                        >
-                                            <Printer className="w-4 h-4"/>
-                                            Print & Complete
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-                        }
-                    >
-                        <div className="space-y-3">
-                            {selectedOrder.order_items?.map((item: any) => (
-                                <div key={item.id} className="flex justify-between p-3 bg-[var(--bg)] rounded-lg">
-                                    <span className="font-medium text-sm text-[var(--fg)]">
-                                        {item.quantity}× {item.menu_items?.name}
-                                    </span>
-                                    <span className="font-bold text-sm text-[var(--fg)]">
-                                        PKR {item.total_price.toLocaleString()}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </UniversalModal>
-                )}
-
-                {showPaymentModal && (
-                    <div
-                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-                        onClick={() => setShowPaymentModal(null)}>
-                        <div
-                            className="bg-[var(--card)] border border-[var(--border)] rounded-xl w-full max-w-sm shadow-2xl"
-                            onClick={e => e.stopPropagation()}>
-                            <div className="p-6 border-b border-[var(--border)]">
-                                <h3 className="text-lg font-bold text-[var(--fg)]">Select Payment Method</h3>
-                                <p className="text-sm text-[var(--muted)] mt-1">
-                                    Order #{showPaymentModal.id.slice(0, 8).toUpperCase()}
-                                </p>
-                            </div>
-
-                            <div className="p-6 space-y-3">
-                                <button
-                                    onClick={() => handlePrintAndComplete('cash')}
-                                    disabled={actionLoading}
-                                    className="w-full p-4 border-2 border-[var(--border)] rounded-lg hover:border-green-600 hover:bg-green-600/10 transition-all group disabled:opacity-50"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div
-                                            className="w-12 h-12 bg-green-600/20 rounded-lg flex items-center justify-center group-hover:bg-green-600/30 transition-colors">
-                                            <Banknote className="w-6 h-6 text-green-600"/>
-                                        </div>
-                                        <div className="text-left">
-                                            <p className="font-semibold text-[var(--fg)]">Cash Payment</p>
-                                            <p className="text-xs text-[var(--muted)]">Pay with cash</p>
-                                        </div>
-                                    </div>
-                                </button>
-
-                                <button
-                                    onClick={() => handlePrintAndComplete('online')}
-                                    disabled={actionLoading}
-                                    className="w-full p-4 border-2 border-[var(--border)] rounded-lg hover:border-blue-600 hover:bg-blue-600/10 transition-all group disabled:opacity-50"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div
-                                            className="w-12 h-12 bg-blue-600/20 rounded-lg flex items-center justify-center group-hover:bg-blue-600/30 transition-colors">
-                                            <CreditCard className="w-6 h-6 text-blue-600"/>
-                                        </div>
-                                        <div className="text-left">
-                                            <p className="font-semibold text-[var(--fg)]">Online Payment</p>
-                                            <p className="text-xs text-[var(--muted)]">Card / Wallet</p>
-                                        </div>
-                                    </div>
-                                </button>
-                            </div>
-
-                            <div className="p-6 pt-0">
-                                <button
-                                    onClick={() => setShowPaymentModal(null)}
-                                    className="w-full px-4 py-2 bg-[var(--bg)] text-[var(--fg)] rounded-lg hover:bg-[var(--border)] text-sm font-medium transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
+                {selectedOrder && <OrderDetailsModal/>}
                 {showSplitBill && <SplitBillModal order={showSplitBill} onClose={() => setShowSplitBill(null)}/>}
             </div>
         </ErrorBoundary>

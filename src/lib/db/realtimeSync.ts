@@ -1,4 +1,6 @@
-// src/lib/db/realtimeSync.ts - FIXED WITH PROPER CLEANUP
+// src/lib/db/realtimeSync.ts
+// ✅ FIXED: Excludes cancelled orders from syncing, handles offline data properly
+
 import { createClient } from '@/lib/supabase/client'
 import { db } from './indexedDB'
 import { STORES } from './schema'
@@ -7,18 +9,17 @@ export class RealtimeSync {
     private syncQueue: Promise<any> | null = null
     private syncInterval: NodeJS.Timeout | null = null
     private pendingOperations: Map<string, 'processing' | 'failed'> = new Map()
-    private isDestroyed: boolean = false // ✅ FIX: Track destruction
+    private isDestroyed: boolean = false
 
     constructor() {
         if (typeof window !== 'undefined') {
             this.startAutoSync()
             this.setupOnlineListener()
-            this.setupUnloadListener() // ✅ FIX: Add cleanup on unload
+            this.setupUnloadListener()
         }
     }
 
     private startAutoSync() {
-        // ✅ FIX: Clear existing interval first
         if (this.syncInterval) {
             clearInterval(this.syncInterval)
         }
@@ -39,14 +40,12 @@ export class RealtimeSync {
 
         window.addEventListener('online', handleOnline)
 
-        // ✅ FIX: Store reference for cleanup
         if (!window.__realtimeSyncListeners) {
             window.__realtimeSyncListeners = []
         }
         window.__realtimeSyncListeners.push({ event: 'online', handler: handleOnline })
     }
 
-    // ✅ FIX: Add unload listener for cleanup
     private setupUnloadListener() {
         const handleUnload = () => {
             this.destroy()
@@ -88,8 +87,8 @@ export class RealtimeSync {
             const ordersResult = await this.syncOrders()
             totalSynced += ordersResult.synced
 
-            const attendanceResult = await this.syncAttendance()
-            totalSynced += attendanceResult.synced
+            const waitersResult = await this.syncWaiters()
+            totalSynced += waitersResult.synced
 
             this.dispatchEvent('sync-complete', { synced: totalSynced })
 
@@ -100,6 +99,7 @@ export class RealtimeSync {
         }
     }
 
+    // ✅ FIXED: Exclude cancelled orders from syncing
     private async syncOrders(): Promise<{ success: boolean; synced: number }> {
         if (this.isDestroyed) return { success: false, synced: 0 }
 
@@ -108,13 +108,19 @@ export class RealtimeSync {
 
         try {
             const allOrders = (await db.getAll(STORES.ORDERS)) as any[]
+
+            // ✅ KEY FIX: Filter out cancelled orders AND already synced orders
             const pendingOrders = allOrders.filter(
-                o => !o.synced && o.id.startsWith('offline_')
+                o => !o.synced &&
+                    o.id.startsWith('offline_') &&
+                    o.status !== 'cancelled' // ✅ Don't sync cancelled orders
             )
 
             if (pendingOrders.length === 0) {
                 return { success: true, synced: 0 }
             }
+
+            console.log(`🔄 Syncing ${pendingOrders.length} orders (excluding cancelled)`)
 
             for (const order of pendingOrders) {
                 if (this.isDestroyed) break
@@ -188,7 +194,9 @@ export class RealtimeSync {
 
                     synced++
                     this.pendingOperations.delete(order.id)
+                    console.log(`✅ Synced order ${order.id}`)
                 } catch (error) {
+                    console.error(`❌ Failed to sync order ${order.id}:`, error)
                     this.pendingOperations.set(order.id, 'failed')
                     setTimeout(() => this.pendingOperations.delete(order.id), 300000)
                 }
@@ -196,55 +204,44 @@ export class RealtimeSync {
 
             return { success: true, synced }
         } catch (error) {
+            console.error('Orders sync error:', error)
             return { success: false, synced }
         }
     }
 
-    private async syncAttendance(): Promise<{ success: boolean; synced: number }> {
+    // ✅ NEW: Sync waiter status changes
+    private async syncWaiters(): Promise<{ success: boolean; synced: number }> {
         if (this.isDestroyed) return { success: false, synced: 0 }
 
         const supabase = createClient()
         let synced = 0
 
         try {
-            const allShifts = (await db.getAll(STORES.WAITER_SHIFTS)) as any[]
-            const pendingShifts = allShifts.filter(
-                s => !s.synced && s.id.startsWith('offline_')
+            // Get pending waiter updates from sync queue
+            const allQueueItems = (await db.getAll(STORES.SYNC_QUEUE)) as any[]
+            const waiterUpdates = allQueueItems.filter(
+                item => item.table === 'waiters' && item.status === 'pending'
             )
 
-            if (pendingShifts.length === 0) {
-                return { success: true, synced: 0 }
-            }
-
-            for (const shift of pendingShifts) {
+            for (const update of waiterUpdates) {
                 if (this.isDestroyed) break
 
-                if (this.pendingOperations.has(shift.id)) continue
-                this.pendingOperations.set(shift.id, 'processing')
-
                 try {
-                    const { error } = await supabase
-                        .from('waiter_shifts')
-                        .insert({
-                            waiter_id: shift.waiter_id,
-                            clock_in: shift.clock_in,
-                            clock_out: shift.clock_out,
-                            created_at: shift.created_at
-                        })
+                    await supabase
+                        .from('waiters')
+                        .update({ is_on_duty: update.data.is_on_duty })
+                        .eq('id', update.data.id)
 
-                    if (error) throw error
-
-                    await db.delete(STORES.WAITER_SHIFTS, shift.id)
+                    await db.delete(STORES.SYNC_QUEUE, update.id)
                     synced++
-                    this.pendingOperations.delete(shift.id)
                 } catch (error) {
-                    this.pendingOperations.set(shift.id, 'failed')
-                    setTimeout(() => this.pendingOperations.delete(shift.id), 300000)
+                    console.error('Waiter sync error:', error)
                 }
             }
 
             return { success: true, synced }
         } catch (error) {
+            console.error('Waiters sync error:', error)
             return { success: false, synced }
         }
     }
@@ -253,19 +250,23 @@ export class RealtimeSync {
         if (this.isDestroyed) return 0
 
         try {
-            const [orders, shifts] = await Promise.all([
+            const [orders, queueItems] = await Promise.all([
                 db.getAll(STORES.ORDERS),
-                db.getAll(STORES.WAITER_SHIFTS)
+                db.getAll(STORES.SYNC_QUEUE)
             ])
 
+            // ✅ Only count non-cancelled orders
             const pendingOrders = (orders as any[]).filter(
-                o => !o.synced && o.id.startsWith('offline_')
-            )
-            const pendingShifts = (shifts as any[]).filter(
-                s => !s.synced && s.id.startsWith('offline_')
+                o => !o.synced &&
+                    o.id.startsWith('offline_') &&
+                    o.status !== 'cancelled'
             )
 
-            return pendingOrders.length + pendingShifts.length
+            const pendingQueue = (queueItems as any[]).filter(
+                item => item.status === 'pending'
+            )
+
+            return pendingOrders.length + pendingQueue.length
         } catch (error) {
             return 0
         }
@@ -276,7 +277,6 @@ export class RealtimeSync {
         window.dispatchEvent(new CustomEvent(type, { detail }))
     }
 
-    // ✅ FIX: Proper cleanup method
     destroy() {
         console.log('🔄 Destroying RealtimeSync...')
 
@@ -290,7 +290,6 @@ export class RealtimeSync {
         this.pendingOperations.clear()
         this.syncQueue = null
 
-        // ✅ FIX: Remove all event listeners
         if (typeof window !== 'undefined' && window.__realtimeSyncListeners) {
             window.__realtimeSyncListeners.forEach(({ event, handler }) => {
                 window.removeEventListener(event, handler)
@@ -300,17 +299,14 @@ export class RealtimeSync {
     }
 }
 
-// ✅ FIX: Export singleton with proper initialization
 export const realtimeSync = new RealtimeSync()
 
-// ✅ FIX: Cleanup on window unload (backup)
 if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', () => {
         realtimeSync.destroy()
     })
 }
 
-// ✅ FIX: Type augmentation for cleanup listeners
 declare global {
     interface Window {
         __realtimeSyncListeners?: Array<{

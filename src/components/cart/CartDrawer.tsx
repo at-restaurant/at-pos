@@ -1,5 +1,5 @@
 // src/components/cart/CartDrawer.tsx
-// ✅ COMPLETE WITH 3 ORDER TYPES: dine-in | delivery | takeaway
+// ✅ FIXED: Auto-mark waiter present when selected, proper order relationships
 
 'use client'
 
@@ -15,7 +15,7 @@ interface CartDrawerProps {
     isOpen: boolean
     onClose: () => void
     tables: Array<{ id: string; table_number: number; section: string; status: string }>
-    waiters: Array<{ id: string; name: string }>
+    waiters: Array<{ id: string; name: string; is_on_duty: boolean }>
 }
 
 export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDrawerProps) {
@@ -33,9 +33,9 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
     const [tableWarning, setTableWarning] = useState<{
         show: boolean
         tableNumber: number
-        currentOrder?: any
+        existingOrderId?: string
+        currentTotal?: number
     } | null>(null)
-    const [confirmAddMore, setConfirmAddMore] = useState(false)
     const [editingQuantity, setEditingQuantity] = useState<{ [key: string]: string }>({})
     const [customTaxPercent, setCustomTaxPercent] = useState<string>('0')
     const [editingTax, setEditingTax] = useState(false)
@@ -66,6 +66,30 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         }
     }
 
+    // ✅ NEW: Auto-mark waiter present when selected
+    const handleWaiterChange = async (waiterId: string) => {
+        cart.setWaiter(waiterId)
+
+        if (!waiterId) return
+
+        const selectedWaiter = waiters.find(w => w.id === waiterId)
+
+        // If waiter is not on duty, mark them present
+        if (selectedWaiter && !selectedWaiter.is_on_duty) {
+            try {
+                await supabase
+                    .from('waiters')
+                    .update({ is_on_duty: true })
+                    .eq('id', waiterId)
+
+                console.log('✅ Auto-marked waiter as present')
+            } catch (error) {
+                console.error('Failed to mark waiter present:', error)
+            }
+        }
+    }
+
+    // ✅ FIXED: Check for existing order on table
     useEffect(() => {
         if (cart.tableId && orderType === 'dine-in') {
             checkTableOccupancy(cart.tableId)
@@ -77,6 +101,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         if (!selectedTable) return
 
         if (selectedTable.status === 'occupied') {
+            // Get existing active order for this table
             const { data: existingOrder } = await supabase
                 .from('orders')
                 .select('id, total_amount, subtotal, tax, order_items(id, quantity, menu_items(name))')
@@ -88,19 +113,15 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 setTableWarning({
                     show: true,
                     tableNumber: selectedTable.table_number,
-                    currentOrder: existingOrder
+                    existingOrderId: existingOrder.id,
+                    currentTotal: existingOrder.total_amount
                 })
-                setConfirmAddMore(false)
+            } else {
+                setTableWarning(null)
             }
         } else {
             setTableWarning(null)
-            setConfirmAddMore(false)
         }
-    }
-
-    const handleConfirmAddMore = () => {
-        setConfirmAddMore(true)
-        setTableWarning(null)
     }
 
     const handleQuantityChange = (itemId: string, value: string) => {
@@ -163,14 +184,11 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         return 'cash'
     }
 
+    // ✅ FIXED: Add to existing order OR create new
     const placeOrder = async () => {
         if (cart.items.length === 0) return
         if (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId)) return
         if (orderType === 'delivery' && !paymentMethod) return
-
-        if (orderType === 'dine-in' && tableWarning?.show && !confirmAddMore) {
-            return
-        }
 
         const subtotal = cart.subtotal()
         const tax = calculateTax()
@@ -178,11 +196,9 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         const total = subtotal + tax + deliveryFee
 
         // ✅ Check if adding to existing order
-        const isAddingToExisting = confirmAddMore && tableWarning?.currentOrder
-
-        if (isAddingToExisting && orderType === 'dine-in') {
+        if (tableWarning?.existingOrderId && orderType === 'dine-in') {
             try {
-                const existingOrderId = tableWarning!.currentOrder.id
+                const existingOrderId = tableWarning.existingOrderId
 
                 // 1. Insert new order items
                 const newOrderItems = cart.items.map(item => ({
@@ -199,10 +215,18 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
                 if (itemsError) throw itemsError
 
-                // 2. Update order totals
-                const newSubtotal = tableWarning!.currentOrder.subtotal + subtotal
-                const newTax = tableWarning!.currentOrder.tax + tax
-                const newTotal = newSubtotal + newTax
+                // 2. Update order totals (ADD to existing)
+                const { data: currentOrder } = await supabase
+                    .from('orders')
+                    .select('subtotal, tax, total_amount')
+                    .eq('id', existingOrderId)
+                    .single()
+
+                if (!currentOrder) throw new Error('Order not found')
+
+                const newSubtotal = currentOrder.subtotal + subtotal
+                const newTax = currentOrder.tax + tax
+                const newTotal = currentOrder.total_amount + total
 
                 const { error: updateError } = await supabase
                     .from('orders')
@@ -218,7 +242,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
                 // Success!
                 cart.clearCart()
-                setConfirmAddMore(false)
                 setTableWarning(null)
                 setEditingQuantity({})
                 setCustomTaxPercent('0')
@@ -228,7 +251,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                     const event = new CustomEvent('toast-add', {
                         detail: {
                             type: 'success',
-                            message: `✅ Added ${cart.items.length} items to Table ${tableWarning?.tableNumber}'s order!`
+                            message: `✅ Added ${cart.items.length} items to Table ${tableWarning.tableNumber}'s order!`
                         }
                     })
                     window.dispatchEvent(event)
@@ -250,7 +273,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             }
         }
 
-        // ✅ ORIGINAL FLOW: Create new order
+        // ✅ Create NEW order
         let finalOrderType: 'dine-in' | 'delivery' | 'takeaway'
         if (orderType === 'dine-in') {
             finalOrderType = 'dine-in'
@@ -287,9 +310,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         const result = await createOrder(orderData, cart.items)
 
         if (result.success && result.order) {
-            console.log(`🖨️ Auto-printing receipt for ${finalOrderType}...`)
-
-            // 🔹 Merge same items by menu_item_id for printing
             const mergedItems: any[] = []
             const itemMap = new Map<string, any>()
 
@@ -335,10 +355,8 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
             await productionPrinter.print(receiptData)
 
-            // Clear cart and reset
             cart.clearCart()
             setDetails({ customer_name: '', customer_phone: '', delivery_address: '', delivery_charges: 0 })
-            setConfirmAddMore(false)
             setTableWarning(null)
             setEditingQuantity({})
             setCustomTaxPercent('0')
@@ -346,7 +364,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             onClose()
         }
     }
-
 
     const groupedItems = cart.items.reduce((acc: { [key: string]: typeof cart.items }, item) => {
         const category = menuCategories[item.id]
@@ -418,7 +435,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                 <select value={cart.tableId} onChange={e => cart.setTable(e.target.value)} className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none" style={{ colorScheme: 'dark' }}>
                                     <option value="">Select table</option>
                                     {tables.filter(t => t.status === 'available' || t.status === 'occupied').map(t => (
-                                        <option key={t.id} value={t.id}>Table {t.table_number} - {t.section} {t.status === 'occupied' ? '(Occupied ⚠️)' : ''}</option>
+                                        <option key={t.id} value={t.id}>Table {t.table_number} - {t.section} {t.status === 'occupied' ? '(Has Order ⚠️)' : ''}</option>
                                     ))}
                                 </select>
                             </div>
@@ -428,29 +445,36 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                     <div className="flex items-start gap-3">
                                         <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />
                                         <div className="flex-1">
-                                            <h4 className="font-bold text-[var(--fg)] mb-2">⚠️ Table {tableWarning.tableNumber} is Occupied!</h4>
-                                            <p className="text-sm text-[var(--muted)] mb-3">Current order: PKR {tableWarning.currentOrder?.total_amount.toLocaleString()}</p>
-                                            <div className="bg-[var(--bg)] rounded-lg p-3 mb-3 max-h-32 overflow-y-auto">
-                                                <p className="text-xs font-semibold text-[var(--fg)] mb-2">Existing Items:</p>
-                                                {tableWarning.currentOrder?.order_items?.slice(0, 5).map((item: any, idx: number) => (
-                                                    <p key={idx} className="text-xs text-[var(--muted)]">• {item.quantity}x {item.menu_items.name}</p>
-                                                ))}
-                                            </div>
-                                            <p className="text-sm font-semibold text-yellow-600 mb-3">Do you want to add {cart.items.length} more items to this table?</p>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => { setTableWarning(null); cart.setTable('') }} className="flex-1 px-4 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm font-medium hover:bg-[var(--card)]">Cancel</button>
-                                                <button onClick={handleConfirmAddMore} className="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700">Yes, Add More</button>
-                                            </div>
+                                            <h4 className="font-bold text-[var(--fg)] mb-2">⚠️ Table {tableWarning.tableNumber} has an Active Order!</h4>
+                                            <p className="text-sm text-[var(--muted)] mb-3">Current total: PKR {tableWarning.currentTotal?.toLocaleString()}</p>
+                                            <p className="text-sm font-semibold text-yellow-600 mb-3">
+                                                Your {cart.items.length} items will be ADDED to this table's existing order.
+                                            </p>
+                                            <p className="text-xs text-[var(--muted)]">
+                                                💡 This creates one combined bill for the table
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
                             )}
 
                             <div>
-                                <label className="block text-sm font-medium text-[var(--fg)] mb-2">Select Waiter <span className="text-red-600">*</span></label>
-                                <select value={cart.waiterId} onChange={e => cart.setWaiter(e.target.value)} className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none" style={{ colorScheme: 'dark' }}>
+                                <label className="block text-sm font-medium text-[var(--fg)] mb-2">
+                                    Select Waiter <span className="text-red-600">*</span>
+                                    <span className="text-xs text-[var(--muted)] ml-2">(Auto-marks present)</span>
+                                </label>
+                                <select
+                                    value={cart.waiterId}
+                                    onChange={e => handleWaiterChange(e.target.value)}
+                                    className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                    style={{ colorScheme: 'dark' }}
+                                >
                                     <option value="">Select waiter</option>
-                                    {waiters.map(w => (<option key={w.id} value={w.id}>{w.name}</option>))}
+                                    {waiters.map(w => (
+                                        <option key={w.id} value={w.id}>
+                                            {w.name} {w.is_on_duty ? '✅' : ''}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                         </div>
@@ -463,7 +487,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                 {showDetails ? <ChevronUp className="w-5 h-5 text-[var(--fg)]" /> : <ChevronDown className="w-5 h-5 text-[var(--fg)]" />}
                             </button>
 
-                            {/* ✅ NEW: Smart detection info */}
                             <div className="p-3 bg-blue-600/10 border border-blue-600/30 rounded-lg">
                                 <p className="text-xs text-blue-600 font-medium">
                                     💡 <strong>Smart Detection:</strong><br/>
@@ -484,7 +507,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                         </>
                     )}
 
-                    {/* Cart items display - existing code continues... */}
                     {cart.items.length > 0 && (
                         <div className="space-y-4">
                             <h3 className="text-sm font-semibold text-[var(--fg)] px-1">Order Items by Category</h3>
@@ -560,11 +582,18 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                 <span className="text-blue-600">PKR {(cart.subtotal() + calculateTax() + (orderType === 'delivery' ? details.delivery_charges : 0)).toFixed(2)}</span>
                             </div>
                         </div>
-                        <button onClick={placeOrder} disabled={loading || (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId || (tableWarning?.show && !confirmAddMore)))} className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
+                        <button onClick={placeOrder} disabled={loading || (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId))} className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
                             {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <CheckCircle className="w-5 h-5" />}
-                            {loading ? 'Placing...' : orderType === 'delivery' ? 'Place Delivery Order' : 'Place Order'}
+                            {loading ? 'Placing...' :
+                                tableWarning?.existingOrderId ? 'Add to Existing Order' :
+                                    orderType === 'delivery' ? 'Place Delivery Order' : 'Place Order'}
                         </button>
-                        {orderType === 'dine-in' && <p className="text-xs text-center text-[var(--muted)] mt-2">💡 Payment method will be selected when completing the order</p>}
+                        {orderType === 'dine-in' && !tableWarning?.existingOrderId && (
+                            <p className="text-xs text-center text-[var(--muted)] mt-2">💡 Payment method will be selected when completing the order</p>
+                        )}
+                        {tableWarning?.existingOrderId && (
+                            <p className="text-xs text-center text-yellow-600 mt-2">⚠️ Items will be added to Table {tableWarning.tableNumber}'s existing order</p>
+                        )}
                     </div>
                 )}
             </div>

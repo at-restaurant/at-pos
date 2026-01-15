@@ -1,5 +1,5 @@
-// src/lib/hooks/useOrderManagement.ts - COMPLETE FILE
-// ✅ Fixed with ProductionPrinter integration
+// src/lib/hooks/useOrderManagement.ts
+// ✅ FIXED: Cancelled orders are marked synced so they never upload to Supabase
 
 import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -7,8 +7,8 @@ import { useToast } from '@/components/ui/Toast'
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { addToQueue } from '@/lib/db/syncQueue'
-import { productionPrinter } from '@/lib/print/ProductionPrinter' // ✅ NEW IMPORT
-import { ReceiptData } from '@/types' // ✅ NEW IMPORT
+import { productionPrinter } from '@/lib/print/ProductionPrinter'
+import { ReceiptData } from '@/types'
 
 function generateUUID(): string {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -52,21 +52,57 @@ export function useOrderManagement() {
         }
     }, [supabase, toast])
 
+    // ✅ FIXED: Prevent cancelled orders from syncing
     const cancelOrder = useCallback(async (orderId: string, tableId?: string, orderType?: string) => {
         setLoading(true)
         try {
-            const { error: orderError } = await supabase
-                .from('orders')
-                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-                .eq('id', orderId)
+            const isOfflineOrder = orderId.startsWith('offline_')
 
-            if (orderError) throw orderError
+            if (isOfflineOrder) {
+                // ✅ For offline orders: Mark as cancelled AND synced (won't upload)
+                const order = await db.get(STORES.ORDERS, orderId) as any
+                if (order) {
+                    await db.put(STORES.ORDERS, {
+                        ...order,
+                        status: 'cancelled',
+                        synced: true // ✅ KEY: Prevents sync to Supabase
+                    })
+                }
 
+                // Delete order items from IndexedDB
+                const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
+                const orderItems = items.filter(i => i.order_id === orderId)
+                for (const item of orderItems) {
+                    await db.delete(STORES.ORDER_ITEMS, item.id)
+                }
+
+                console.log(`✅ Cancelled offline order ${orderId} - marked as synced, won't upload`)
+            } else {
+                // For online orders: Update in Supabase
+                const { error: orderError } = await supabase
+                    .from('orders')
+                    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                    .eq('id', orderId)
+
+                if (orderError) throw orderError
+            }
+
+            // Free up table if dine-in
             if (orderType === 'dine-in' && tableId) {
-                await supabase
-                    .from('restaurant_tables')
-                    .update({ status: 'available', current_order_id: null, waiter_id: null })
-                    .eq('id', tableId)
+                if (isOfflineOrder) {
+                    // Queue table update for sync
+                    await addToQueue('update', 'restaurant_tables', {
+                        id: tableId,
+                        status: 'available',
+                        current_order_id: null,
+                        waiter_id: null
+                    })
+                } else {
+                    await supabase
+                        .from('restaurant_tables')
+                        .update({ status: 'available', current_order_id: null, waiter_id: null })
+                        .eq('id', tableId)
+                }
             }
 
             toast.add('success', '✅ Order cancelled')
@@ -93,9 +129,6 @@ export function useOrderManagement() {
         }
     }, [supabase])
 
-    // ============================================
-    // ✅ FIXED: printAndComplete with actual printing
-    // ============================================
     const printAndComplete = useCallback(async (
         orderId: string,
         tableId?: string,
@@ -103,7 +136,6 @@ export function useOrderManagement() {
     ) => {
         setLoading(true)
         try {
-            // ✅ STEP 1: Get order data
             const { data: order, error: fetchError } = await supabase
                 .from('orders')
                 .select(`
@@ -117,12 +149,10 @@ export function useOrderManagement() {
 
             if (fetchError || !order) throw new Error('Order not found')
 
-            // ✅ STEP 2: Get categories for grouping
             const { data: categories } = await supabase
                 .from('menu_categories')
                 .select('id, name, icon')
 
-            // ✅ STEP 3: Build receipt data
             const receiptData: ReceiptData = {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
@@ -153,7 +183,6 @@ export function useOrderManagement() {
                 notes: order.notes
             }
 
-            // ✅ STEP 4: PRINT FIRST (most important!)
             const printResult = await productionPrinter.print(receiptData)
 
             if (!printResult.success) {
@@ -162,10 +191,8 @@ export function useOrderManagement() {
                 toast.add('success', '✅ Receipt printed!')
             }
 
-            // ✅ STEP 5: Mark as printed
             await markPrinted(orderId)
 
-            // ✅ STEP 6: Complete order
             const result = await completeOrder(orderId, tableId, orderType)
 
             return result
@@ -177,9 +204,6 @@ export function useOrderManagement() {
         }
     }, [markPrinted, completeOrder, toast, supabase])
 
-    // ============================================
-    // createOrder - UNCHANGED
-    // ============================================
     const createOrder = useCallback(async (orderData: any, items: any[]) => {
         const idempotencyKey = orderData.idempotencyKey ||
             `order_${orderData.table_id || 'delivery'}_${Date.now()}`
@@ -267,12 +291,11 @@ export function useOrderManagement() {
                         }
                     }
 
-                    const orderId = generateUUID()
+                    const orderId = `offline_${Date.now()}_${generateUUID().slice(0, 8)}`
 
                     const offlineOrder = {
                         ...orderData,
                         id: orderId,
-                        offline_id: `offline_${Date.now()}`,
                         idempotencyKey,
                         created_at: new Date().toISOString(),
                         synced: false
@@ -330,9 +353,9 @@ export function useOrderManagement() {
 
     return {
         completeOrder,
-        cancelOrder,
+        cancelOrder, // ✅ Fixed to prevent syncing cancelled orders
         markPrinted,
-        printAndComplete, // ✅ Now with actual printing
+        printAndComplete,
         createOrder,
         loading
     }
