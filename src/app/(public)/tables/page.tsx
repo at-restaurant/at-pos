@@ -77,8 +77,8 @@ export default function TablesPage() {
                         if (items && items.length > 0) {
                             orderItems = items
                             // Calculate cumulative total from all items
-                            cumulativeTotal = items.reduce((sum, item) => sum + (item.total_price || 0), 0)
-                            itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
+                            cumulativeTotal = items.reduce((sum: number, item: any) => sum + (item.total_price || 0), 0)
+                            itemCount = items.reduce((sum: number, item: any) => sum + item.quantity, 0)
                         }
                     }
 
