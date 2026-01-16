@@ -246,7 +246,7 @@ export default function HistoryHub() {
                     </div>
 
                     {/* Quick Overview Stats */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                         <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg">
                             <BarChart3 className="w-8 h-8 opacity-80 mb-2" />
                             <p className="text-sm opacity-90">Total Orders</p>
@@ -275,6 +275,12 @@ export default function HistoryHub() {
                             <MapPin className="w-8 h-8 opacity-80 mb-2" />
                             <p className="text-sm opacity-90">Delivery</p>
                             <p className="text-3xl font-bold mt-1">{stats?.deliveryCount}</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl p-4 text-white shadow-lg">
+                            <ShoppingBag className="w-8 h-8 opacity-80 mb-2" />
+                            <p className="text-sm opacity-90">Takeaway</p>
+                            <p className="text-3xl font-bold mt-1">{stats?.takeawayCount}</p>
                         </div>
                     </div>
 

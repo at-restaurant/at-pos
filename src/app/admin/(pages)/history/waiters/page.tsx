@@ -103,7 +103,7 @@ export default function WaitersPerformancePage() {
     const selectedWaiterData = useMemo(() => {
         if (!selectedWaiter) return null
 
-        const waiter = performance.find((w: any) => w.id === selectedWaiter)
+        const waiter: any = performance.find((w: any) => w.id === selectedWaiter)
         if (!waiter) return null
 
         const waiterOrders = orders.filter(o => o.waiter_id === selectedWaiter)
@@ -120,7 +120,12 @@ export default function WaitersPerformancePage() {
         })
 
         return {
-            ...waiter,
+            id: waiter.id,
+            name: waiter.name,
+            orders: waiter.orders,
+            revenue: waiter.revenue,
+            avgOrder: waiter.avgOrder,
+            rank: waiter.rank,
             dailyData: Object.entries(dailyData).map(([date, data]) => ({ date, ...(data as any) }))
         }
     }, [selectedWaiter, performance, orders])
