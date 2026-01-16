@@ -310,27 +310,66 @@ export default function AdminDashboard() {
                 </section>
 
                 {(data.lowStock > 0 || data.pendingOrders > 5) && (
-                    <section className="bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 border-2 border-yellow-500/50 rounded-xl p-4 sm:p-6">
-                        <div className="flex items-start gap-3">
-                            <AlertCircle className="w-6 h-6 text-yellow-600 flex-shrink-0" />
-                            <div className="flex-1">
-                                <h3 className="font-bold text-yellow-900 dark:text-yellow-100 mb-2 text-sm sm:text-base">⚠️ Attention Required</h3>
-                                <ul className="space-y-1 text-xs sm:text-sm">
-                                    {data.lowStock > 0 && (
-                                        <li className="text-yellow-800 dark:text-yellow-200">
-                                            • <strong>{data.lowStock}</strong> inventory items are low on stock
-                                        </li>
-                                    )}
-                                    {data.pendingOrders > 5 && (
-                                        <li className="text-yellow-800 dark:text-yellow-200">
-                                            • <strong>{data.pendingOrders}</strong> orders are pending
-                                        </li>
-                                    )}
-                                </ul>
-                            </div>
+                    <section
+                        className="relative
+                                  bg-[var(--card)]
+                                  border border-[var(--border)]
+                                  rounded-xl
+                                  p-4 sm:p-5
+                                  flex gap-3
+                                  items-start
+                                  overflow-hidden"
+                    >
+                        {/* Accent bar (theme-safe) */}
+                        <div
+                            className="absolute left-0 top-0 h-full w-1"
+                            style={{ backgroundColor: 'var(--status-warning)' }}
+                        />
+
+                        {/* Icon container */}
+                        <div
+                            className="mt-0.5
+                                       w-9 h-9
+                                       rounded-full
+                                       flex items-center justify-center
+                                       flex-shrink-0"
+                            style={{ backgroundColor: 'var(--status-warning-bg)' }}
+                        >
+                            <AlertCircle
+                                className="w-4 h-4"
+                                style={{ color: 'var(--status-warning)' }}
+                            />
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1">
+                            <h3 className="font-semibold text-sm sm:text-base text-[var(--fg)] mb-1">
+                                Attention Required
+                            </h3>
+
+                            <ul className="space-y-1 text-xs sm:text-sm text-[var(--fg-secondary)]">
+                                {data.lowStock > 0 && (
+                                    <li>
+                                        • <span className="font-medium text-[var(--fg)]">
+                            {data.lowStock}
+                        </span>{' '}
+                                        inventory items are low on stock
+                                    </li>
+                                )}
+
+                                {data.pendingOrders > 5 && (
+                                    <li>
+                                        • <span className="font-medium text-[var(--fg)]">
+                            {data.pendingOrders}
+                        </span>{' '}
+                                        orders are pending
+                                    </li>
+                                )}
+                            </ul>
                         </div>
                     </section>
                 )}
+
 
                 <section>
                     <div className="flex items-center gap-2 mb-4">
