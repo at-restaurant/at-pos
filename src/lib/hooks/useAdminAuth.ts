@@ -1,5 +1,5 @@
 // src/lib/hooks/useAdminAuth.ts
-// ✅ FIXED: Online-only, no offline logic, single login flow
+// ✅ FIXED: Uses cookies (server-side compatible)
 
 "use client"
 
@@ -19,6 +19,21 @@ type LoginResult = {
 
 const SESSION_DURATION = 8 * 60 * 60 * 1000 // 8 hours
 
+// ✅ Cookie helpers (works with middleware)
+function setCookie(name: string, value: string, hours: number = 8) {
+    const expires = new Date(Date.now() + hours * 60 * 60 * 1000).toUTCString()
+    document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Lax`
+}
+
+function deleteCookie(name: string) {
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/`
+}
+
+function getCookie(name: string): string | null {
+    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'))
+    return match ? match[2] : null
+}
+
 export function useAdminAuth() {
     const [isAuthenticated, setIsAuthenticated] = useState(false)
     const [loading, setLoading] = useState(true)
@@ -26,18 +41,18 @@ export function useAdminAuth() {
     const router = useRouter()
     const pathname = usePathname()
 
-    // ✅ Check session validity
+    // ✅ Check auth on mount
     const checkAuth = useCallback(() => {
         const isLoginPage = pathname === '/admin/login'
 
-        const sessionAuth = sessionStorage.getItem('admin_auth')
-        const sessionTime = sessionStorage.getItem('admin_auth_time')
+        const authCookie = getCookie('admin_auth')
+        const timeCookie = getCookie('admin_auth_time')
 
-        if (sessionAuth === 'true' && sessionTime) {
-            const elapsed = Date.now() - parseInt(sessionTime)
+        if (authCookie === 'true' && timeCookie) {
+            const elapsed = Date.now() - parseInt(timeCookie)
 
             if (elapsed < SESSION_DURATION) {
-                // Valid session - load profile
+                // Valid session
                 const storedProfile = sessionStorage.getItem('admin_profile')
                 if (storedProfile) {
                     try {
@@ -56,33 +71,26 @@ export function useAdminAuth() {
         setIsAuthenticated(false)
         setLoading(false)
 
-        // Clear expired session
-        sessionStorage.removeItem('admin_auth')
-        sessionStorage.removeItem('admin_auth_time')
+        // Clear expired cookies
+        deleteCookie('admin_auth')
+        deleteCookie('admin_auth_time')
         sessionStorage.removeItem('admin_profile')
-
-        // Redirect to login if not already there
-        if (!isLoginPage && pathname.startsWith('/admin')) {
-            router.push('/admin/login')
-        }
-    }, [pathname, router])
+    }, [pathname])
 
     useEffect(() => {
         checkAuth()
     }, [checkAuth])
 
-    // ✅ FIXED: Single online-only login flow
+    // ✅ Login with cookie support
     const login = async (password: string): Promise<LoginResult> => {
         try {
-            // Check internet connection
             if (!navigator.onLine) {
                 return {
                     success: false,
-                    error: '🌐 No internet connection. Please connect to the internet to login.'
+                    error: '🌐 No internet connection. Please connect to login.'
                 }
             }
 
-            // Verify with server
             const res = await fetch('/api/auth/verify-admin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -99,10 +107,11 @@ export function useAdminAuth() {
 
             const data = await res.json()
 
-            // Setup session
-            sessionStorage.setItem('admin_auth', 'true')
-            sessionStorage.setItem('admin_auth_time', Date.now().toString())
+            // ✅ Set cookies (server-side readable)
+            setCookie('admin_auth', 'true', 8)
+            setCookie('admin_auth_time', Date.now().toString(), 8)
 
+            // ✅ Set profile in sessionStorage (client-side only)
             if (data.profile) {
                 sessionStorage.setItem('admin_profile', JSON.stringify(data.profile))
                 setProfile(data.profile)
@@ -115,7 +124,7 @@ export function useAdminAuth() {
             console.error('Login error:', error)
             return {
                 success: false,
-                error: '❌ Network error. Please check your internet connection and try again.'
+                error: '❌ Network error. Please try again.'
             }
         }
     }
@@ -126,8 +135,8 @@ export function useAdminAuth() {
     }
 
     const logout = () => {
-        sessionStorage.removeItem('admin_auth')
-        sessionStorage.removeItem('admin_auth_time')
+        deleteCookie('admin_auth')
+        deleteCookie('admin_auth_time')
         sessionStorage.removeItem('admin_profile')
         setIsAuthenticated(false)
         setProfile(null)

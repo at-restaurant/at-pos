@@ -1,4 +1,6 @@
-// src/app/admin/(pages)/settings/page.tsx - NESTED TOGGLES VERSION
+// src/app/admin/(pages)/settings/page.tsx
+// ✅ FIXED: Uses new cookie-based auth
+
 'use client'
 import { useState } from 'react'
 import { Key, Save, Eye, EyeOff, User, Camera, ChevronDown, ChevronUp } from 'lucide-react'
@@ -16,7 +18,6 @@ export default function SettingsPage() {
         profile_pic: profile?.profile_pic || ''
     })
 
-    // ✅ NESTED TOGGLE STATES
     const [openSections, setOpenSections] = useState({
         profile: true,
         password: false,
@@ -26,7 +27,6 @@ export default function SettingsPage() {
     const [loading, setLoading] = useState(false)
     const [uploadingImage, setUploadingImage] = useState(false)
     const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false })
-    const [deleting, setDeleting] = useState(false)
     const toast = useToast()
 
     const toggleSection = (section: 'profile' | 'password' | 'danger') => {
@@ -179,11 +179,8 @@ export default function SettingsPage() {
 
             <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
 
-                {/* ========================================= */}
-                {/* 1. PROFILE SECTION */}
-                {/* ========================================= */}
+                {/* PROFILE SECTION */}
                 <div className="bg-[var(--card)] border-2 border-[var(--border)] rounded-xl overflow-hidden transition-all hover:border-green-600/30">
-                    {/* Header - Always Visible */}
                     <button
                         onClick={() => toggleSection('profile')}
                         className="w-full flex items-center justify-between p-5 hover:bg-[var(--bg)] transition-colors"
@@ -204,10 +201,8 @@ export default function SettingsPage() {
                         )}
                     </button>
 
-                    {/* Content - Collapsible */}
                     {openSections.profile && (
                         <div className="p-6 pt-0 border-t border-[var(--border)] space-y-6 animate-in slide-in-from-top-2">
-                            {/* Profile Picture */}
                             <div>
                                 <label className="block text-sm font-medium text-[var(--fg)] mb-3">
                                     Profile Picture
@@ -259,7 +254,6 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
-                            {/* Form Fields */}
                             <div className="space-y-4">
                                 <ResponsiveInput
                                     label="Name"
@@ -303,11 +297,8 @@ export default function SettingsPage() {
                     )}
                 </div>
 
-                {/* ========================================= */}
-                {/* 2. PASSWORD SECTION */}
-                {/* ========================================= */}
+                {/* PASSWORD SECTION */}
                 <div className="bg-[var(--card)] border-2 border-[var(--border)] rounded-xl overflow-hidden transition-all hover:border-blue-600/30">
-                    {/* Header - Always Visible */}
                     <button
                         onClick={() => toggleSection('password')}
                         className="w-full flex items-center justify-between p-5 hover:bg-[var(--bg)] transition-colors"
@@ -328,7 +319,6 @@ export default function SettingsPage() {
                         )}
                     </button>
 
-                    {/* Content - Collapsible */}
                     {openSections.password && (
                         <div className="p-6 pt-0 border-t border-[var(--border)] space-y-4 animate-in slide-in-from-top-2">
                             <div>

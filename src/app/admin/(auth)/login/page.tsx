@@ -1,5 +1,5 @@
 // src/app/admin/(auth)/login/page.tsx
-// ✅ FIXED: Online-only login, no offline mode
+// ✅ FIXED: Uses new cookie-based auth
 
 "use client"
 
@@ -187,7 +187,7 @@ export default function AdminLoginPage() {
                 </div>
 
                 <div className="mt-4 sm:mt-6 text-center">
-                    <p className="text-xs text-gray-500">© 2025 AT Restaurant. All rights reserved.</p>
+                    <p className="text-xs text-gray-500">© 2026 AT Restaurant. All rights reserved.</p>
                 </div>
             </div>
         </div>
