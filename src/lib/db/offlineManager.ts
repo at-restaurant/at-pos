@@ -92,10 +92,15 @@ class OfflineManager {
         setInterval(() => this.cleanupOldData(), 24 * 60 * 60 * 1000)
     }
 
-    // ✅ FIXED: Proper return type with error handling
+    // ✅ FIXED: Added online check, Supabase validation, and better error handling
     async downloadAllData(force = false): Promise<DownloadResult> {
         if (this.isDownloading) {
             return { success: false, error: 'Download already in progress' }
+        }
+
+        // ✅ Check online status first
+        if (!navigator.onLine) {
+            return { success: false, error: 'Cannot download while offline' }
         }
 
         const lastSync = localStorage.getItem('full_sync_timestamp')
@@ -106,9 +111,14 @@ class OfflineManager {
         }
 
         this.isDownloading = true
-        const supabase = createClient()
 
         try {
+            // ✅ FIX: Validate client can be created
+            const supabase = createClient()
+            if (!supabase) {
+                throw new Error('Failed to initialize Supabase client')
+            }
+
             dispatchSyncEvent('sync-start', { message: 'Downloading all data...' })
 
             const [categories, items, tables, waiters, orders, orderItems] = await Promise.allSettled([
@@ -204,14 +214,27 @@ class OfflineManager {
 
         } catch (error: any) {
             console.error('❌ Download failed:', error)
-            dispatchSyncEvent('sync-error', { error: error.message })
-            return { success: false, error: error.message } // ✅ FIXED
+
+            // ✅ FIX: Handle specific error types
+            let errorMessage = 'Download failed'
+            if (error?.message?.includes('Invalid value')) {
+                errorMessage = 'Invalid Supabase configuration. Check environment variables.'
+            } else if (error?.message?.includes('Failed to fetch')) {
+                errorMessage = 'Network error. Check your connection.'
+            } else {
+                errorMessage = error.message || 'Unknown error'
+            }
+
+            dispatchSyncEvent('sync-error', { error: errorMessage })
+            return { success: false, error: errorMessage }
         } finally {
             this.isDownloading = false
         }
     }
 
+    // ✅ FIXED: Added online check, Supabase validation, cancelled order filter, and better error handling
     async syncPendingChanges(): Promise<{ success: boolean; synced: number }> {
+        // ✅ FIX: Check online and validate client
         if (this.syncInProgress || !navigator.onLine) {
             return { success: false, synced: 0 }
         }
@@ -221,13 +244,17 @@ class OfflineManager {
 
         try {
             const supabase = createClient()
+            if (!supabase) {
+                console.error('Cannot create Supabase client for sync')
+                return { success: false, synced: 0 }
+            }
 
             // 1. Sync orders
             const allOrders = await db.getAll(STORES.ORDERS) as any[]
             const pendingOrders = allOrders.filter(o =>
                 !o.synced &&
                 o.id.startsWith('offline_') &&
-                o.status !== 'cancelled'
+                o.status !== 'cancelled' // ✅ Don't sync cancelled orders
             )
 
             for (const order of pendingOrders) {
@@ -318,8 +345,9 @@ class OfflineManager {
 
             return { success: true, synced: syncedCount }
 
-        } catch (error) {
-            console.error('Sync error:', error)
+        } catch (error: any) {
+            // ✅ FIX: Better error logging
+            console.error('Sync error:', error?.message || error)
             return { success: false, synced: syncedCount }
         } finally {
             this.syncInProgress = false
