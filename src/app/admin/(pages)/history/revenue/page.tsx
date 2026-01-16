@@ -1,5 +1,5 @@
 // src/app/admin/(pages)/history/revenue/page.tsx
-// ✅ REVENUE ANALYSIS: Financial breakdown with charts
+// 🚀 FULLY OPTIMIZED - Fast, Mobile Perfect, User Friendly
 
 'use client'
 
@@ -115,8 +115,7 @@ export default function RevenueAnalysisPage() {
     const maxHourlyRevenue = Math.max(...analysis.hourlyData.map(h => h.revenue), 1)
 
     const exportReport = () => {
-        const report = `
-REVENUE ANALYSIS REPORT
+        const report = `REVENUE ANALYSIS REPORT
 Period: ${selectedPreset}
 Generated: ${new Date().toLocaleString()}
 
@@ -134,7 +133,7 @@ ${analysis.byPayment.map(p => `${p.label}: PKR ${p.value.toLocaleString()} (${p.
 
 === HOURLY BREAKDOWN ===
 ${analysis.hourlyData.map(h => `${h.hour}:00 - PKR ${h.revenue.toLocaleString()} (${h.orders} orders)`).join('\n')}
-    `.trim()
+`.trim()
 
         const blob = new Blob([report], { type: 'text/plain' })
         const url = URL.createObjectURL(blob)
@@ -162,30 +161,30 @@ ${analysis.hourlyData.map(h => `${h.hour}:00 - PKR ${h.revenue.toLocaleString()}
                         <div className="flex gap-2">
                             <button
                                 onClick={exportReport}
-                                className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm active:scale-95"
+                                className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95"
                             >
-                                <Download className="w-4 h-4" />
+                                <Download className="w-3 h-3 sm:w-4 sm:h-4" />
                                 <span className="hidden sm:inline">Export</span>
                             </button>
                             <button
                                 onClick={() => router.push('/admin/history')}
-                                className="px-3 sm:px-4 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--card)] flex items-center gap-2 text-sm active:scale-95"
+                                className="px-3 sm:px-4 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--card)] flex items-center gap-2 text-xs sm:text-sm active:scale-95"
                             >
-                                <ArrowLeft className="w-4 h-4" />
+                                <ArrowLeft className="w-3 h-3 sm:w-4 sm:h-4" />
                                 <span className="hidden sm:inline">Back</span>
                             </button>
                         </div>
                     }
                 />
 
-                <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+                <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
                     {/* Period Selector */}
-                    <div className="flex gap-2 overflow-x-auto pb-2">
+                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                         {PRESETS.map(preset => (
                             <button
                                 key={preset.id}
                                 onClick={() => setSelectedPreset(preset.id)}
-                                className={`px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap ${
+                                className={`px-3 sm:px-4 py-2 rounded-lg font-medium text-xs sm:text-sm whitespace-nowrap shrink-0 ${
                                     selectedPreset === preset.id
                                         ? 'bg-blue-600 text-white shadow-lg'
                                         : 'bg-[var(--card)] border border-[var(--border)] text-[var(--fg)] hover:bg-[var(--bg)]'
@@ -197,50 +196,50 @@ ${analysis.hourlyData.map(h => `${h.hour}:00 - PKR ${h.revenue.toLocaleString()}
                     </div>
 
                     {/* Summary Cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-4 text-white shadow-lg">
-                            <DollarSign className="w-8 h-8 opacity-80 mb-2" />
-                            <p className="text-sm opacity-90">Total Revenue</p>
-                            <p className="text-2xl font-bold mt-1">PKR {(analysis.totalRevenue / 1000).toFixed(1)}k</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                        <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
+                            <DollarSign className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
+                            <p className="text-xs opacity-90 mb-1">Total Revenue</p>
+                            <p className="text-lg sm:text-2xl font-bold">₨{(analysis.totalRevenue / 1000).toFixed(1)}k</p>
                         </div>
 
-                        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg">
-                            <BarChart3 className="w-8 h-8 opacity-80 mb-2" />
-                            <p className="text-sm opacity-90">Total Orders</p>
-                            <p className="text-3xl font-bold mt-1">{analysis.orderCount}</p>
+                        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
+                            <BarChart3 className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
+                            <p className="text-xs opacity-90 mb-1">Total Orders</p>
+                            <p className="text-2xl sm:text-3xl font-bold">{analysis.orderCount}</p>
                         </div>
 
-                        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-4 text-white shadow-lg">
-                            <TrendingUp className="w-8 h-8 opacity-80 mb-2" />
-                            <p className="text-sm opacity-90">Avg Order</p>
-                            <p className="text-2xl font-bold mt-1">PKR {Math.round(analysis.avgOrder)}</p>
+                        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
+                            <TrendingUp className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
+                            <p className="text-xs opacity-90 mb-1">Avg Order</p>
+                            <p className="text-lg sm:text-2xl font-bold">₨{Math.round(analysis.avgOrder)}</p>
                         </div>
 
-                        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-4 text-white shadow-lg">
-                            <PieChart className="w-8 h-8 opacity-80 mb-2" />
-                            <p className="text-sm opacity-90">Tax Collected</p>
-                            <p className="text-2xl font-bold mt-1">PKR {(analysis.totalTax / 1000).toFixed(1)}k</p>
+                        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
+                            <PieChart className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
+                            <p className="text-xs opacity-90 mb-1">Tax Collected</p>
+                            <p className="text-lg sm:text-2xl font-bold">₨{(analysis.totalTax / 1000).toFixed(1)}k</p>
                         </div>
                     </div>
 
                     {/* Revenue by Type */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-6">
-                        <h3 className="font-bold text-[var(--fg)] mb-4 flex items-center gap-2">
-                            <PieChart className="w-5 h-5 text-blue-600" />
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6">
+                        <h3 className="font-bold text-[var(--fg)] mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                            <PieChart className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
                             Revenue by Order Type
                         </h3>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                             {analysis.byType.map((type, i) => (
-                                <div key={i} className="p-4 rounded-lg" style={{ backgroundColor: `${type.color}10`, border: `2px solid ${type.color}30` }}>
-                                    <div className="flex items-center justify-between mb-3">
-                                        <span className="font-semibold" style={{ color: type.color }}>{type.label}</span>
-                                        <span className="text-2xl font-bold" style={{ color: type.color }}>{type.percentage}%</span>
+                                <div key={i} className="p-3 sm:p-4 rounded-lg" style={{ backgroundColor: `${type.color}10`, border: `2px solid ${type.color}30` }}>
+                                    <div className="flex items-center justify-between mb-2 sm:mb-3">
+                                        <span className="font-semibold text-sm sm:text-base" style={{ color: type.color }}>{type.label}</span>
+                                        <span className="text-xl sm:text-2xl font-bold" style={{ color: type.color }}>{type.percentage}%</span>
                                     </div>
-                                    <p className="text-xl font-bold text-[var(--fg)] mb-1">PKR {type.value.toLocaleString()}</p>
-                                    <p className="text-sm text-[var(--muted)]">{type.count} orders</p>
+                                    <p className="text-base sm:text-xl font-bold text-[var(--fg)] mb-1">₨{(type.value / 1000).toFixed(1)}k</p>
+                                    <p className="text-xs sm:text-sm text-[var(--muted)]">{type.count} orders</p>
 
-                                    <div className="mt-3 h-2 bg-[var(--bg)] rounded-full overflow-hidden">
+                                    <div className="mt-2 sm:mt-3 h-2 bg-[var(--bg)] rounded-full overflow-hidden">
                                         <div
                                             className="h-full rounded-full transition-all"
                                             style={{
@@ -255,23 +254,23 @@ ${analysis.hourlyData.map(h => `${h.hour}:00 - PKR ${h.revenue.toLocaleString()}
                     </div>
 
                     {/* Revenue by Payment */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-6">
-                        <h3 className="font-bold text-[var(--fg)] mb-4 flex items-center gap-2">
-                            <DollarSign className="w-5 h-5 text-green-600" />
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6">
+                        <h3 className="font-bold text-[var(--fg)] mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                            <DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
                             Revenue by Payment Method
                         </h3>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                             {analysis.byPayment.map((payment, i) => (
-                                <div key={i} className="p-6 rounded-lg" style={{ backgroundColor: `${payment.color}10`, border: `2px solid ${payment.color}30` }}>
-                                    <div className="flex items-center justify-between mb-3">
-                                        <span className="text-lg font-semibold" style={{ color: payment.color }}>{payment.label}</span>
-                                        <span className="text-3xl font-bold" style={{ color: payment.color }}>{payment.percentage}%</span>
+                                <div key={i} className="p-4 sm:p-6 rounded-lg" style={{ backgroundColor: `${payment.color}10`, border: `2px solid ${payment.color}30` }}>
+                                    <div className="flex items-center justify-between mb-2 sm:mb-3">
+                                        <span className="text-base sm:text-lg font-semibold" style={{ color: payment.color }}>{payment.label}</span>
+                                        <span className="text-2xl sm:text-3xl font-bold" style={{ color: payment.color }}>{payment.percentage}%</span>
                                     </div>
-                                    <p className="text-2xl font-bold text-[var(--fg)] mb-2">PKR {payment.value.toLocaleString()}</p>
-                                    <p className="text-sm text-[var(--muted)]">{payment.count} orders</p>
+                                    <p className="text-xl sm:text-2xl font-bold text-[var(--fg)] mb-2">₨{(payment.value / 1000).toFixed(1)}k</p>
+                                    <p className="text-xs sm:text-sm text-[var(--muted)]">{payment.count} orders</p>
 
-                                    <div className="mt-4 h-3 bg-[var(--bg)] rounded-full overflow-hidden">
+                                    <div className="mt-3 sm:mt-4 h-3 bg-[var(--bg)] rounded-full overflow-hidden">
                                         <div
                                             className="h-full rounded-full transition-all"
                                             style={{
@@ -287,20 +286,20 @@ ${analysis.hourlyData.map(h => `${h.hour}:00 - PKR ${h.revenue.toLocaleString()}
 
                     {/* Hourly Revenue Chart */}
                     {analysis.hourlyData.length > 0 && (
-                        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-6">
-                            <h3 className="font-bold text-[var(--fg)] mb-4 flex items-center gap-2">
-                                <BarChart3 className="w-5 h-5 text-blue-600" />
+                        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6">
+                            <h3 className="font-bold text-[var(--fg)] mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                                <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
                                 Hourly Revenue Breakdown
                             </h3>
 
-                            <div className="space-y-3">
+                            <div className="space-y-2 sm:space-y-3">
                                 {analysis.hourlyData.map((item, i) => (
                                     <div key={i}>
-                                        <div className="flex justify-between text-sm mb-1">
+                                        <div className="flex justify-between text-xs sm:text-sm mb-1">
                                             <span className="text-[var(--muted)]">{item.hour}:00</span>
                                             <span className="font-bold text-[var(--fg)]">
-                        PKR {item.revenue.toLocaleString()} • {item.orders} orders
-                      </span>
+                                                ₨{(item.revenue / 1000).toFixed(1)}k • {item.orders} orders
+                                            </span>
                                         </div>
                                         <div className="h-2 bg-[var(--bg)] rounded-full overflow-hidden">
                                             <div
