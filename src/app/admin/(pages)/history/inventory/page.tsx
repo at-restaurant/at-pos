@@ -10,11 +10,35 @@ import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
+// ✅ ADD TYPE DEFINITIONS
+type InventoryItem = {
+    id: string
+    created_at: string
+    quantity: number
+    purchase_price: number
+    reorder_level: number
+    name: string
+    unit: string
+    supplier_name?: string
+    image_url?: string
+    inventory_categories?: {
+        name: string
+        icon: string
+    }
+}
+
+type CategoryBreakdown = {
+    name: string
+    icon: string
+    items: number
+    value: number
+}
+
 export default function InventoryArchivePage() {
     const router = useRouter()
     const supabase = createClient()
 
-    const [inventory, setInventory] = useState<any[]>([])
+    const [inventory, setInventory] = useState<InventoryItem[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedMonth, setSelectedMonth] = useState('')
     const [availableMonths, setAvailableMonths] = useState<string[]>([])
@@ -34,11 +58,12 @@ export default function InventoryArchivePage() {
 
             if (error) throw error
 
-            const items = data || []
+            const items = (data || []) as InventoryItem[]
             setInventory(items)
 
             const months = new Set<string>()
-            items.forEach(item => {
+            // ✅ FIX: Add explicit type for item
+            items.forEach((item: InventoryItem) => {
                 if (item.created_at) {
                     const date = new Date(item.created_at)
                     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
@@ -85,7 +110,7 @@ export default function InventoryArchivePage() {
     }, [filteredInventory])
 
     const categoryBreakdown = useMemo(() => {
-        const breakdown: any = {}
+        const breakdown: Record<string, CategoryBreakdown> = {}
 
         filteredInventory.forEach(item => {
             const catName = item.inventory_categories?.name || 'Uncategorized'
@@ -104,7 +129,7 @@ export default function InventoryArchivePage() {
             breakdown[catName].value += item.quantity * item.purchase_price
         })
 
-        return Object.values(breakdown).sort((a: any, b: any) => b.value - a.value)
+        return Object.values(breakdown).sort((a, b) => b.value - a.value)
     }, [filteredInventory])
 
     const formatMonthLabel = (monthKey: string) => {
@@ -125,7 +150,7 @@ Low Stock Items: ${stats.lowStock}
 Average Item Value: PKR ${Math.round(stats.avgValue).toLocaleString()}
 
 === BY CATEGORY ===
-${categoryBreakdown.map((cat: any) =>
+${categoryBreakdown.map((cat: CategoryBreakdown) =>
             `${cat.icon} ${cat.name}: ${cat.items} items - PKR ${cat.value.toLocaleString()}`
         ).join('\n')}
 
@@ -246,7 +271,7 @@ ${item.name}
                                 </h3>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                                    {categoryBreakdown.map((cat: any, i: number) => (
+                                    {categoryBreakdown.map((cat, i) => (
                                         <div key={i} className="p-3 sm:p-4 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
                                             <div className="flex items-center gap-2 mb-2 sm:mb-3">
                                                 <span className="text-xl sm:text-2xl">{cat.icon}</span>

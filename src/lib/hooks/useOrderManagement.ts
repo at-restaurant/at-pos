@@ -1,5 +1,5 @@
 // src/lib/hooks/useOrderManagement.ts
-// ✅ FIXED: Cancelled orders are marked synced so they never upload to Supabase
+// ✅ FIXED: Cancelled orders + TypeScript errors
 
 import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -9,6 +9,13 @@ import { STORES } from '@/lib/db/schema'
 import { addToQueue } from '@/lib/db/syncQueue'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
 import { ReceiptData } from '@/types'
+
+// ✅ ADD TYPE DEFINITION
+type Category = {
+    id: string
+    name: string
+    icon: string
+}
 
 function generateUUID(): string {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -52,24 +59,21 @@ export function useOrderManagement() {
         }
     }, [supabase, toast])
 
-    // ✅ FIXED: Prevent cancelled orders from syncing
     const cancelOrder = useCallback(async (orderId: string, tableId?: string, orderType?: string) => {
         setLoading(true)
         try {
             const isOfflineOrder = orderId.startsWith('offline_')
 
             if (isOfflineOrder) {
-                // ✅ For offline orders: Mark as cancelled AND synced (won't upload)
                 const order = await db.get(STORES.ORDERS, orderId) as any
                 if (order) {
                     await db.put(STORES.ORDERS, {
                         ...order,
                         status: 'cancelled',
-                        synced: true // ✅ KEY: Prevents sync to Supabase
+                        synced: true
                     })
                 }
 
-                // Delete order items from IndexedDB
                 const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
                 const orderItems = items.filter(i => i.order_id === orderId)
                 for (const item of orderItems) {
@@ -78,7 +82,6 @@ export function useOrderManagement() {
 
                 console.log(`✅ Cancelled offline order ${orderId} - marked as synced, won't upload`)
             } else {
-                // For online orders: Update in Supabase
                 const { error: orderError } = await supabase
                     .from('orders')
                     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
@@ -87,10 +90,8 @@ export function useOrderManagement() {
                 if (orderError) throw orderError
             }
 
-            // Free up table if dine-in
             if (orderType === 'dine-in' && tableId) {
                 if (isOfflineOrder) {
-                    // Queue table update for sync
                     await addToQueue('update', 'restaurant_tables', {
                         id: tableId,
                         status: 'available',
@@ -167,7 +168,8 @@ export function useOrderManagement() {
                 deliveryAddress: order.delivery_address,
                 deliveryCharges: order.delivery_charges,
                 items: order.order_items.map((item: any) => {
-                    const category = categories?.find(c => c.id === item.menu_items.category_id)
+                    // ✅ FIX: Add explicit type for callback parameter
+                    const category = (categories as Category[] | null)?.find((c: Category) => c.id === item.menu_items.category_id)
                     return {
                         name: item.menu_items.name,
                         quantity: item.quantity,
@@ -192,7 +194,6 @@ export function useOrderManagement() {
             }
 
             await markPrinted(orderId)
-
             const result = await completeOrder(orderId, tableId, orderType)
 
             return result
@@ -353,7 +354,7 @@ export function useOrderManagement() {
 
     return {
         completeOrder,
-        cancelOrder, // ✅ Fixed to prevent syncing cancelled orders
+        cancelOrder,
         markPrinted,
         printAndComplete,
         createOrder,

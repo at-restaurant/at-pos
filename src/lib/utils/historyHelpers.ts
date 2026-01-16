@@ -1,8 +1,8 @@
-// src/lib/utils/historyHelpers.ts - FIXED
+// src/lib/utils/historyHelpers.ts - FIXED ALL TYPESCRIPT ERRORS
 import { createClient } from '@/lib/supabase/client'
 
 type DateRange = 'today' | 'week' | 'month' | 'year'
-type TrendType = 'up' | 'down' | 'neutral' // ✅ ADD TYPE
+type TrendType = 'up' | 'down' | 'neutral'
 
 export const getDateRange = (range: DateRange) => {
     const now = new Date()
@@ -29,7 +29,6 @@ export const getPreviousDateRange = (range: DateRange) => {
     }
 }
 
-// ✅ FIX: Remove 'as const', use explicit type
 export const calculateComparison = (current: number, previous: number): { change: number; trend: TrendType } => {
     if (previous === 0) return { change: 0, trend: 'neutral' }
     const change = ((current - previous) / previous) * 100
@@ -82,7 +81,7 @@ export const loadWaiterReport = async (start: string, end: string, prevRange: an
         const totalRevenue = result.reduce((s: number, w: any) => s + w.total_revenue, 0)
 
         const prevOrders = await fetchOrders(prevRange.startDate, prevRange.endDate)
-        const prevRevenue = prevOrders.reduce((s, o: any) => s + (o.total_amount || 0), 0)
+        const prevRevenue = prevOrders.reduce((s: number, o: any) => s + (o.total_amount || 0), 0)
 
         return { result, comparison: calculateComparison(totalRevenue, prevRevenue) }
     }
@@ -120,8 +119,8 @@ export const loadWaiterReport = async (start: string, end: string, prevRange: an
         top_item: Object.entries(w.items_detail).sort((a: any, b: any) => b[1] - a[1])[0]?.[0] || 'None'
     }))
 
-    const totalRevenue = result.reduce((s, w: any) => s + w.total_revenue, 0)
-    const prevRevenue = prevOrders.reduce((s, o: any) => s + (o.total_amount || 0), 0)
+    const totalRevenue = result.reduce((s: number, w: any) => s + w.total_revenue, 0)
+    const prevRevenue = prevOrders.reduce((s: number, o: any) => s + (o.total_amount || 0), 0)
 
     return { result, comparison: calculateComparison(totalRevenue, prevRevenue) }
 }
@@ -145,7 +144,7 @@ export const loadMenuReport = async (start: string, end: string, prevRange: any)
         total_revenue: number
     }
 
-    const menuStats: Record<string, MenuStat> = (totalMenuRes.data || []).reduce((acc: Record<string, MenuStat>, item) => {
+    const menuStats: Record<string, MenuStat> = (totalMenuRes.data || []).reduce((acc: Record<string, MenuStat>, item: any) => {
         acc[item.id] = {
             item_name: item.name,
             price: item.price,
@@ -163,8 +162,15 @@ export const loadMenuReport = async (start: string, end: string, prevRange: any)
         }
     })
 
-    const result = Object.values(menuStats).sort((a, b) => b.total_quantity - a.total_quantity)
-    const servedItems = result.filter(r => r.total_quantity > 0)
+    const result = Object.values(menuStats).map((item: any) => ({
+        item_name: item.item_name,
+        price: item.price,
+        available: item.available,
+        total_quantity: item.total_quantity,
+        total_revenue: item.total_revenue
+    })).sort((a: any, b: any) => b.total_quantity - a.total_quantity)
+
+    const servedItems = result.filter((r: any) => r.total_quantity > 0)
 
     return {
         result,
@@ -181,7 +187,7 @@ export const loadInventoryUsage = async () => {
     if (error) throw error
 
     return {
-        result: (data || []).map(item => ({
+        result: (data || []).map((item: any) => ({
             item_name: item.name,
             current_stock: item.quantity,
             unit: item.unit,
@@ -189,7 +195,7 @@ export const loadInventoryUsage = async () => {
             reorder_level: item.reorder_level,
             stock_value: item.quantity * item.purchase_price,
             status: item.quantity <= item.reorder_level ? 'Low Stock' : 'OK'
-        })).sort((a, b) => a.current_stock - b.current_stock)
+        })).sort((a: any, b: any) => a.current_stock - b.current_stock)
     }
 }
 
@@ -205,7 +211,7 @@ export const loadProfitLoss = async (start: string, end: string, prevRange: any)
             .lte('date', end.split('T')[0])
 
         if (summaries?.length) {
-            const totals = summaries.reduce((acc, d) => ({
+            const totals = summaries.reduce((acc: any, d: any) => ({
                 revenue: acc.revenue + (d.total_revenue || 0),
                 tax: acc.tax + (d.total_tax || 0),
                 inventory: acc.inventory + (d.inventory_cost || 0),
@@ -218,7 +224,7 @@ export const loadProfitLoss = async (start: string, end: string, prevRange: any)
                 .gte('date', prevRange.startDate.split('T')[0])
                 .lte('date', prevRange.endDate.split('T')[0])
 
-            const prevRevenue = prevSummaries?.reduce((s, d) => s + (d.total_revenue || 0), 0) || 0
+            const prevRevenue = prevSummaries?.reduce((s: number, d: any) => s + (d.total_revenue || 0), 0) || 0
 
             return {
                 result: [
@@ -240,18 +246,18 @@ export const loadProfitLoss = async (start: string, end: string, prevRange: any)
         fetchOrders(start, end, 'payment_method, total_amount')
     ])
 
-    const totalRevenue = ordersRes.reduce((s, o: any) => s + (o.total_amount || 0), 0)
-    const totalTax = ordersRes.reduce((s, o: any) => s + (o.tax || 0), 0)
-    const inventoryCost = (inventoryRes.data || []).reduce((s, i: any) =>
+    const totalRevenue = ordersRes.reduce((s: number, o: any) => s + (o.total_amount || 0), 0)
+    const totalTax = ordersRes.reduce((s: number, o: any) => s + (o.tax || 0), 0)
+    const inventoryCost = (inventoryRes.data || []).reduce((s: number, i: any) =>
         s + (i.quantity * i.purchase_price * 0.1), 0)
     const netProfit = totalRevenue - inventoryCost - totalTax
 
     const cashRevenue = paymentStats.filter((o: any) => o.payment_method === 'cash')
-        .reduce((s, o: any) => s + o.total_amount, 0)
+        .reduce((s: number, o: any) => s + o.total_amount, 0)
     const onlineRevenue = paymentStats.filter((o: any) => o.payment_method === 'online')
-        .reduce((s, o: any) => s + o.total_amount, 0)
+        .reduce((s: number, o: any) => s + o.total_amount, 0)
 
-    const prevRevenue = prevOrdersRes.reduce((s, o: any) => s + (o.total_amount || 0), 0)
+    const prevRevenue = prevOrdersRes.reduce((s: number, o: any) => s + (o.total_amount || 0), 0)
 
     return {
         result: [

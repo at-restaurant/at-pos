@@ -1,5 +1,22 @@
-// ✅ Reusable DB optimization functions
+// ✅ Reusable DB optimization functions - FIXED
 import { createClient } from '@/lib/supabase/client'
+
+// ✅ ADD TYPE DEFINITIONS
+type Order = {
+    total_amount?: number
+    subtotal?: number
+    tax?: number
+    status: string
+}
+
+type InventoryItem = {
+    quantity: number
+    purchase_price: number
+}
+
+type OldOrder = {
+    id: string
+}
 
 export async function generateDailySummary(date: string) {
     const supabase = createClient()
@@ -15,16 +32,17 @@ export async function generateDailySummary(date: string) {
         .gte('created_at', start.toISOString())
         .lt('created_at', end.toISOString())
 
-    const completed = orders?.filter(o => o.status === 'completed') || []
-    const totalRevenue = completed.reduce((s, o) => s + (o.total_amount || 0), 0)
-    const totalTax = completed.reduce((s, o) => s + (o.tax || 0), 0)
+    // ✅ FIX: Add explicit types for callback parameters
+    const completed = (orders as Order[] | null)?.filter((o: Order) => o.status === 'completed') || []
+    const totalRevenue = completed.reduce((s: number, o: Order) => s + (o.total_amount || 0), 0)
+    const totalTax = completed.reduce((s: number, o: Order) => s + (o.tax || 0), 0)
 
     // Get inventory cost (simple estimation)
     const { data: inventory } = await supabase
         .from('inventory_items')
         .select('quantity, purchase_price')
 
-    const inventoryCost = inventory?.reduce((s, i) => s + (i.quantity * i.purchase_price * 0.1), 0) || 0
+    const inventoryCost = (inventory as InventoryItem[] | null)?.reduce((s: number, i: InventoryItem) => s + (i.quantity * i.purchase_price * 0.1), 0) || 0
     const netProfit = totalRevenue - inventoryCost - totalTax
 
     // Upsert summary
@@ -54,7 +72,9 @@ export async function archiveOldData(daysToKeep = 90) {
 
     if (oldOrders?.length) {
         await supabase.from('orders_archive').insert(oldOrders)
-        const orderIds = oldOrders.map(o => o.id)
+
+        // ✅ FIX: Add explicit type for callback parameter
+        const orderIds = (oldOrders as OldOrder[]).map((o: OldOrder) => o.id)
 
         // Move order items
         const { data: oldItems } = await supabase

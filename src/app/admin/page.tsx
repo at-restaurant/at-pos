@@ -1,4 +1,4 @@
-// src/app/admin/page.tsx - FIXED: Online-only + Daily Reset
+// src/app/admin/page.tsx - FIXED: TypeScript errors
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -12,6 +12,35 @@ import {
     Calendar, Target, Award, Activity, BarChart3, PieChart
 } from 'lucide-react'
 
+// ✅ ADD TYPE DEFINITIONS
+type OrderData = {
+    total_amount?: number
+    status?: string
+}
+
+type TodayOrderData = {
+    id?: string
+    total_amount?: number
+    status?: string
+    created_at?: string
+}
+
+type InventoryData = {
+    quantity?: number
+    reorder_level?: number
+}
+
+type WaiterData = {
+    id?: string
+    is_on_duty?: boolean
+}
+
+type HourlyData = {
+    hour: number
+    orders: number
+    revenue: number
+}
+
 export default function AdminDashboard() {
     const [data, setData] = useState({
         inventory: 0, waiters: 0, tables: 0, orders: 0,
@@ -20,7 +49,7 @@ export default function AdminDashboard() {
         completedToday: 0
     })
     const [loading, setLoading] = useState(true)
-    const [hourlyData, setHourlyData] = useState<any[]>([])
+    const [hourlyData, setHourlyData] = useState<HourlyData[]>([])
     const [showProfileModal, setShowProfileModal] = useState(false)
     const supabase = createClient()
 
@@ -30,7 +59,6 @@ export default function AdminDashboard() {
         return () => clearInterval(interval)
     }, [])
 
-    // ✅ FIXED: Proper daily reset (midnight to midnight)
     const getTodayRange = () => {
         const now = new Date()
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
@@ -59,26 +87,27 @@ export default function AdminDashboard() {
                 supabase.from('inventory_items').select('quantity, reorder_level')
             ])
 
-            const ordersData = Array.isArray(ord.data) ? ord.data : []
-            const todayOrdersData = Array.isArray(todayOrd.data) ? todayOrd.data : []
-            const inventoryData = Array.isArray(invItems.data) ? invItems.data : []
-            const waitersData = Array.isArray(wait.data) ? wait.data : []
+            const ordersData = (Array.isArray(ord.data) ? ord.data : []) as OrderData[]
+            const todayOrdersData = (Array.isArray(todayOrd.data) ? todayOrd.data : []) as TodayOrderData[]
+            const inventoryData = (Array.isArray(invItems.data) ? invItems.data : []) as InventoryData[]
+            const waitersData = (Array.isArray(wait.data) ? wait.data : []) as WaiterData[]
 
-            const revenue = ordersData.reduce((s, o) => s + (o?.total_amount || 0), 0)
-            const todayRevenue = todayOrdersData.reduce((s, o) => s + (o?.total_amount || 0), 0)
-            const lowStock = inventoryData.filter(i => (i?.quantity || 0) <= (i?.reorder_level || 0)).length
-            const pendingOrders = ordersData.filter(o => o?.status === 'pending').length
-            const activeWaiters = waitersData.filter(w => w?.is_on_duty).length
-            const completedToday = todayOrdersData.filter(o => o?.status === 'completed').length
+            // ✅ FIX: Add explicit types for callback parameters
+            const revenue = ordersData.reduce((s: number, o: OrderData) => s + (o?.total_amount || 0), 0)
+            const todayRevenue = todayOrdersData.reduce((s: number, o: TodayOrderData) => s + (o?.total_amount || 0), 0)
+            const lowStock = inventoryData.filter((i: InventoryData) => (i?.quantity || 0) <= (i?.reorder_level || 0)).length
+            const pendingOrders = ordersData.filter((o: OrderData) => o?.status === 'pending').length
+            const activeWaiters = waitersData.filter((w: WaiterData) => w?.is_on_duty).length
+            const completedToday = todayOrdersData.filter((o: TodayOrderData) => o?.status === 'completed').length
 
-            // ✅ Hourly breakdown (today only)
-            const hourly = Array.from({ length: 24 }, (_, i) => ({
+            // Hourly breakdown
+            const hourly: HourlyData[] = Array.from({ length: 24 }, (_, i) => ({
                 hour: i,
                 orders: 0,
                 revenue: 0
             }))
 
-            todayOrdersData.forEach(order => {
+            todayOrdersData.forEach((order: TodayOrderData) => {
                 if (order?.created_at) {
                     const hour = new Date(order.created_at).getHours()
                     hourly[hour].orders++
@@ -163,7 +192,7 @@ export default function AdminDashboard() {
         )
     }
 
-    const maxRevenue = Math.max(...hourlyData.map(h => h.revenue), 1)
+    const maxRevenue = Math.max(...hourlyData.map((h: HourlyData) => h.revenue), 1)
 
     return (
         <div className="min-h-screen bg-[var(--bg)]">
@@ -269,7 +298,7 @@ export default function AdminDashboard() {
                                         <div className="h-2 bg-[var(--bg)] rounded-full overflow-hidden">
                                             <div
                                                 className="h-full bg-blue-600 rounded-full transition-all duration-500"
-                                                style={{ width: `${(item.orders / Math.max(...hourlyData.map(h => h.orders), 1)) * 100}%` }}
+                                                style={{ width: `${(item.orders / Math.max(...hourlyData.map((h: HourlyData) => h.orders), 1)) * 100}%` }}
                                             />
                                         </div>
                                     </div>
@@ -311,65 +340,27 @@ export default function AdminDashboard() {
 
                 {(data.lowStock > 0 || data.pendingOrders > 5) && (
                     <section
-                        className="relative
-                                  bg-[var(--card)]
-                                  border border-[var(--border)]
-                                  rounded-xl
-                                  p-4 sm:p-5
-                                  flex gap-3
-                                  items-start
-                                  overflow-hidden"
+                        className="relative bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-5 flex gap-3 items-start overflow-hidden"
                     >
-                        {/* Accent bar (theme-safe) */}
-                        <div
-                            className="absolute left-0 top-0 h-full w-1"
-                            style={{ backgroundColor: 'var(--status-warning)' }}
-                        />
+                        <div className="absolute left-0 top-0 h-full w-1" style={{ backgroundColor: 'var(--status-warning)' }} />
 
-                        {/* Icon container */}
-                        <div
-                            className="mt-0.5
-                                       w-9 h-9
-                                       rounded-full
-                                       flex items-center justify-center
-                                       flex-shrink-0"
-                            style={{ backgroundColor: 'var(--status-warning-bg)' }}
-                        >
-                            <AlertCircle
-                                className="w-4 h-4"
-                                style={{ color: 'var(--status-warning)' }}
-                            />
+                        <div className="mt-0.5 w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--status-warning-bg)' }}>
+                            <AlertCircle className="w-4 h-4" style={{ color: 'var(--status-warning)' }} />
                         </div>
 
-                        {/* Content */}
                         <div className="flex-1">
-                            <h3 className="font-semibold text-sm sm:text-base text-[var(--fg)] mb-1">
-                                Attention Required
-                            </h3>
-
+                            <h3 className="font-semibold text-sm sm:text-base text-[var(--fg)] mb-1">Attention Required</h3>
                             <ul className="space-y-1 text-xs sm:text-sm text-[var(--fg-secondary)]">
                                 {data.lowStock > 0 && (
-                                    <li>
-                                        • <span className="font-medium text-[var(--fg)]">
-                            {data.lowStock}
-                        </span>{' '}
-                                        inventory items are low on stock
-                                    </li>
+                                    <li>• <span className="font-medium text-[var(--fg)]">{data.lowStock}</span> inventory items are low on stock</li>
                                 )}
-
                                 {data.pendingOrders > 5 && (
-                                    <li>
-                                        • <span className="font-medium text-[var(--fg)]">
-                            {data.pendingOrders}
-                        </span>{' '}
-                                        orders are pending
-                                    </li>
+                                    <li>• <span className="font-medium text-[var(--fg)]">{data.pendingOrders}</span> orders are pending</li>
                                 )}
                             </ul>
                         </div>
                     </section>
                 )}
-
 
                 <section>
                     <div className="flex items-center gap-2 mb-4">
@@ -392,10 +383,7 @@ export default function AdminDashboard() {
                                         </div>
                                     )}
 
-                                    <div
-                                        className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center mb-3 sm:mb-4 group-hover:scale-110 transition-transform shadow-lg"
-                                        style={{ backgroundColor: `${action.color}20` }}
-                                    >
+                                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center mb-3 sm:mb-4 group-hover:scale-110 transition-transform shadow-lg" style={{ backgroundColor: `${action.color}20` }}>
                                         <Icon className="w-5 h-5 sm:w-6 sm:h-6" style={{ color: action.color }} />
                                     </div>
 
@@ -412,10 +400,7 @@ export default function AdminDashboard() {
                 </section>
             </div>
 
-            <AdminProfileModal
-                open={showProfileModal}
-                onClose={() => setShowProfileModal(false)}
-            />
+            <AdminProfileModal open={showProfileModal} onClose={() => setShowProfileModal(false)} />
         </div>
     )
 }

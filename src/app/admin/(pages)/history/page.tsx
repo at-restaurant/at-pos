@@ -14,6 +14,20 @@ import {
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
+// ✅ ADD TYPE DEFINITIONS
+type Order = {
+    id: string
+    total_amount: number
+    status: string
+    order_type: string
+    payment_method: string
+}
+
+type InventoryItem = {
+    quantity: number
+    purchase_price: number
+}
+
 // Date presets
 const PRESETS = [
     { id: 'today', label: 'Today', days: 0 },
@@ -74,22 +88,23 @@ export default function HistoryHub() {
                     .eq('is_active', true)
             ])
 
-            const orders = ordersRes.data || []
-            const inventory = inventoryRes.data || []
+            const orders = (ordersRes.data || []) as Order[]
+            const inventory = (inventoryRes.data || []) as InventoryItem[]
             const waiters = waitersRes.data || []
 
-            const completed = orders.filter(o => o.status === 'completed')
-            const totalRevenue = completed.reduce((s, o) => s + (o.total_amount || 0), 0)
-            const inventoryValue = inventory.reduce((s, i) => s + (i.quantity * i.purchase_price), 0)
+            // ✅ FIX: Add explicit types for callback parameters
+            const completed = orders.filter((o: Order) => o.status === 'completed')
+            const totalRevenue = completed.reduce((s: number, o: Order) => s + (o.total_amount || 0), 0)
+            const inventoryValue = inventory.reduce((s: number, i: InventoryItem) => s + (i.quantity * i.purchase_price), 0)
 
             // Order type breakdown
-            const dineInCount = orders.filter(o => o.order_type === 'dine-in').length
-            const deliveryCount = orders.filter(o => o.order_type === 'delivery').length
-            const takeawayCount = orders.filter(o => o.order_type === 'takeaway').length
+            const dineInCount = orders.filter((o: Order) => o.order_type === 'dine-in').length
+            const deliveryCount = orders.filter((o: Order) => o.order_type === 'delivery').length
+            const takeawayCount = orders.filter((o: Order) => o.order_type === 'takeaway').length
 
             // Payment breakdown
-            const cashCount = completed.filter(o => o.payment_method === 'cash').length
-            const onlineCount = completed.filter(o => o.payment_method === 'online').length
+            const cashCount = completed.filter((o: Order) => o.payment_method === 'cash').length
+            const onlineCount = completed.filter((o: Order) => o.payment_method === 'online').length
 
             setStats({
                 totalOrders: orders.length,
