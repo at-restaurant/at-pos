@@ -1,8 +1,7 @@
 // src/app/(public)/tables/page.tsx
-// ✅ FIXED: Shows CUMULATIVE total for table (all items), not just current order
+// ✅ FIXED: Real-time bill updates when items added
 
 "use client"
-export const dynamic = 'force-dynamic'
 
 import { useState, useMemo, useEffect } from 'react'
 import { RefreshCw, DollarSign, WifiOff } from 'lucide-react'
@@ -22,12 +21,10 @@ interface TableWithDetails {
     capacity: number
     section: string
     status: string
-    waiter_id: string | null
     current_order_id: string | null
-    waiter?: { id: string; name: string; profile_pic?: string } | null
-    cumulativeTotal: number // ✅ NEW: Total of all items
-    itemCount: number // ✅ NEW: Total items
-    orderItems: any[] // ✅ NEW: All items in the order
+    cumulativeTotal: number
+    itemCount: number
+    orderItems: any[]
 }
 
 export default function TablesPage() {
@@ -41,17 +38,56 @@ export default function TablesPage() {
 
     useEffect(() => {
         loadTables()
-        const interval = setInterval(loadTables, 5000)
-        return () => clearInterval(interval)
-    }, [])
 
-    // ✅ FIXED: Load tables with cumulative totals
+        // ✅ FIXED: Real-time subscription for order_items changes
+        const channel = supabase
+            .channel('table_bills_realtime')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'order_items'
+            }, (payload) => {
+                console.log('📡 Order item changed:', payload)
+                loadTables() // Refresh bills when any item changes
+            })
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'restaurant_tables'
+            }, (payload) => {
+                console.log('📡 Table changed:', payload)
+                loadTables() // Refresh when table status changes
+            })
+            .subscribe()
+
+        // Fallback polling every 10s (in case real-time drops)
+        const interval = setInterval(() => {
+            if (isOnline) loadTables()
+        }, 10000)
+
+        return () => {
+            supabase.removeChannel(channel)
+            clearInterval(interval)
+        }
+    }, [isOnline])
+
     const loadTables = async () => {
         try {
-            // Get all tables with relationships
+            // ✅ OPTIMIZED: Single query with join
             const { data: tablesData } = await supabase
                 .from('restaurant_tables')
-                .select('*, waiters(id, name, profile_pic)')
+                .select(`
+                    *,
+                    orders!restaurant_tables_current_order_id_fkey(
+                        id,
+                        order_items(
+                            id,
+                            quantity,
+                            total_price,
+                            menu_items(name, price)
+                        )
+                    )
+                `)
                 .order('table_number')
 
             if (!tablesData) {
@@ -60,37 +96,35 @@ export default function TablesPage() {
                 return
             }
 
-            // For each occupied table, calculate cumulative total
-            const enrichedTables = await Promise.all(
-                tablesData.map(async (table: any) => {
-                    let cumulativeTotal = 0
-                    let itemCount = 0
-                    let orderItems: any[] = []
+            // Calculate cumulative totals
+            const enrichedTables = tablesData.map((table: any) => {
+                let cumulativeTotal = 0
+                let itemCount = 0
+                let orderItems: any[] = []
 
-                    if (table.status === 'occupied' && table.current_order_id) {
-                        // ✅ Get ALL items for this order (including newly added ones)
-                        const { data: items } = await supabase
-                            .from('order_items')
-                            .select('*, menu_items(name, price)')
-                            .eq('order_id', table.current_order_id)
+                // ✅ Get items from joined order
+                if (table.orders && table.orders.order_items) {
+                    orderItems = table.orders.order_items
+                    cumulativeTotal = orderItems.reduce((sum, item) =>
+                        sum + (item.total_price || 0), 0
+                    )
+                    itemCount = orderItems.reduce((sum, item) =>
+                        sum + item.quantity, 0
+                    )
+                }
 
-                        if (items && items.length > 0) {
-                            orderItems = items
-                            // Calculate cumulative total from all items
-                            cumulativeTotal = items.reduce((sum, item) => sum + (item.total_price || 0), 0)
-                            itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
-                        }
-                    }
-
-                    return {
-                        ...table,
-                        waiter: table.status !== 'available' ? table.waiters : null,
-                        cumulativeTotal,
-                        itemCount,
-                        orderItems
-                    } as TableWithDetails
-                })
-            )
+                return {
+                    id: table.id,
+                    table_number: table.table_number,
+                    capacity: table.capacity,
+                    section: table.section || 'Main',
+                    status: table.status,
+                    current_order_id: table.current_order_id,
+                    cumulativeTotal,
+                    itemCount,
+                    orderItems
+                } as TableWithDetails
+            })
 
             setTables(enrichedTables)
         } catch (error) {
@@ -182,35 +216,10 @@ export default function TablesPage() {
             )
         },
         {
-            key: 'waiter',
-            label: 'Waiter',
-            mobileHidden: true,
-            render: (row: TableWithDetails) => {
-                if (!row.waiter) return <span className="text-sm text-[var(--muted)]">-</span>
-                return (
-                    <div className="flex items-center gap-2">
-                        {row.waiter.profile_pic ? (
-                            <img
-                                src={row.waiter.profile_pic}
-                                alt={row.waiter.name}
-                                className="w-8 h-8 rounded-full object-cover"
-                            />
-                        ) : (
-                            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold text-xs">
-                                {row.waiter.name?.charAt(0).toUpperCase()}
-                            </div>
-                        )}
-                        <span className="text-sm text-[var(--fg)]">{row.waiter.name}</span>
-                    </div>
-                )
-            }
-        },
-        {
             key: 'amount',
             label: 'Running Bill',
             align: 'right' as const,
             render: (row: TableWithDetails) => {
-                // ✅ FIXED: Show cumulative total (all items)
                 if (row.cumulativeTotal > 0) {
                     return (
                         <div className="text-right">
@@ -218,7 +227,7 @@ export default function TablesPage() {
                                 PKR {row.cumulativeTotal.toLocaleString()}
                             </p>
                             <p className="text-xs text-[var(--muted)]">
-                                {row.itemCount} items total
+                                {row.itemCount} items
                             </p>
                         </div>
                     )
@@ -235,7 +244,7 @@ export default function TablesPage() {
                 <div className="lg:ml-64">
                     <PageHeader
                         title="Tables"
-                        subtitle={`Restaurant tables & running bills${!isOnline ? ' • Offline mode' : ''}`}
+                        subtitle={`Live bills${!isOnline ? ' • Offline mode' : ' • Real-time updates'}`}
                         action={
                             <button
                                 onClick={loadTables}
@@ -251,9 +260,9 @@ export default function TablesPage() {
                             <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-start gap-3">
                                 <WifiOff className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                                 <div className="text-sm">
-                                    <p className="font-semibold text-[var(--fg)] mb-1">Offline Mode Active</p>
+                                    <p className="font-semibold text-[var(--fg)] mb-1">Offline Mode</p>
                                     <p className="text-[var(--muted)]">
-                                        Showing cached data. Table status updates will sync when you're back online.
+                                        Bills may not reflect latest changes. Real-time updates will resume when online.
                                     </p>
                                 </div>
                             </div>
@@ -270,7 +279,6 @@ export default function TablesPage() {
                     </div>
                 </div>
 
-                {/* ✅ FIXED: Modal shows cumulative total and all items */}
                 {selectedTable && selectedTable.cumulativeTotal > 0 && (
                     <UniversalModal
                         open={!!selectedTable}
@@ -299,16 +307,9 @@ export default function TablesPage() {
                                     </span>
                                 </div>
                                 <p className="text-xs text-[var(--muted)] mt-2">
-                                    {selectedTable.itemCount} items total
+                                    Updates in real-time as items are added
                                 </p>
                             </div>
-
-                            {selectedTable.waiter && (
-                                <div className="p-3 bg-[var(--bg)] rounded-lg">
-                                    <p className="text-xs text-[var(--muted)] mb-1">Waiter</p>
-                                    <p className="font-medium text-sm">{selectedTable.waiter.name}</p>
-                                </div>
-                            )}
                         </div>
                     </UniversalModal>
                 )}
