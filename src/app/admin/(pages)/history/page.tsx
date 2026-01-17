@@ -149,6 +149,16 @@ export default function HistoryHub() {
             subtext: 'Total revenue'
         },
         {
+            id: 'inventory',
+            title: 'Inventory Archive',
+            description: 'Monthly inventory snapshots',
+            icon: Package,
+            color: '#f59e0b',
+            href: '/admin/history/inventory',
+            stat: `PKR ${((stats?.inventoryValue || 0) / 1000).toFixed(1)}k`,
+            subtext: 'Current value'
+        },
+        {
             id: 'waiters',
             title: 'Staff Performance',
             description: 'Track individual staff stats',
@@ -159,14 +169,14 @@ export default function HistoryHub() {
             subtext: 'Active members'
         },
         {
-            id: 'inventory',
-            title: 'Inventory Archive',
-            description: 'Monthly inventory snapshots',
-            icon: Package,
-            color: '#f59e0b',
-            href: '/admin/history/inventory',
-            stat: `PKR ${((stats?.inventoryValue || 0) / 1000).toFixed(1)}k`,
-            subtext: 'Current value'
+            id: 'attendance',
+            title: 'Attendance History',
+            description: 'Daily staff check-in/out records',
+            icon: Calendar,
+            color: '#06b6d4',
+            href: '/admin/history/attendance',
+            stat: `${stats?.todayPresent || 0} present today`,
+            subtext: 'Track daily attendance'
         },
         {
             id: 'customers',

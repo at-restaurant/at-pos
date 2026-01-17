@@ -137,7 +137,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <InstallPrompt />
 
             {/* ✅ Main content with proper mobile padding */}
-            <main className="lg:ml-16 min-h-screen pb-16 lg:pb-0">
+            <main className="lg:ml-16 min-h-screen pb-15 lg:pb-0">
                 {children}
             </main>
 
