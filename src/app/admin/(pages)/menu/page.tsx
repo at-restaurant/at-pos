@@ -55,15 +55,16 @@ export default function MenuPage() {
                 const { error } = await supabase.from('menu_items').update(data).eq('id', modal.id)
                 if (error) throw error
                 toast.add('success', '✅ Menu item updated!')
+                await load()
             } else {
                 const { error } = await supabase.from('menu_items').insert(data)
                 if (error) throw error
                 toast.add('success', '✅ Menu item added!')
+                await load()
             }
 
             setModal(null)
             setForm({ name: '', category_id: '', price: '', description: '', image_url: '' })
-            load()
         } catch (error: any) {
             toast.add('error', `❌ ${error.message || 'Failed'}`)
         }
@@ -86,7 +87,7 @@ export default function MenuPage() {
             }
 
             toast.add('success', '✅ Item deleted!')
-            load()
+            await load()
         } catch (error: any) {
             toast.add('error', `❌ ${error.message || 'Failed'}`)
         }

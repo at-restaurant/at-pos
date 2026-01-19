@@ -186,10 +186,12 @@ export default function WaitersPage() {
                 const { error } = await supabase.from('waiters').update(data).eq('id', modal.id)
                 if (error) throw error
                 toast.add('success', '✅ Staff updated!')
+                await loadData()
             } else {
                 const { error } = await supabase.from('waiters').insert(data)
                 if (error) throw error
                 toast.add('success', '✅ Staff added!')
+                await loadData()
             }
 
             setModal(null)
@@ -218,6 +220,7 @@ export default function WaitersPage() {
             }
 
             toast.add('success', '✅ Staff deactivated!')
+            await loadData()
             setModal(null)
         } catch (error: any) {
             toast.add('error', `❌ ${error.message || 'Failed'}`)
@@ -240,7 +243,7 @@ export default function WaitersPage() {
             if (error) throw error
 
             toast.add('success', `✅ Paid PKR ${remaining.toLocaleString()}`)
-            loadData()
+            await loadData()
         } catch (error: any) {
             toast.add('error', `❌ ${error.message}`)
         }
