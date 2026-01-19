@@ -100,13 +100,13 @@ export default function RevenueAnalysisPage() {
             avgOrder,
             orderCount: orders.length,
             byType: [
-                { label: 'Dine-In', value: dineInRevenue, count: dineIn.length, color: '#3b82f6', percentage: (dineInRevenue / totalRevenue * 100).toFixed(1) },
-                { label: 'Delivery', value: deliveryRevenue, count: delivery.length, color: '#8b5cf6', percentage: (deliveryRevenue / totalRevenue * 100).toFixed(1) },
-                { label: 'Takeaway', value: takeawayRevenue, count: takeaway.length, color: '#10b981', percentage: (takeawayRevenue / totalRevenue * 100).toFixed(1) }
+                { label: 'Dine-In', value: dineInRevenue, count: dineIn.length, color: '#3b82f6', percentage: totalRevenue > 0 ? (dineInRevenue / totalRevenue * 100).toFixed(1) : '0' },
+                { label: 'Delivery', value: deliveryRevenue, count: delivery.length, color: '#8b5cf6', percentage: totalRevenue > 0 ? (deliveryRevenue / totalRevenue * 100).toFixed(1) : '0' },
+                { label: 'Takeaway', value: takeawayRevenue, count: takeaway.length, color: '#10b981', percentage: totalRevenue > 0 ? (takeawayRevenue / totalRevenue * 100).toFixed(1) : '0' }
             ],
             byPayment: [
-                { label: 'Cash', value: cashRevenue, count: cash.length, color: '#10b981', percentage: (cashRevenue / totalRevenue * 100).toFixed(1) },
-                { label: 'Online', value: onlineRevenue, count: online.length, color: '#3b82f6', percentage: (onlineRevenue / totalRevenue * 100).toFixed(1) }
+                { label: 'Cash', value: cashRevenue, count: cash.length, color: '#10b981', percentage: totalRevenue > 0 ? (cashRevenue / totalRevenue * 100).toFixed(1) : '0' },
+                { label: 'Online', value: onlineRevenue, count: online.length, color: '#3b82f6', percentage: totalRevenue > 0 ? (onlineRevenue / totalRevenue * 100).toFixed(1) : '0' }
             ],
             hourlyData: hourlyData.filter(h => h.revenue > 0)
         }
