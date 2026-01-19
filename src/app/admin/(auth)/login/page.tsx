@@ -91,7 +91,7 @@ export default function AdminLoginPage() {
     }
 
     return (
-        <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-blue-50 p-3 sm:p-4 relative overflow-hidden">
+        <div className="min-h-screen w-full flex items-center justify-center bg-white p-3 sm:p-4 relative overflow-hidden">
             {/* Decorative background */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-400/20 rounded-full blur-3xl" />
