@@ -36,27 +36,37 @@ export default function OrdersPage() {
         autoSync: true
     })
 
+// ✅ Reload categories when orders update
     useEffect(() => {
         loadMenuCategories()
-    }, [])
+    }, [orders])
 
     const loadMenuCategories = async () => {
         try {
-            const cachedItems = await db.getAll(STORES.MENU_ITEMS) as any[]
-            if (cachedItems.length > 0) {
+            // ✅ First: Extract categories from already-loaded orders data
+            if (orders.length > 0) {
                 const categoryMap: { [key: string]: { name: string; icon: string } } = {}
-                cachedItems.forEach((item: any) => {
-                    if (item.menu_categories) {
-                        categoryMap[item.id] = {
-                            name: item.menu_categories.name,
-                            icon: item.menu_categories.icon || '📋'
+
+                orders.forEach((order: any) => {
+                    order.order_items?.forEach((item: any) => {
+                        const menuItem = item.menu_items
+                        if (menuItem?.id && menuItem?.menu_categories) {
+                            categoryMap[menuItem.id] = {
+                                name: menuItem.menu_categories.name,
+                                icon: menuItem.menu_categories.icon || '📋'
+                            }
                         }
-                    }
+                    })
                 })
-                setMenuCategories(categoryMap)
-                return
+
+                // If we got categories from orders, use them
+                if (Object.keys(categoryMap).length > 0) {
+                    setMenuCategories(categoryMap)
+                    return
+                }
             }
 
+            // ✅ Fallback: If no categories from orders, fetch from database
             const { data } = await supabase
                 .from('menu_items')
                 .select('id, category_id, menu_categories(name, icon)')

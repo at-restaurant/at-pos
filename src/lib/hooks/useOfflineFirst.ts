@@ -1,5 +1,5 @@
 // src/lib/hooks/useOfflineFirst.ts
-// ✅ TRUE OFFLINE-FIRST HOOK - Loads from IndexedDB first, syncs in background
+// ✅ COMPLETE FILE WITH TYPESCRIPT FIX
 
 'use client'
 
@@ -7,13 +7,15 @@ import { useState, useEffect, useCallback } from 'react'
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { createClient } from '@/lib/supabase/client'
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
 interface UseOfflineFirstOptions {
-    store: string // IndexedDB store name
-    table: string // Supabase table name
+    store: string
+    table: string
     filter?: Record<string, any>
     order?: { column: string; ascending?: boolean }
-    autoSync?: boolean // Auto-sync in background
+    autoSync?: boolean
+    enableRealtime?: boolean
 }
 
 export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
@@ -30,7 +32,6 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
         try {
             let cachedData: any[] = []
 
-            // Handle special cases (tables/waiters stored differently)
             if (options.store === 'restaurant_tables' || options.store === 'waiters') {
                 const cached = await db.get(STORES.SETTINGS, options.store)
                 cachedData = cached && (cached as any).value ? (cached as any).value : []
@@ -38,7 +39,6 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                 cachedData = await db.getAll(options.store) as any[]
             }
 
-            // Apply filters
             if (options.filter && Array.isArray(cachedData)) {
                 cachedData = cachedData.filter(item =>
                     Object.entries(options.filter!).every(([key, value]) =>
@@ -47,7 +47,6 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                 )
             }
 
-            // Apply sorting
             if (options.order && Array.isArray(cachedData)) {
                 cachedData.sort((a, b) => {
                     const aVal = (a as any)[options.order!.column]
@@ -84,14 +83,12 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
         try {
             let query = supabase.from(options.table).select('*')
 
-            // Apply filters
             if (options.filter) {
                 Object.entries(options.filter).forEach(([key, value]) => {
                     query = query.eq(key, value)
                 })
             }
 
-            // Apply sorting
             if (options.order) {
                 query = query.order(options.order.column, {
                     ascending: options.order.ascending !== false
@@ -103,7 +100,6 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
             if (error) throw error
 
             if (freshData && freshData.length > 0) {
-                // Update cache
                 if (options.store === 'restaurant_tables' || options.store === 'waiters') {
                     await db.put(STORES.SETTINGS, {
                         key: options.store,
@@ -114,9 +110,7 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                     await db.bulkPut(options.store, freshData)
                 }
 
-                // Update state
                 setData(freshData as T[])
-
                 console.log(`✅ Synced ${freshData.length} items from Supabase:`, options.table)
             }
 
@@ -130,18 +124,50 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
     }, [options.table, options.store, JSON.stringify(options.filter), JSON.stringify(options.order)])
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // STEP 3: Initial load + Auto-sync setup
+    // ✅ STEP 3: Realtime Subscription (TypeScript Safe)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     useEffect(() => {
-        // Load cache IMMEDIATELY
+        if (options.enableRealtime === false || !navigator.onLine || !options.table) {
+            return
+        }
+
+        console.log(`🔔 Setting up realtime for: ${options.table}`)
+
+        const channel = supabase
+            .channel(`${options.table}_realtime_${Date.now()}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: options.table
+                },
+                (payload: RealtimePostgresChangesPayload<any>) => {
+                    console.log(`🔔 Realtime event on ${options.table}:`, payload.eventType)
+
+                    if (navigator.onLine) {
+                        syncFromSupabase()
+                    }
+                }
+            )
+            .subscribe()
+
+        return () => {
+            console.log(`🔕 Cleaning up realtime for: ${options.table}`)
+            supabase.removeChannel(channel)
+        }
+    }, [options.table, options.enableRealtime, syncFromSupabase])
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // STEP 4: Initial load + Auto-sync setup
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    useEffect(() => {
         loadFromCache()
 
-        // Then sync in background (if online)
         if (options.autoSync !== false) {
             syncFromSupabase()
         }
 
-        // Setup network listeners
         const handleOnline = () => {
             setIsOffline(false)
             syncFromSupabase()

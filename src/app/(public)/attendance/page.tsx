@@ -34,10 +34,6 @@ export default function AttendancePage() {
 
     useEffect(() => {
         loadWaitersOfflineFirst()
-        const interval = setInterval(() => {
-            if (isOnline) syncWaitersInBackground()
-        }, 10000)
-        return () => clearInterval(interval)
     }, [])
 
     const loadWaitersOfflineFirst = async () => {
