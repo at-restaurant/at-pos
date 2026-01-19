@@ -1,5 +1,5 @@
 // src/app/(public)/tables/page.tsx
-// ✅ FIXED: Removed auto-refresh interval - rely on manual refresh only
+// ✅ FIXED: Full offline support with IndexedDB
 
 "use client"
 export const dynamic = 'force-dynamic'
@@ -15,6 +15,8 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useOfflineStatus } from '@/lib/hooks/useOfflineStatus'
 import { createClient } from '@/lib/supabase/client'
 import { getTableStatusColor } from '@/lib/utils/statusHelpers'
+import { db } from '@/lib/db/indexedDB'
+import { STORES } from '@/lib/db/schema'
 
 interface TableWithDetails {
     id: string
@@ -40,59 +42,128 @@ export default function TablesPage() {
     const { isOnline } = useOfflineStatus()
 
     useEffect(() => {
-        loadTables()
-        // ✅ REMOVED: Auto-refresh interval - rely on manual refresh only
-        // Previously had: setInterval(loadTables, 5000)
+        loadTablesOfflineFirst()
     }, [])
 
-    const loadTables = async () => {
+    // ✅ STEP 1: Load from IndexedDB FIRST
+    const loadTablesOfflineFirst = async () => {
         try {
+            // Load from cache immediately
+            const cachedTables = await db.get(STORES.SETTINGS, 'restaurant_tables')
+            const cachedWaiters = await db.get(STORES.SETTINGS, 'waiters')
+            const cachedOrders = await db.getAll(STORES.ORDERS)
+
+            if (cachedTables && (cachedTables as any).value) {
+                const enrichedTables = await enrichTablesWithOrders(
+                    (cachedTables as any).value,
+                    cachedWaiters ? (cachedWaiters as any).value : [],
+                    Array.isArray(cachedOrders) ? cachedOrders : []
+                )
+                setTables(enrichedTables)
+                setLoading(false)
+            }
+
+            // ✅ STEP 2: Sync in background if online
+            if (navigator.onLine) {
+                syncTablesInBackground()
+            }
+        } catch (error) {
+            console.error('Failed to load tables from cache:', error)
+            setLoading(false)
+        }
+    }
+
+    // ✅ Enrich tables with order data
+    const enrichTablesWithOrders = async (
+        tablesData: any[],
+        waitersData: any[],
+        ordersData: any[]
+    ): Promise<TableWithDetails[]> => {
+        return tablesData.map((table: any) => {
+            let cumulativeTotal = 0
+            let itemCount = 0
+            let orderItems: any[] = []
+
+            // Find waiter
+            const waiter = waitersData.find(w => w.id === table.waiter_id)
+
+            // Find active order for this table
+            if (table.status === 'occupied' && table.current_order_id) {
+                const order = ordersData.find(o => o.id === table.current_order_id)
+
+                if (order?.order_items) {
+                    orderItems = order.order_items
+                    cumulativeTotal = order.order_items.reduce(
+                        (sum: number, item: any) => sum + (item.total_price || 0),
+                        0
+                    )
+                    itemCount = order.order_items.reduce(
+                        (sum: number, item: any) => sum + item.quantity,
+                        0
+                    )
+                }
+            }
+
+            return {
+                ...table,
+                waiter: table.status !== 'available' ? waiter : null,
+                cumulativeTotal,
+                itemCount,
+                orderItems
+            } as TableWithDetails
+        })
+    }
+
+    // ✅ Background sync from Supabase
+    const syncTablesInBackground = async () => {
+        try {
+            // Fetch tables with waiters
             const { data: tablesData } = await supabase
                 .from('restaurant_tables')
                 .select('*, waiters(id, name, profile_pic)')
                 .order('table_number')
 
-            if (!tablesData) {
-                setTables([])
-                setLoading(false)
-                return
+            if (!tablesData) return
+
+            // Cache tables
+            await db.put(STORES.SETTINGS, {
+                key: 'restaurant_tables',
+                value: tablesData
+            })
+
+            // Fetch all active orders
+            const { data: ordersData } = await supabase
+                .from('orders')
+                .select(`
+                    *,
+                    order_items(*, menu_items(name, price))
+                `)
+                .eq('status', 'pending')
+
+            // Cache orders
+            if (ordersData) {
+                await db.clear(STORES.ORDERS)
+                await db.bulkPut(STORES.ORDERS, ordersData)
             }
 
-            const enrichedTables = await Promise.all(
-                tablesData.map(async (table: any) => {
-                    let cumulativeTotal = 0
-                    let itemCount = 0
-                    let orderItems: any[] = []
-
-                    if (table.status === 'occupied' && table.current_order_id) {
-                        const { data: items } = await supabase
-                            .from('order_items')
-                            .select('*, menu_items(name, price)')
-                            .eq('order_id', table.current_order_id)
-
-                        if (items && items.length > 0) {
-                            orderItems = items
-                            cumulativeTotal = items.reduce((sum: number, item: any) => sum + (item.total_price || 0), 0)
-                            itemCount = items.reduce((sum: number, item: any) => sum + item.quantity, 0)
-                        }
-                    }
-
-                    return {
-                        ...table,
-                        waiter: table.status !== 'available' ? table.waiters : null,
-                        cumulativeTotal,
-                        itemCount,
-                        orderItems
-                    } as TableWithDetails
-                })
+            // Enrich and update state
+            const enrichedTables = await enrichTablesWithOrders(
+                tablesData,
+                tablesData.map((t: any) => t.waiters).filter(Boolean),
+                ordersData || []
             )
 
             setTables(enrichedTables)
+            console.log('✅ Tables synced from Supabase')
         } catch (error) {
-            console.error('Failed to load tables:', error)
-        } finally {
-            setLoading(false)
+            console.error('Background sync failed:', error)
         }
+    }
+
+    // ✅ Manual refresh
+    const loadTables = async () => {
+        setLoading(true)
+        await loadTablesOfflineFirst()
     }
 
     const filtered = useMemo(() =>

@@ -1,11 +1,11 @@
 // src/app/admin/(auth)/login/page.tsx
-// ✅ FIXED: Uses new cookie-based auth
+// ✅ PRODUCTION-READY: Smooth login with perfect UX
 
 "use client"
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Shield, Lock, Eye, EyeOff, AlertCircle, ArrowLeft, Wifi } from 'lucide-react'
+import { Shield, Lock, Eye, EyeOff, AlertCircle, ArrowLeft, Wifi, Loader2 } from 'lucide-react'
 import { useAdminAuth } from '@/lib/hooks/useAdminAuth'
 
 export default function AdminLoginPage() {
@@ -22,7 +22,13 @@ export default function AdminLoginPage() {
         setMounted(true)
         setIsOnline(navigator.onLine)
 
-        const handleOnline = () => setIsOnline(true)
+        const handleOnline = () => {
+            setIsOnline(true)
+            // Clear offline error when back online
+            if (error.includes('internet') || error.includes('connection')) {
+                setError('')
+            }
+        }
         const handleOffline = () => setIsOnline(false)
 
         window.addEventListener('online', handleOnline)
@@ -32,34 +38,50 @@ export default function AdminLoginPage() {
             window.removeEventListener('online', handleOnline)
             window.removeEventListener('offline', handleOffline)
         }
-    }, [])
+    }, [error])
 
     const handleSubmit = async () => {
-        if (!password) {
-            setError('Please enter your password')
+        // Validation
+        if (!password || password.trim().length === 0) {
+            setError('⚠️ Please enter your password')
             return
         }
 
+        // Network check
+        if (!navigator.onLine) {
+            setError('🌐 No internet connection. Please check your network and try again.')
+            return
+        }
+
+        // Clear previous errors
         setError('')
         setLoading(true)
 
-        const result = await login(password)
+        try {
+            const result = await login(password)
 
-        if (result.success) {
-            router.push('/admin')
-        } else {
-            setError(result.error || 'Login failed')
+            if (result.success) {
+                // Success - redirect with small delay for smooth transition
+                setTimeout(() => {
+                    router.push('/admin')
+                }, 300)
+            } else {
+                setError(result.error || '❌ Login failed. Please try again.')
+                setLoading(false)
+            }
+        } catch (err) {
+            setError('❌ An unexpected error occurred. Please try again.')
+            setLoading(false)
         }
-
-        setLoading(false)
     }
 
     const handleKeyPress = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !loading) {
+        if (e.key === 'Enter' && !loading && password) {
             handleSubmit()
         }
     }
 
+    // Loading screen
     if (!mounted) {
         return (
             <div className="fixed inset-0 flex items-center justify-center bg-white">
@@ -69,14 +91,20 @@ export default function AdminLoginPage() {
     }
 
     return (
-        <div className="min-h-screen w-full flex items-center justify-center bg-white p-3 sm:p-4 relative overflow-hidden">
+        <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-blue-50 p-3 sm:p-4 relative overflow-hidden">
+            {/* Decorative background */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-400/20 rounded-full blur-3xl" />
+                <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-400/20 rounded-full blur-3xl" />
+            </div>
+
             {/* Back Button */}
             <button
                 onClick={() => router.push('/')}
-                className="fixed top-3 left-3 sm:top-4 sm:left-4 z-50 flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 bg-white border border-gray-200 rounded-xl hover:border-blue-600 transition-all shadow-lg active:scale-95 text-xs sm:text-sm font-medium text-gray-900"
+                className="fixed top-3 left-3 sm:top-4 sm:left-4 z-50 flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-xl hover:border-blue-600 hover:shadow-md transition-all active:scale-95 text-xs sm:text-sm font-medium text-gray-900"
             >
                 <ArrowLeft className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span className="hidden xs:inline">Back</span>
+                <span className="hidden xs:inline">Back to Menu</span>
             </button>
 
             {/* Login Card */}
@@ -84,8 +112,8 @@ export default function AdminLoginPage() {
                 <div className="text-center mb-6 sm:mb-8">
                     <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl shadow-2xl mb-3 sm:mb-4 relative">
                         <Shield className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
-                        <div className={`absolute -top-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full border-4 border-white flex items-center justify-center ${
-                            isOnline ? 'bg-green-500' : 'bg-red-500'
+                        <div className={`absolute -top-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 rounded-full border-4 border-white flex items-center justify-center transition-colors ${
+                            isOnline ? 'bg-green-500' : 'bg-red-500 animate-pulse'
                         }`}>
                             <Wifi className="w-2 h-2 sm:w-3 sm:h-3 text-white" />
                         </div>
@@ -94,19 +122,20 @@ export default function AdminLoginPage() {
                     <p className="text-xs sm:text-sm text-gray-600">AT Restaurant Management System</p>
                 </div>
 
-                <div className="bg-white border-2 border-gray-200 rounded-2xl p-5 sm:p-8 shadow-2xl backdrop-blur-xl">
-                    {/* Connection Status Banner */}
+                <div className="bg-white/80 backdrop-blur-xl border-2 border-gray-200 rounded-2xl p-5 sm:p-8 shadow-2xl">
+                    {/* Offline Warning Banner */}
                     {!isOnline && (
                         <div className="mb-4 p-3 sm:p-4 bg-red-50 border-2 border-red-200 rounded-xl flex items-start gap-3 animate-in slide-in-from-top-2">
                             <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                            <div>
-                                <p className="text-sm font-medium text-red-700">No Internet Connection</p>
+                            <div className="flex-1">
+                                <p className="text-sm font-semibold text-red-700">No Internet Connection</p>
                                 <p className="text-xs text-red-600 mt-1">Please connect to the internet to login</p>
                             </div>
                         </div>
                     )}
 
                     <div className="space-y-4 sm:space-y-6">
+                        {/* Error Message */}
                         {error && (
                             <div className="p-3 sm:p-4 bg-red-50 border-2 border-red-200 rounded-xl flex items-start gap-3 animate-in slide-in-from-top-2">
                                 <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 flex-shrink-0 mt-0.5" />
@@ -116,6 +145,7 @@ export default function AdminLoginPage() {
                             </div>
                         )}
 
+                        {/* Password Input */}
                         <div>
                             <label className="block text-xs sm:text-sm font-semibold text-gray-900 mb-2 sm:mb-3">
                                 Admin Password
@@ -127,17 +157,22 @@ export default function AdminLoginPage() {
                                 <input
                                     type={showPassword ? 'text' : 'password'}
                                     value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
+                                    onChange={(e) => {
+                                        setPassword(e.target.value)
+                                        // Clear error when user starts typing
+                                        if (error) setError('')
+                                    }}
                                     onKeyDown={handleKeyPress}
                                     placeholder="Enter your password"
                                     autoFocus
-                                    disabled={loading || !isOnline}
+                                    disabled={loading}
                                     className="w-full pl-10 pr-10 sm:pl-12 sm:pr-12 py-3 sm:py-4 text-sm sm:text-base bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 />
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                                    disabled={loading}
+                                    className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
                                 >
                                     {showPassword ? (
                                         <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -151,15 +186,16 @@ export default function AdminLoginPage() {
                             </p>
                         </div>
 
+                        {/* Submit Button */}
                         <button
                             onClick={handleSubmit}
-                            disabled={loading || !password || !isOnline}
-                            className="w-full py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-600/30 active:scale-95 relative overflow-hidden group"
+                            disabled={loading || !password || password.trim().length === 0}
+                            className="w-full py-3 sm:py-4 text-sm sm:text-base bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-600/30 active:scale-[0.98] relative overflow-hidden group"
                         >
                             <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
                             {loading ? (
                                 <span className="flex items-center justify-center gap-2">
-                                    <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                                     Verifying...
                                 </span>
                             ) : (
@@ -170,15 +206,16 @@ export default function AdminLoginPage() {
                             )}
                         </button>
 
+                        {/* Info Box */}
                         <div className="p-3 sm:p-4 bg-blue-50 border border-blue-200 rounded-xl">
                             <div className="flex items-start gap-3">
                                 <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                                     <Shield className="w-3 h-3 sm:w-4 sm:h-4 text-blue-600" />
                                 </div>
                                 <div>
-                                    <p className="text-xs font-semibold text-gray-900 mb-1">Security Notice</p>
+                                    <p className="text-xs font-semibold text-gray-900 mb-1">🔒 Security Notice</p>
                                     <p className="text-xs text-gray-600 leading-relaxed">
-                                        Internet connection required. Session remains active for 8 hours.
+                                        Internet connection required for login. Your session will remain active for 8 hours.
                                     </p>
                                 </div>
                             </div>
@@ -186,6 +223,7 @@ export default function AdminLoginPage() {
                     </div>
                 </div>
 
+                {/* Footer */}
                 <div className="mt-4 sm:mt-6 text-center">
                     <p className="text-xs text-gray-500">© 2026 AT Restaurant. All rights reserved.</p>
                 </div>

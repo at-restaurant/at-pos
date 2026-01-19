@@ -26,6 +26,7 @@ export default function OrdersPage() {
     const [showDailySummary, setShowDailySummary] = useState(false)
     const [actionLoading, setActionLoading] = useState(false)
     const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
+    const [categoriesLoaded, setCategoriesLoaded] = useState(false) // ✅ NEW: Track if loaded
 
     const supabase = createClient()
     const { pendingCount } = useOfflineStatus()
@@ -36,14 +37,17 @@ export default function OrdersPage() {
         autoSync: true
     })
 
-// ✅ Reload categories when orders update
+    // ✅ FIXED: Load categories only ONCE on mount
     useEffect(() => {
-        loadMenuCategories()
-    }, [orders])
+        if (!categoriesLoaded && orders.length > 0) {
+            loadMenuCategories()
+            setCategoriesLoaded(true)
+        }
+    }, [orders.length > 0, categoriesLoaded]) // Only when we have orders AND not loaded yet
 
     const loadMenuCategories = async () => {
         try {
-            // ✅ First: Extract categories from already-loaded orders data
+            // ✅ PRIORITY 1: Extract from already-loaded orders
             if (orders.length > 0) {
                 const categoryMap: { [key: string]: { name: string; icon: string } } = {}
 
@@ -59,14 +63,41 @@ export default function OrdersPage() {
                     })
                 })
 
-                // If we got categories from orders, use them
                 if (Object.keys(categoryMap).length > 0) {
                     setMenuCategories(categoryMap)
+                    console.log('✅ Loaded categories from orders data')
                     return
                 }
             }
 
-            // ✅ Fallback: If no categories from orders, fetch from database
+            // ✅ PRIORITY 2: Load from IndexedDB cache
+            const cachedMenu = await db.get(STORES.SETTINGS, 'menu_items_with_categories')
+            if (cachedMenu && (cachedMenu as any).value) {
+                const categoryMap: { [key: string]: { name: string; icon: string } } = {}
+                const menuItems = (cachedMenu as any).value
+
+                menuItems.forEach((item: any) => {
+                    if (item.menu_categories) {
+                        categoryMap[item.id] = {
+                            name: item.menu_categories.name,
+                            icon: item.menu_categories.icon || '📋'
+                        }
+                    }
+                })
+
+                if (Object.keys(categoryMap).length > 0) {
+                    setMenuCategories(categoryMap)
+                    console.log('✅ Loaded categories from cache')
+                    return
+                }
+            }
+
+            // ✅ PRIORITY 3: Fetch from Supabase ONLY if online
+            if (!navigator.onLine) {
+                console.warn('⚠️ Offline: Cannot fetch menu categories')
+                return
+            }
+
             const { data } = await supabase
                 .from('menu_items')
                 .select('id, category_id, menu_categories(name, icon)')
@@ -82,9 +113,16 @@ export default function OrdersPage() {
                     }
                 })
                 setMenuCategories(categoryMap)
+
+                // ✅ Cache for offline use
+                await db.put(STORES.SETTINGS, {
+                    key: 'menu_items_with_categories',
+                    value: data
+                })
+                console.log('✅ Loaded categories from Supabase & cached')
             }
         } catch (error) {
-            console.error('Failed to load menu categories:', error)
+            console.error('❌ Failed to load menu categories:', error)
         }
     }
 

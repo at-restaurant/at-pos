@@ -1,11 +1,12 @@
 // src/app/admin/(pages)/history/orders/page.tsx
-// 🚀 FULLY OPTIMIZED - Fast, Mobile Perfect, User Friendly
+// ✅ FIXED: Server-side filtering instead of loading 500 records always
+// 🚀 OPTIMIZED: Only loads what's needed based on active filters
 
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, Filter, Download, Search, ShoppingBag, X, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Filter, Download, Search, ShoppingBag, ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -27,14 +28,19 @@ export default function OrdersHistoryPage() {
     const [showFilters, setShowFilters] = useState(false)
     const [expandedOrder, setExpandedOrder] = useState<string | null>(null)
 
+    // ✅ NEW: Track if initial load is done
+    const [initialLoadDone, setInitialLoadDone] = useState(false)
+
     useEffect(() => {
         loadOrders()
-    }, [])
+    }, [statusFilter, typeFilter, paymentFilter, dateRange.start, dateRange.end])
 
+    // ✅ OPTIMIZED: Server-side filtering
     const loadOrders = async () => {
         setLoading(true)
         try {
-            const { data, error } = await supabase
+            // ✅ Start with base query
+            let query = supabase
                 .from('orders')
                 .select(`
                     *,
@@ -43,10 +49,51 @@ export default function OrdersHistoryPage() {
                     order_items(quantity, total_price, menu_items(name))
                 `)
                 .order('created_at', { ascending: false })
-                .limit(500)
+
+            // ✅ Apply status filter (server-side)
+            if (statusFilter !== 'all') {
+                query = query.eq('status', statusFilter)
+            }
+
+            // ✅ Apply order type filter (server-side)
+            if (typeFilter !== 'all') {
+                query = query.eq('order_type', typeFilter)
+            }
+
+            // ✅ Apply payment filter (server-side)
+            if (paymentFilter !== 'all') {
+                query = query.eq('payment_method', paymentFilter)
+            }
+
+            // ✅ Apply date range (server-side)
+            if (dateRange.start && dateRange.end) {
+                const startDate = new Date(dateRange.start)
+                startDate.setHours(0, 0, 0, 0)
+                const endDate = new Date(dateRange.end)
+                endDate.setHours(23, 59, 59, 999)
+
+                query = query
+                    .gte('created_at', startDate.toISOString())
+                    .lte('created_at', endDate.toISOString())
+            } else {
+                // ✅ DEFAULT: Last 30 days if no date range selected
+                const thirtyDaysAgo = new Date()
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+                thirtyDaysAgo.setHours(0, 0, 0, 0)
+                query = query.gte('created_at', thirtyDaysAgo.toISOString())
+            }
+
+            // ✅ Limit to reasonable amount (changed from 500 to 200)
+            query = query.limit(200)
+
+            const { data, error } = await query
 
             if (error) throw error
             setOrders(data || [])
+
+            if (!initialLoadDone) {
+                setInitialLoadDone(true)
+            }
         } catch (error) {
             console.error('Load orders error:', error)
         } finally {
@@ -54,40 +101,16 @@ export default function OrdersHistoryPage() {
         }
     }
 
+    // ✅ Client-side search only (for quick filtering of already loaded data)
     const filtered = useMemo(() => {
-        let result = orders
+        if (!searchQuery) return orders
 
-        if (statusFilter !== 'all') {
-            result = result.filter(o => o.status === statusFilter)
-        }
-
-        if (typeFilter !== 'all') {
-            result = result.filter(o => o.order_type === typeFilter)
-        }
-
-        if (paymentFilter !== 'all') {
-            result = result.filter(o => o.payment_method === paymentFilter)
-        }
-
-        if (searchQuery) {
-            result = result.filter(o =>
-                o.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                o.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                o.customer_phone?.includes(searchQuery)
-            )
-        }
-
-        if (dateRange.start && dateRange.end) {
-            const start = new Date(dateRange.start)
-            const end = new Date(dateRange.end)
-            result = result.filter(o => {
-                const orderDate = new Date(o.created_at)
-                return orderDate >= start && orderDate <= end
-            })
-        }
-
-        return result
-    }, [orders, statusFilter, typeFilter, paymentFilter, searchQuery, dateRange])
+        return orders.filter(o =>
+            o.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            o.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            o.customer_phone?.includes(searchQuery)
+        )
+    }, [orders, searchQuery])
 
     const stats = useMemo(() => {
         const completed = filtered.filter(o => o.status === 'completed')
@@ -102,6 +125,11 @@ export default function OrdersHistoryPage() {
     }, [filtered])
 
     const exportCSV = () => {
+        if (filtered.length === 0) {
+            alert('No data to export')
+            return
+        }
+
         const headers = ['Order ID', 'Date', 'Type', 'Customer', 'Payment', 'Status', 'Amount']
         const rows = filtered.map(o => [
             o.id.slice(0, 8).toUpperCase(),
@@ -130,7 +158,12 @@ export default function OrdersHistoryPage() {
         setDateRange({ start: '', end: '' })
     }
 
-    if (loading) {
+    // ✅ Check if any filter is active
+    const hasActiveFilters = statusFilter !== 'all' || typeFilter !== 'all' ||
+        paymentFilter !== 'all' || searchQuery ||
+        dateRange.start || dateRange.end
+
+    if (loading && !initialLoadDone) {
         return (
             <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
                 <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -143,7 +176,7 @@ export default function OrdersHistoryPage() {
             <div className="min-h-screen bg-[var(--bg)]">
                 <PageHeader
                     title="Orders History"
-                    subtitle={`${filtered.length} orders found`}
+                    subtitle={`${filtered.length} orders found${!dateRange.start && !dateRange.end ? ' (Last 30 days)' : ''}`}
                     action={
                         <div className="flex gap-2">
                             <button
@@ -165,6 +198,15 @@ export default function OrdersHistoryPage() {
                 />
 
                 <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
+                    {/* ✅ Info Banner */}
+                    {!dateRange.start && !dateRange.end && (
+                        <div className="p-3 sm:p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                            <p className="text-xs sm:text-sm text-blue-600">
+                                ℹ️ <strong>Note:</strong> Showing last 30 days by default. Use date filters below to view specific range.
+                            </p>
+                        </div>
+                    )}
+
                     {/* Stats */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                         {stats.map((stat, i) => (
@@ -182,7 +224,7 @@ export default function OrdersHistoryPage() {
                     >
                         <span className="flex items-center gap-2 text-[var(--fg)] font-medium">
                             <Filter className="w-4 h-4" />
-                            Filters {(statusFilter !== 'all' || typeFilter !== 'all' || paymentFilter !== 'all' || searchQuery || dateRange.start) && '(Active)'}
+                            Filters {hasActiveFilters && '(Active)'}
                         </span>
                         <ChevronDown className={`w-5 h-5 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
                     </button>
@@ -193,13 +235,18 @@ export default function OrdersHistoryPage() {
                             <div className="flex items-center gap-2">
                                 <Filter className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
                                 <h3 className="font-bold text-[var(--fg)] text-sm sm:text-base">Filters</h3>
+                                {loading && initialLoadDone && (
+                                    <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                )}
                             </div>
-                            <button
-                                onClick={clearFilters}
-                                className="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-medium"
-                            >
-                                Clear All
-                            </button>
+                            {hasActiveFilters && (
+                                <button
+                                    onClick={clearFilters}
+                                    className="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-medium"
+                                >
+                                    Clear All
+                                </button>
+                            )}
                         </div>
 
                         <div className="space-y-3">
@@ -270,6 +317,14 @@ export default function OrdersHistoryPage() {
                             </div>
                         </div>
                     </div>
+
+                    {/* Loading indicator during filter changes */}
+                    {loading && initialLoadDone && (
+                        <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg flex items-center gap-3">
+                            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                            <p className="text-sm text-blue-600">Filtering orders...</p>
+                        </div>
+                    )}
 
                     {/* Orders List */}
                     <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
@@ -363,7 +418,9 @@ export default function OrdersHistoryPage() {
                             <div className="p-8 sm:p-12 text-center">
                                 <ShoppingBag className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 opacity-20 text-[var(--fg)]" />
                                 <p className="text-[var(--fg)] font-medium text-sm sm:text-base">No orders found</p>
-                                <p className="text-xs sm:text-sm text-[var(--muted)] mt-1">Try adjusting your filters</p>
+                                <p className="text-xs sm:text-sm text-[var(--muted)] mt-1">
+                                    {hasActiveFilters ? 'Try adjusting your filters' : 'No orders in the last 30 days'}
+                                </p>
                             </div>
                         )}
                     </div>
