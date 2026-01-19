@@ -40,13 +40,6 @@ export default function OrdersPage() {
         loadMenuCategories()
     }, [])
 
-    useEffect(() => {
-        if (!isOffline) {
-            const interval = setInterval(refresh, 10000)
-            return () => clearInterval(interval)
-        }
-    }, [isOffline, refresh])
-
     const loadMenuCategories = async () => {
         try {
             const cachedItems = await db.getAll(STORES.MENU_ITEMS) as any[]

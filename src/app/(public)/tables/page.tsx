@@ -1,5 +1,5 @@
 // src/app/(public)/tables/page.tsx
-// ✅ FIXED: Shows CUMULATIVE total for table (all items), not just current order
+// ✅ FIXED: Removed auto-refresh interval - rely on manual refresh only
 
 "use client"
 export const dynamic = 'force-dynamic'
@@ -25,9 +25,9 @@ interface TableWithDetails {
     waiter_id: string | null
     current_order_id: string | null
     waiter?: { id: string; name: string; profile_pic?: string } | null
-    cumulativeTotal: number // ✅ NEW: Total of all items
-    itemCount: number // ✅ NEW: Total items
-    orderItems: any[] // ✅ NEW: All items in the order
+    cumulativeTotal: number
+    itemCount: number
+    orderItems: any[]
 }
 
 export default function TablesPage() {
@@ -41,14 +41,12 @@ export default function TablesPage() {
 
     useEffect(() => {
         loadTables()
-        const interval = setInterval(loadTables, 5000)
-        return () => clearInterval(interval)
+        // ✅ REMOVED: Auto-refresh interval - rely on manual refresh only
+        // Previously had: setInterval(loadTables, 5000)
     }, [])
 
-    // ✅ FIXED: Load tables with cumulative totals
     const loadTables = async () => {
         try {
-            // Get all tables with relationships
             const { data: tablesData } = await supabase
                 .from('restaurant_tables')
                 .select('*, waiters(id, name, profile_pic)')
@@ -60,7 +58,6 @@ export default function TablesPage() {
                 return
             }
 
-            // For each occupied table, calculate cumulative total
             const enrichedTables = await Promise.all(
                 tablesData.map(async (table: any) => {
                     let cumulativeTotal = 0
@@ -68,7 +65,6 @@ export default function TablesPage() {
                     let orderItems: any[] = []
 
                     if (table.status === 'occupied' && table.current_order_id) {
-                        // ✅ Get ALL items for this order (including newly added ones)
                         const { data: items } = await supabase
                             .from('order_items')
                             .select('*, menu_items(name, price)')
@@ -76,7 +72,6 @@ export default function TablesPage() {
 
                         if (items && items.length > 0) {
                             orderItems = items
-                            // Calculate cumulative total from all items
                             cumulativeTotal = items.reduce((sum: number, item: any) => sum + (item.total_price || 0), 0)
                             itemCount = items.reduce((sum: number, item: any) => sum + item.quantity, 0)
                         }
@@ -210,7 +205,6 @@ export default function TablesPage() {
             label: 'Running Bill',
             align: 'right' as const,
             render: (row: TableWithDetails) => {
-                // ✅ FIXED: Show cumulative total (all items)
                 if (row.cumulativeTotal > 0) {
                     return (
                         <div className="text-right">
@@ -270,7 +264,6 @@ export default function TablesPage() {
                     </div>
                 </div>
 
-                {/* ✅ FIXED: Modal shows cumulative total and all items */}
                 {selectedTable && selectedTable.cumulativeTotal > 0 && (
                     <UniversalModal
                         open={!!selectedTable}
