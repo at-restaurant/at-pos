@@ -1,5 +1,5 @@
 // src/app/(public)/orders/page.tsx
-// ✅ ENHANCED: Items with Categories + No Split Bill
+// ✅ FIXED: useEffect dependency array corrected
 
 "use client"
 export const dynamic = 'force-dynamic'
@@ -26,7 +26,7 @@ export default function OrdersPage() {
     const [showDailySummary, setShowDailySummary] = useState(false)
     const [actionLoading, setActionLoading] = useState(false)
     const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
-    const [categoriesLoaded, setCategoriesLoaded] = useState(false) // ✅ NEW: Track if loaded
+    const [categoriesLoaded, setCategoriesLoaded] = useState(false)
 
     const supabase = createClient()
     const { pendingCount } = useOfflineStatus()
@@ -39,11 +39,12 @@ export default function OrdersPage() {
 
     // ✅ FIXED: Load categories only ONCE on mount
     useEffect(() => {
-        if (!categoriesLoaded && orders.length > 0) {
-            loadMenuCategories()
-            setCategoriesLoaded(true)
-        }
-    }, [orders.length > 0, categoriesLoaded]) // Only when we have orders AND not loaded yet
+        if (categoriesLoaded) return // Already loaded
+        if (orders.length === 0) return // No data yet
+
+        loadMenuCategories()
+        setCategoriesLoaded(true)
+    }, [orders.length]) // Only when orders change
 
     const loadMenuCategories = async () => {
         try {
@@ -211,12 +212,6 @@ export default function OrdersPage() {
         ]
     }, [orders, filter])
 
-    const validatePaymentMethod = (method?: string): 'cash' | 'online' | 'card' | undefined => {
-        if (!method) return undefined
-        if (method === 'cash' || method === 'online' || method === 'card') return method
-        return 'cash'
-    }
-
     const handlePrintAndComplete = async (order: any, paymentMethod: 'cash' | 'online') => {
         if (actionLoading) return
 
@@ -252,7 +247,7 @@ export default function OrdersPage() {
                 subtotal: order.display_total || order.total_amount,
                 tax: order.tax,
                 total: order.display_total || order.total_amount,
-                paymentMethod: validatePaymentMethod(paymentMethod),
+                paymentMethod: paymentMethod,
                 notes: order.notes
             }
 

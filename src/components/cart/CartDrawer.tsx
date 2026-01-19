@@ -1,5 +1,5 @@
 // src/components/cart/CartDrawer.tsx
-// ✅ FIXED: Prints receipt when adding items to existing order
+// ✅ FIXED: Removed validatePaymentMethod, direct paymentMethod use
 
 'use client'
 
@@ -175,11 +175,6 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         return (cart.subtotal() * percent) / 100
     }
 
-    const validatePaymentMethod = (method: 'cash' | 'online'): 'cash' | 'online' | 'card' => {
-        if (method === 'cash' || method === 'online') return method
-        return 'cash'
-    }
-
     // ✅ FIXED: Print receipt when adding to existing order
     const placeOrder = async () => {
         if (cart.items.length === 0) return
@@ -259,6 +254,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                     subtotal,
                     tax,
                     total,
+                    paymentMethod: paymentMethod, // ✅ Direct use (UI validated)
                     notes: '🆕 NEW ITEMS ADDED TO ORDER'
                 }
 
@@ -374,7 +370,7 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 subtotal: mergedItems.reduce((sum, i) => sum + i.total, 0),
                 tax,
                 total,
-                paymentMethod: finalOrderType !== 'dine-in' ? validatePaymentMethod(paymentMethod) : undefined,
+                paymentMethod: finalOrderType !== 'dine-in' ? paymentMethod : undefined, // ✅ Direct use
                 notes: cart.notes
             }
 
