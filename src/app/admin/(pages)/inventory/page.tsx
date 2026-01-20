@@ -1,15 +1,14 @@
 // src/app/admin/(pages)/inventory/page.tsx
-// ✅ COMPLETE INVENTORY: Edit, Delete, Category Selection, Mobile-First
+// ✅ REFACTORED: Shows menu_items as inventory with search + filters
 
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { Plus, Download, Archive, Menu, Edit2, Trash2, X, Upload } from 'lucide-react'
+import { Search, Menu, Edit2, Trash2, X, Upload, Package, AlertTriangle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import ResponsiveStatsGrid from '@/components/ui/ResponsiveStatsGrid'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import CategoryManager from '@/components/ui/CategoryManager'
 import { createClient } from '@/lib/supabase/client'
 
 export default function InventoryPage() {
@@ -20,11 +19,16 @@ export default function InventoryPage() {
     const [categories, setCategories] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [stockFilter, setStockFilter] = useState('all')
+    const [searchQuery, setSearchQuery] = useState('')
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [modal, setModal] = useState<any>(null)
     const [form, setForm] = useState({
-        name: '', category_id: '', quantity: '', unit: 'kg',
-        reorder_level: '10', purchase_price: '', supplier_name: '', image_url: ''
+        name: '',
+        category_id: '',
+        price: '',
+        stock_quantity: '',
+        description: '',
+        image_url: ''
     })
     const [saving, setSaving] = useState(false)
     const [uploadingImage, setUploadingImage] = useState(false)
@@ -43,9 +47,9 @@ export default function InventoryPage() {
 
     const loadItems = async () => {
         const { data, error } = await supabase
-            .from('inventory_items')
-            .select('*, inventory_categories(name, icon)')
-            .eq('is_active', true)
+            .from('menu_items')
+            .select('*, menu_categories(name, icon)')
+            .eq('is_available', true)
             .order('created_at', { ascending: false })
 
         if (!error) setItems(data || [])
@@ -53,7 +57,7 @@ export default function InventoryPage() {
 
     const loadCategories = async () => {
         const { data, error } = await supabase
-            .from('inventory_categories')
+            .from('menu_categories')
             .select('*')
             .eq('is_active', true)
             .order('name')
@@ -67,12 +71,12 @@ export default function InventoryPage() {
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
-                table: 'inventory_items'
+                table: 'menu_items'
             }, loadItems)
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
-                table: 'inventory_categories'
+                table: 'menu_categories'
             }, loadCategories)
             .subscribe()
 
@@ -81,11 +85,11 @@ export default function InventoryPage() {
         }
     }
 
-    const getStockStatus = (qty: number, reorder: number) => {
+    const getStockStatus = (qty: number) => {
+        if (qty === 999) return 'unlimited'
         if (qty === 0) return 'critical'
-        if (qty <= reorder * 0.5) return 'critical'
-        if (qty <= reorder) return 'low'
-        if (qty <= reorder * 2) return 'medium'
+        if (qty <= 10) return 'low'
+        if (qty <= 50) return 'medium'
         return 'high'
     }
 
@@ -94,58 +98,92 @@ export default function InventoryPage() {
             critical: '#ef4444',
             low: '#f59e0b',
             medium: '#3b82f6',
-            high: '#10b981'
+            high: '#10b981',
+            unlimited: '#8b5cf6'
         }
         return colors[status as keyof typeof colors] || '#6b7280'
     }
 
     const filtered = useMemo(() => {
         let result = items
-        if (stockFilter !== 'all') {
+
+        // Search filter
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase()
             result = result.filter(i =>
-                getStockStatus(i.quantity, i.reorder_level) === stockFilter
+                i.name.toLowerCase().includes(query) ||
+                i.menu_categories?.name?.toLowerCase().includes(query) ||
+                i.description?.toLowerCase().includes(query)
             )
         }
-        return result
-    }, [items, stockFilter])
 
-    const stats = useMemo(() => [
-        {
-            label: 'Critical',
-            value: items.filter(i => getStockStatus(i.quantity, i.reorder_level) === 'critical').length,
-            color: '#ef4444',
-            onClick: () => setStockFilter('critical'),
-            active: stockFilter === 'critical'
-        },
-        {
-            label: 'Low Stock',
-            value: items.filter(i => getStockStatus(i.quantity, i.reorder_level) === 'low').length,
-            color: '#f59e0b',
-            onClick: () => setStockFilter('low'),
-            active: stockFilter === 'low'
-        },
-        {
-            label: 'Medium',
-            value: items.filter(i => getStockStatus(i.quantity, i.reorder_level) === 'medium').length,
-            color: '#3b82f6',
-            onClick: () => setStockFilter('medium'),
-            active: stockFilter === 'medium'
-        },
-        {
-            label: 'High Stock',
-            value: items.filter(i => getStockStatus(i.quantity, i.reorder_level) === 'high').length,
-            color: '#10b981',
-            onClick: () => setStockFilter('high'),
-            active: stockFilter === 'high'
+        // Stock filter
+        if (stockFilter !== 'all') {
+            result = result.filter(i =>
+                getStockStatus(i.stock_quantity ?? 999) === stockFilter
+            )
         }
-    ], [items, stockFilter])
+
+        return result
+    }, [items, stockFilter, searchQuery])
+
+    const stats = useMemo(() => {
+        const itemsWithStock = items.filter(i => (i.stock_quantity ?? 999) !== 999)
+        const totalValue = itemsWithStock.reduce((s, i) => s + ((i.stock_quantity ?? 0) * i.price), 0)
+
+        return [
+            {
+                label: 'Out of Stock',
+                value: items.filter(i => getStockStatus(i.stock_quantity ?? 999) === 'critical').length,
+                color: '#ef4444',
+                onClick: () => setStockFilter('critical'),
+                active: stockFilter === 'critical'
+            },
+            {
+                label: 'Low Stock',
+                value: items.filter(i => getStockStatus(i.stock_quantity ?? 999) === 'low').length,
+                color: '#f59e0b',
+                onClick: () => setStockFilter('low'),
+                active: stockFilter === 'low'
+            },
+            {
+                label: 'Medium',
+                value: items.filter(i => getStockStatus(i.stock_quantity ?? 999) === 'medium').length,
+                color: '#3b82f6',
+                onClick: () => setStockFilter('medium'),
+                active: stockFilter === 'medium'
+            },
+            {
+                label: 'High Stock',
+                value: items.filter(i => getStockStatus(i.stock_quantity ?? 999) === 'high').length,
+                color: '#10b981',
+                onClick: () => setStockFilter('high'),
+                active: stockFilter === 'high'
+            },
+            {
+                label: 'Unlimited',
+                value: items.filter(i => getStockStatus(i.stock_quantity ?? 999) === 'unlimited').length,
+                color: '#8b5cf6',
+                onClick: () => setStockFilter('unlimited'),
+                active: stockFilter === 'unlimited'
+            },
+            {
+                label: 'Total Value',
+                value: `PKR ${(totalValue / 1000).toFixed(1)}k`,
+                color: '#10b981',
+                onClick: () => setStockFilter('all'),
+                active: stockFilter === 'all'
+            }
+        ]
+    }, [items, stockFilter])
 
     const sidebarItems = useSidebarItems([
         { id: 'all', label: 'All Items', icon: '📦', count: items.length },
-        { id: 'critical', label: 'Critical', icon: '🔴', count: stats[0]?.value || 0 },
+        { id: 'critical', label: 'Out of Stock', icon: '🔴', count: stats[0]?.value || 0 },
         { id: 'low', label: 'Low Stock', icon: '🟡', count: stats[1]?.value || 0 },
         { id: 'medium', label: 'Medium', icon: '🔵', count: stats[2]?.value || 0 },
-        { id: 'high', label: 'High Stock', icon: '🟢', count: stats[3]?.value || 0 }
+        { id: 'high', label: 'High Stock', icon: '🟢', count: stats[3]?.value || 0 },
+        { id: 'unlimited', label: 'Unlimited', icon: '♾️', count: stats[4]?.value || 0 }
     ], stockFilter, setStockFilter)
 
     const openModal = (item?: any) => {
@@ -153,17 +191,19 @@ export default function InventoryPage() {
             setForm({
                 name: item.name,
                 category_id: item.category_id || '',
-                quantity: item.quantity.toString(),
-                unit: item.unit,
-                reorder_level: item.reorder_level.toString(),
-                purchase_price: item.purchase_price.toString(),
-                supplier_name: item.supplier_name || '',
+                price: item.price.toString(),
+                stock_quantity: (item.stock_quantity ?? 999).toString(),
+                description: item.description || '',
                 image_url: item.image_url || ''
             })
         } else {
             setForm({
-                name: '', category_id: '', quantity: '', unit: 'kg',
-                reorder_level: '10', purchase_price: '', supplier_name: '', image_url: ''
+                name: '',
+                category_id: '',
+                price: '',
+                stock_quantity: '999',
+                description: '',
+                image_url: ''
             })
         }
         setModal(item || {})
@@ -187,8 +227,8 @@ export default function InventoryPage() {
         try {
             const formData = new FormData()
             formData.append('file', file)
-            formData.append('upload_preset', 'inventory-items')
-            formData.append('folder', 'inventory-items')
+            formData.append('upload_preset', 'menu-items')
+            formData.append('folder', 'menu-items')
 
             const response = await fetch(
                 `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
@@ -207,7 +247,7 @@ export default function InventoryPage() {
     }
 
     const save = async () => {
-        if (!form.name || !form.quantity || !form.purchase_price) {
+        if (!form.name || !form.price || !form.stock_quantity) {
             alert('❌ Fill all required fields')
             return
         }
@@ -217,71 +257,38 @@ export default function InventoryPage() {
             const data = {
                 name: form.name,
                 category_id: form.category_id || null,
-                quantity: parseFloat(form.quantity),
-                unit: form.unit,
-                reorder_level: parseFloat(form.reorder_level),
-                purchase_price: parseFloat(form.purchase_price),
-                supplier_name: form.supplier_name || null,
+                price: parseFloat(form.price),
+                stock_quantity: parseInt(form.stock_quantity),
+                description: form.description || null,
                 image_url: form.image_url || null,
-                is_active: true
+                is_available: true
             }
 
             if (modal?.id) {
-                // Update existing
-                const oldQty = modal.quantity
-                const newQty = data.quantity
-
-                if (newQty > oldQty) {
-                    const purchaseQty = newQty - oldQty
-                    const purchaseAmount = purchaseQty * data.purchase_price
-
-                    await supabase.from('inventory_purchases').insert({
-                        inventory_item_id: modal.id,
-                        quantity: purchaseQty,
-                        unit: data.unit,
-                        purchase_price: data.purchase_price,
-                        total_amount: purchaseAmount,
-                        supplier_name: data.supplier_name,
-                        notes: `Stock update from ${oldQty} to ${newQty}`
-                    })
-                }
-
                 const { error } = await supabase
-                    .from('inventory_items')
+                    .from('menu_items')
                     .update(data)
                     .eq('id', modal.id)
 
                 if (error) throw error
                 alert('✅ Item updated!')
             } else {
-                // Create new
-                const { data: newItems, error } = await supabase
-                    .from('inventory_items')
+                const { error } = await supabase
+                    .from('menu_items')
                     .insert(data)
-                    .select('id')
 
                 if (error) throw error
-
-                if (newItems && newItems.length > 0) {
-                    const purchaseAmount = data.quantity * data.purchase_price
-                    await supabase.from('inventory_purchases').insert({
-                        inventory_item_id: newItems[0].id,
-                        quantity: data.quantity,
-                        unit: data.unit,
-                        purchase_price: data.purchase_price,
-                        total_amount: purchaseAmount,
-                        supplier_name: data.supplier_name,
-                        notes: 'Initial stock'
-                    })
-                }
-
                 alert('✅ Item added!')
             }
 
             setModal(null)
             setForm({
-                name: '', category_id: '', quantity: '', unit: 'kg',
-                reorder_level: '10', purchase_price: '', supplier_name: '', image_url: ''
+                name: '',
+                category_id: '',
+                price: '',
+                stock_quantity: '999',
+                description: '',
+                image_url: ''
             })
         } catch (error: any) {
             alert(`❌ ${error.message || 'Failed'}`)
@@ -295,8 +302,8 @@ export default function InventoryPage() {
 
         try {
             const { error } = await supabase
-                .from('inventory_items')
-                .update({ is_active: false })
+                .from('menu_items')
+                .update({ is_available: false })
                 .eq('id', id)
 
             if (error) throw error
@@ -315,27 +322,6 @@ export default function InventoryPage() {
         } catch (error: any) {
             alert(`❌ ${error.message || 'Failed'}`)
         }
-    }
-
-    const exportCSV = () => {
-        if (filtered.length === 0) return
-        const headers = ['Name', 'Category', 'Quantity', 'Unit', 'Price', 'Total Value', 'Supplier']
-        const rows = filtered.map(r => [
-            r.name,
-            r.inventory_categories?.name || 'N/A',
-            r.quantity,
-            r.unit,
-            r.purchase_price,
-            (r.quantity * r.purchase_price).toFixed(2),
-            r.supplier_name || 'N/A'
-        ])
-        const csv = [headers, ...rows].map(row => row.join(',')).join('\n')
-        const blob = new Blob([csv], { type: 'text/csv' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `inventory-${Date.now()}.csv`
-        a.click()
     }
 
     if (loading) {
@@ -394,35 +380,38 @@ export default function InventoryPage() {
                                         <Menu className="w-5 h-5 text-[var(--fg)]" />
                                     </button>
                                     <div className="flex-1 min-w-0">
-                                        <h1 className="text-lg sm:text-2xl font-bold text-[var(--fg)] truncate">Current Inventory</h1>
+                                        <h1 className="text-lg sm:text-2xl font-bold text-[var(--fg)] truncate">Inventory</h1>
                                         <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">
-                                            {filtered.length} items • PKR {filtered.reduce((s, i) => s + (i.quantity * i.purchase_price), 0).toLocaleString()}
+                                            {filtered.length} items • PKR {filtered.reduce((s, i) => {
+                                            const stock = i.stock_quantity ?? 999
+                                            return stock === 999 ? s : s + (stock * i.price)
+                                        }, 0).toLocaleString()}
                                         </p>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
 
-                                <div className="flex gap-2 shrink-0">
-                                    <button
-                                        onClick={() => router.push('/admin/history/inventory')}
-                                        className="px-3 sm:px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95 shadow-lg"
-                                    >
-                                        <Archive className="w-3 h-3 sm:w-4 sm:h-4" />
-                                        <span className="hidden sm:inline">Archive</span>
-                                    </button>
-                                    <button
-                                        onClick={exportCSV}
-                                        className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95 shadow-lg"
-                                    >
-                                        <Download className="w-3 h-3 sm:w-4 sm:h-4" />
-                                        <span className="hidden sm:inline">Export</span>
-                                    </button>
-                                    <button
-                                        onClick={() => openModal()}
-                                        className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95 shadow-lg"
-                                    >
-                                        <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
-                                        <span className="hidden xs:inline">Add</span>
-                                    </button>
+                        {/* Search Bar */}
+                        <div className="border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-lg">
+                            <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-[var(--muted)]" />
+                                    <input
+                                        type="text"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        placeholder="Search by name, category, description..."
+                                        className="w-full pl-10 sm:pl-12 pr-4 py-2 sm:py-2.5 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm sm:text-base text-[var(--fg)] placeholder:text-[var(--muted)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                    />
+                                    {searchQuery && (
+                                        <button
+                                            onClick={() => setSearchQuery('')}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-[var(--border)] rounded transition-colors"
+                                        >
+                                            <X className="w-4 h-4 text-[var(--muted)]" />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -451,23 +440,33 @@ export default function InventoryPage() {
                     <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
                         <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 sm:p-4">
                             <p className="text-xs sm:text-sm text-blue-600">
-                                💡 <strong>Note:</strong> This page shows current month inventory. Click "Archive" button to move items to History when starting a new month.
+                                💡 <strong>Note:</strong> This inventory shows your menu items with stock tracking. Items are sold on the public menu and stock reduces automatically.
                             </p>
                         </div>
 
-                        <CategoryManager type="inventory" onCategoryChange={loadCategories} />
                         <ResponsiveStatsGrid stats={stats} />
 
                         {/* Items Grid */}
                         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                             {filtered.map(item => {
-                                const status = getStockStatus(item.quantity, item.reorder_level)
+                                const status = getStockStatus(item.stock_quantity ?? 999)
                                 const statusColor = getStockColor(status)
+                                const stock = item.stock_quantity ?? 999
+
                                 return (
                                     <div key={item.id} className="bg-[var(--card)] border border-[var(--border)] rounded-lg sm:rounded-xl overflow-hidden hover:shadow-xl hover:border-blue-600 transition-all group">
                                         {item.image_url && (
                                             <div className="relative h-32 sm:h-40 overflow-hidden">
                                                 <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                <div className="absolute top-2 right-2">
+                                                    <div
+                                                        className="px-2 py-1 rounded-full text-xs font-bold text-white flex items-center gap-1 shadow-lg"
+                                                        style={{ backgroundColor: statusColor }}
+                                                    >
+                                                        <Package className="w-3 h-3" />
+                                                        {stock === 999 ? '∞' : stock}
+                                                    </div>
+                                                </div>
                                             </div>
                                         )}
                                         <div className="p-3 sm:p-4">
@@ -475,7 +474,7 @@ export default function InventoryPage() {
                                                 <div className="flex-1 min-w-0">
                                                     <h3 className="font-semibold text-sm sm:text-base text-[var(--fg)] truncate">{item.name}</h3>
                                                     <p className="text-xs text-[var(--muted)] truncate">
-                                                        {item.inventory_categories?.icon || '📦'} {item.inventory_categories?.name || 'N/A'}
+                                                        {item.menu_categories?.icon || '📦'} {item.menu_categories?.name || 'N/A'}
                                                     </p>
                                                 </div>
                                             </div>
@@ -485,11 +484,13 @@ export default function InventoryPage() {
                                                     <span className="text-xs text-[var(--muted)]">Stock</span>
                                                     <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium"
                                                           style={{ backgroundColor: `${statusColor}20`, color: statusColor }}>
-                                                        {item.quantity} {item.unit}
+                                                        {stock === 999 ? 'Unlimited' : `${stock} units`}
                                                     </span>
                                                 </div>
-                                                <p className="text-sm text-[var(--muted)]">Price: PKR {item.purchase_price}</p>
-                                                <p className="text-base font-bold text-blue-600">Value: PKR {(item.quantity * item.purchase_price).toLocaleString()}</p>
+                                                <p className="text-sm text-[var(--muted)]">Price: PKR {item.price}</p>
+                                                {stock !== 999 && (
+                                                    <p className="text-base font-bold text-blue-600">Value: PKR {(stock * item.price).toLocaleString()}</p>
+                                                )}
                                             </div>
 
                                             <div className="flex gap-2">
@@ -517,8 +518,12 @@ export default function InventoryPage() {
                         {filtered.length === 0 && (
                             <div className="text-center py-12 bg-[var(--card)] border border-[var(--border)] rounded-xl">
                                 <div className="text-4xl sm:text-5xl mb-4">📦</div>
-                                <p className="text-[var(--fg)] font-medium mb-2 text-sm sm:text-base">No items found</p>
-                                <p className="text-xs sm:text-sm text-[var(--muted)]">Add your first item or adjust filters</p>
+                                <p className="text-[var(--fg)] font-medium mb-2 text-sm sm:text-base">
+                                    {searchQuery ? 'No items match your search' : 'No items found'}
+                                </p>
+                                <p className="text-xs sm:text-sm text-[var(--muted)]">
+                                    {searchQuery ? 'Try a different search term' : 'Add items from the menu page'}
+                                </p>
                             </div>
                         )}
                     </div>
@@ -549,7 +554,7 @@ export default function InventoryPage() {
                                             type="text"
                                             value={form.name}
                                             onChange={e => setForm({ ...form, name: e.target.value })}
-                                            placeholder="Rice, Chicken..."
+                                            placeholder="Chicken Biryani..."
                                             className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
                                         />
                                     </div>
@@ -571,77 +576,42 @@ export default function InventoryPage() {
 
                                     <div>
                                         <label className="block text-sm font-medium text-[var(--fg)] mb-2">
-                                            Quantity <span className="text-red-600">*</span>
-                                        </label>
-                                        <input
-                                            type="number"
-                                            value={form.quantity}
-                                            onChange={e => setForm({ ...form, quantity: e.target.value })}
-                                            placeholder="50"
-                                            className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-[var(--fg)] mb-2">Unit</label>
-                                        <select
-                                            value={form.unit}
-                                            onChange={e => setForm({ ...form, unit: e.target.value })}
-                                            className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                                            style={{ colorScheme: 'dark' }}
-                                        >
-                                            <option value="kg">kg</option>
-                                            <option value="gram">gram</option>
-                                            <option value="liter">liter</option>
-                                            <option value="ml">ml</option>
-                                            <option value="pieces">pieces</option>
-                                            <option value="dozen">dozen</option>
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-[var(--fg)] mb-2">
                                             Price (PKR) <span className="text-red-600">*</span>
                                         </label>
                                         <input
                                             type="number"
-                                            value={form.purchase_price}
-                                            onChange={e => setForm({ ...form, purchase_price: e.target.value })}
-                                            placeholder="150"
+                                            value={form.price}
+                                            onChange={e => setForm({ ...form, price: e.target.value })}
+                                            placeholder="450"
                                             className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
                                         />
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-[var(--fg)] mb-2">Reorder Level</label>
+                                        <label className="block text-sm font-medium text-[var(--fg)] mb-2">
+                                            Stock Quantity <span className="text-red-600">*</span>
+                                        </label>
                                         <input
                                             type="number"
-                                            value={form.reorder_level}
-                                            onChange={e => setForm({ ...form, reorder_level: e.target.value })}
-                                            placeholder="10"
+                                            value={form.stock_quantity}
+                                            onChange={e => setForm({ ...form, stock_quantity: e.target.value })}
+                                            placeholder="999 for unlimited"
                                             className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
                                         />
+                                        <p className="text-xs text-[var(--muted)] mt-1">💡 Use 999 for unlimited stock</p>
                                     </div>
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-[var(--fg)] mb-2">Supplier</label>
-                                    <input
-                                        type="text"
-                                        value={form.supplier_name}
-                                        onChange={e => setForm({ ...form, supplier_name: e.target.value })}
-                                        placeholder="ABC Suppliers"
-                                        className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                    <label className="block text-sm font-medium text-[var(--fg)] mb-2">Description</label>
+                                    <textarea
+                                        value={form.description}
+                                        onChange={e => setForm({ ...form, description: e.target.value })}
+                                        placeholder="Optional description..."
+                                        rows={3}
+                                        className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none resize-none"
                                     />
                                 </div>
-
-                                {modal?.id && (
-                                    <div className="p-3 bg-blue-600/10 border border-blue-600/30 rounded-lg">
-                                        <p className="text-xs sm:text-sm text-blue-600">
-                                            💡 <strong>Tip:</strong> Increasing quantity will automatically log as a new purchase
-                                        </p>
-                                    </div>
-                                )}
 
                                 <div>
                                     <label className="block text-sm font-medium text-[var(--fg)] mb-2">Item Image</label>
@@ -682,7 +652,6 @@ export default function InventoryPage() {
                                         )}
                                     </div>
                                 </div>
-
                                 <div className="flex gap-3 pt-4">
                                     <button
                                         onClick={() => setModal(null)}

@@ -1,4 +1,4 @@
-// src/app/admin/(pages)/menu/page.tsx - WITH STOCK MANAGEMENT
+// src/app/admin/(pages)/menu/page.tsx - SIMPLIFIED (No Inventory Link)
 "use client"
 
 import { useState, useEffect } from 'react'
@@ -24,7 +24,7 @@ export default function MenuPage() {
         price: '',
         description: '',
         image_url: '',
-        stock_quantity: '1' // ✅ NEW: Default 1 item added
+        stock_quantity: '999'
     })
     const [refreshKey, setRefreshKey] = useState(0)
     const supabase = createClient()
@@ -46,7 +46,6 @@ export default function MenuPage() {
             return toast.add('error', '❌ Fill required fields')
         }
 
-        // ✅ NEW: Validate stock quantity
         const stockQty = parseInt(form.stock_quantity)
         if (isNaN(stockQty) || stockQty < 0) {
             return toast.add('error', '❌ Stock quantity must be 0 or more')
@@ -58,7 +57,7 @@ export default function MenuPage() {
             price: +form.price,
             description: form.description || null,
             image_url: form.image_url || null,
-            stock_quantity: stockQty, // ✅ NEW: Include stock
+            stock_quantity: stockQty,
             is_available: true
         }
 
@@ -82,7 +81,7 @@ export default function MenuPage() {
                 price: '',
                 description: '',
                 image_url: '',
-                stock_quantity: '1' // ✅ Reset to default 1
+                stock_quantity: '999'
             })
         } catch (error: any) {
             toast.add('error', `❌ ${error.message || 'Failed'}`)
@@ -120,7 +119,7 @@ export default function MenuPage() {
                 price: item.price.toString(),
                 description: item.description || '',
                 image_url: item.image_url || '',
-                stock_quantity: (item.stock_quantity ?? 999).toString() // ✅ NEW: Load existing stock
+                stock_quantity: (item.stock_quantity ?? 999).toString()
             })
         } else {
             setForm({
@@ -129,24 +128,26 @@ export default function MenuPage() {
                 price: '',
                 description: '',
                 image_url: '',
-                stock_quantity: '1' // ✅ Default 1 for new items
+                stock_quantity: '999'
             })
         }
         setModal(item || {})
     }
 
-    // ✅ NEW: Get stock status color and label
     const getStockStatus = (qty: number) => {
         if (qty === 0) return { label: 'Out of Stock', color: '#ef4444' }
         if (qty <= 10) return { label: 'Low Stock', color: '#f59e0b' }
         if (qty <= 50) return { label: 'Medium', color: '#3b82f6' }
+        if (qty === 999) return { label: 'Unlimited', color: '#10b981' }
         return { label: 'In Stock', color: '#10b981' }
     }
 
     const filtered = selectedCategory === 'all' ? items : items.filter(i => i.category_id === selectedCategory)
 
-    // ✅ NEW: Count low stock items for header warning
-    const lowStockCount = items.filter(i => (i.stock_quantity ?? 999) <= 10).length
+    const lowStockCount = items.filter(i => {
+        const stock = i.stock_quantity ?? 999
+        return stock !== 999 && stock <= 10
+    }).length
 
     const sidebarItems = useSidebarItems([
         { id: 'all', label: 'All Items', icon: '🍽️', count: items.length },
@@ -161,12 +162,10 @@ export default function MenuPage() {
     return (
         <ErrorBoundary>
             <>
-                {/* Desktop Sidebar */}
                 <div className="hidden lg:block">
                     <AutoSidebar items={sidebarItems} title="Categories" />
                 </div>
 
-                {/* Mobile Sidebar Overlay */}
                 {sidebarOpen && (
                     <>
                         <div
@@ -218,12 +217,10 @@ export default function MenuPage() {
                 )}
 
                 <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
-                    {/* Fixed Header */}
                     <header className="sticky top-0 z-40 bg-[var(--card)]/95 border-b border-[var(--border)] backdrop-blur-lg shadow-sm">
                         <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3.5">
                             <div className="flex items-center justify-between gap-2 sm:gap-3">
                                 <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                                    {/* Mobile Menu Button */}
                                     <button
                                         onClick={() => setSidebarOpen(true)}
                                         className="lg:hidden p-2 hover:bg-[var(--bg)] rounded-lg transition-colors shrink-0"
@@ -232,10 +229,9 @@ export default function MenuPage() {
                                     </button>
 
                                     <div className="flex-1 min-w-0">
-                                        <h1 className="text-lg sm:text-2xl font-bold text-[var(--fg)] truncate">Menu</h1>
+                                        <h1 className="text-lg sm:text-2xl font-bold text-[var(--fg)] truncate">Menu & Inventory</h1>
                                         <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">
                                             {filtered.length} items
-                                            {/* ✅ NEW: Low stock warning badge */}
                                             {lowStockCount > 0 && (
                                                 <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-500/10 border border-orange-500/30 rounded-full text-orange-600 font-medium">
                                                     <AlertTriangle className="w-3 h-3" />
@@ -257,7 +253,6 @@ export default function MenuPage() {
                             </div>
                         </div>
 
-                        {/* Horizontal Scrollable Categories - Mobile Only */}
                         <div className="lg:hidden border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-lg">
                             <div className="max-w-7xl mx-auto overflow-x-auto scrollbar-hide">
                                 <div className="flex gap-2 px-3 py-3 min-w-max">
@@ -290,7 +285,6 @@ export default function MenuPage() {
                     </header>
 
                     <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
-                        {/* Category Manager */}
                         <CategoryManager
                             type="menu"
                             onCategoryChange={() => {
@@ -299,10 +293,8 @@ export default function MenuPage() {
                             }}
                         />
 
-                        {/* Menu Items Grid */}
                         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                             {filtered.map(i => {
-                                // ✅ NEW: Get stock status for this item
                                 const stockStatus = getStockStatus(i.stock_quantity ?? 999)
 
                                 return (
@@ -310,14 +302,13 @@ export default function MenuPage() {
                                         {i.image_url && (
                                             <div className="relative h-32 sm:h-40 overflow-hidden">
                                                 <img src={i.image_url} alt={i.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                                                {/* ✅ NEW: Stock badge on image */}
                                                 <div className="absolute top-2 right-2">
                                                     <div
                                                         className="px-2 py-1 rounded-full text-xs font-bold text-white flex items-center gap-1 shadow-lg"
                                                         style={{ backgroundColor: stockStatus.color }}
                                                     >
                                                         <Package className="w-3 h-3" />
-                                                        {i.stock_quantity ?? 999}
+                                                        {i.stock_quantity === 999 ? '∞' : i.stock_quantity ?? 999}
                                                     </div>
                                                 </div>
                                             </div>
@@ -332,7 +323,6 @@ export default function MenuPage() {
                                                 </div>
                                             </div>
 
-                                            {/* ✅ NEW: Stock status bar */}
                                             <div className="mb-3">
                                                 <div className="flex items-center justify-between mb-1">
                                                     <span className="text-xs text-[var(--muted)]">Stock</span>
@@ -348,7 +338,7 @@ export default function MenuPage() {
                                                         className="h-full rounded-full transition-all"
                                                         style={{
                                                             backgroundColor: stockStatus.color,
-                                                            width: `${Math.min(((i.stock_quantity ?? 999) / 100) * 100, 100)}%`
+                                                            width: i.stock_quantity === 999 ? '100%' : `${Math.min(((i.stock_quantity ?? 999) / 100) * 100, 100)}%`
                                                         }}
                                                     />
                                                 </div>
@@ -390,7 +380,6 @@ export default function MenuPage() {
                     </div>
                 </div>
 
-                {/* Item Modal */}
                 <FormModal
                     open={!!modal}
                     onClose={() => setModal(null)}
@@ -422,20 +411,21 @@ export default function MenuPage() {
                             placeholder="450"
                             required
                         />
-                        {/* ✅ NEW: Stock quantity input */}
+
                         <div>
                             <ResponsiveInput
                                 label="Stock Quantity"
                                 type="number"
                                 value={form.stock_quantity}
                                 onChange={e => setForm({ ...form, stock_quantity: e.target.value })}
-                                placeholder="1"
+                                placeholder="999"
                                 required
                             />
                             <p className="text-xs text-[var(--muted)] mt-1">
-                                💡 Default is 1 item. Increase quantity as needed for inventory tracking
+                                💡 Enter 999 for unlimited stock, or specific quantity for tracking
                             </p>
                         </div>
+
                         <ResponsiveInput
                             label="Description"
                             type="textarea"

@@ -1,5 +1,5 @@
 // src/lib/hooks/useOrderManagement.ts
-// ✅ FIXED: Cancelled orders + TypeScript errors
+// ✅ SIMPLIFIED: Only reduce menu stock
 
 import { useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -10,7 +10,6 @@ import { addToQueue } from '@/lib/db/syncQueue'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
 import { ReceiptData } from '@/types'
 
-// ✅ ADD TYPE DEFINITION
 type Category = {
     id: string
     name: string
@@ -26,6 +25,51 @@ function generateUUID(): string {
 }
 
 const inFlightRequests = new Map<string, Promise<any>>()
+
+// ✅ SIMPLIFIED: Only reduce menu item stock
+async function reduceMenuStock(
+    supabase: any,
+    menuItemId: string,
+    quantitySold: number
+) {
+    try {
+        const { data: menuItem, error: fetchError } = await supabase
+            .from('menu_items')
+            .select('stock_quantity, name')
+            .eq('id', menuItemId)
+            .single()
+
+        if (fetchError || !menuItem) {
+            console.error('❌ Menu item not found:', menuItemId)
+            return
+        }
+
+        const currentStock = menuItem.stock_quantity ?? 999
+        if (currentStock === 999) {
+            console.log(`ℹ️ ${menuItem.name} has unlimited stock, skipping reduction`)
+            return
+        }
+
+        const newStock = Math.max(0, currentStock - quantitySold)
+
+        const { error: updateError } = await supabase
+            .from('menu_items')
+            .update({
+                stock_quantity: newStock,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', menuItemId)
+
+        if (updateError) {
+            console.error('❌ Failed to update menu stock:', updateError)
+            return
+        }
+
+        console.log(`✅ Stock reduced: ${menuItem.name} → ${currentStock} - ${quantitySold} = ${newStock}`)
+    } catch (error) {
+        console.error('❌ Stock reduction error:', error)
+    }
+}
 
 export function useOrderManagement() {
     const [loading, setLoading] = useState(false)
@@ -168,7 +212,6 @@ export function useOrderManagement() {
                 deliveryAddress: order.delivery_address,
                 deliveryCharges: order.delivery_charges,
                 items: order.order_items.map((item: any) => {
-                    // ✅ FIX: Add explicit type for callback parameter
                     const category = (categories as Category[] | null)?.find((c: Category) => c.id === item.menu_items.category_id)
                     return {
                         name: item.menu_items.name,
@@ -197,8 +240,7 @@ export function useOrderManagement() {
             const result = await completeOrder(orderId, tableId, orderType)
 
             return result
-        } catch (error: any) {
-            toast.add('error', `❌ ${error.message}`)
+        } catch (error: any) {  toast.add('error', `❌ ${error.message}`)
             return { success: false, error: error.message }
         } finally {
             setLoading(false)
@@ -259,6 +301,11 @@ export function useOrderManagement() {
                         .insert(orderItems)
 
                     if (itemsError) throw itemsError
+
+                    // ✅ SIMPLIFIED: Only reduce menu stock
+                    for (const item of items) {
+                        await reduceMenuStock(supabase, item.id, item.quantity)
+                    }
 
                     if (orderData.order_type === 'dine-in' && orderData.table_id) {
                         await supabase

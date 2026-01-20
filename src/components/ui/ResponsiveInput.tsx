@@ -19,6 +19,9 @@ interface ResponsiveInputProps {
     rows?: number // For textarea
     className?: string
     icon?: React.ReactNode
+    step?: string // ✅ NEW: For decimal inputs (e.g., "0.01", "0.5", "1")
+    min?: string | number // ✅ NEW: Minimum value for number inputs
+    max?: string | number // ✅ NEW: Maximum value for number inputs
 }
 
 export default function ResponsiveInput({
@@ -35,7 +38,10 @@ export default function ResponsiveInput({
                                             options,
                                             rows = 3,
                                             className = '',
-                                            icon
+                                            icon,
+                                            step, // ✅ NEW
+                                            min, // ✅ NEW
+                                            max // ✅ NEW
                                         }: ResponsiveInputProps) {
     const [showPassword, setShowPassword] = useState(false)
 
@@ -90,6 +96,7 @@ export default function ResponsiveInput({
                         disabled={disabled}
                         required={required}
                         className={baseClasses}
+                        style={{ colorScheme: 'dark' }}
                     >
                         <option value="">Select {label?.toLowerCase() || 'option'}</option>
                         {options?.map(opt => (
@@ -106,6 +113,9 @@ export default function ResponsiveInput({
                         placeholder={placeholder}
                         disabled={disabled}
                         required={required}
+                        step={step} // ✅ NEW
+                        min={min} // ✅ NEW
+                        max={max} // ✅ NEW
                         className={baseClasses}
                     />
                 )}
