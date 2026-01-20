@@ -2,16 +2,15 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useMemo, useEffect } from 'react'
-import { ShoppingCart, Plus, WifiOff, Menu } from 'lucide-react'
+import { ShoppingCart, Plus, WifiOff, Menu, Minus, X } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import CartDrawer from '@/components/cart/CartDrawer'
 import { useCart } from '@/lib/store/cart-store'
 import { useHydration } from '@/lib/hooks/useHydration'
-import { useOfflineFirst } from '@/lib/hooks/useOfflineFirst' // ✅ NEW
+import { useOfflineFirst } from '@/lib/hooks/useOfflineFirst'
 import { offlineManager } from '@/lib/db/offlineManager'
 
 export default function MenuPage() {
-    // ✅ NEW: Use offline-first hook
     const { data: categories, loading: catLoading } = useOfflineFirst({
         store: 'menu_categories',
         table: 'menu_categories',
@@ -46,6 +45,14 @@ export default function MenuPage() {
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [isMounted, setIsMounted] = useState(false)
 
+    // ✅ NEW: Quantity modal state
+    const [quantityModal, setQuantityModal] = useState<{
+        show: boolean
+        item: any
+        currentQty: number
+        inputValue: string
+    } | null>(null)
+
     useEffect(() => {
         setIsMounted(true)
         if (typeof window !== 'undefined' && navigator.onLine) {
@@ -68,34 +75,104 @@ export default function MenuPage() {
         }))
     ], selectedCat, setSelectedCat)
 
+    // ✅ NEW: Get current quantity in cart
+    const getCartQuantity = (itemId: string) => {
+        const cartItem = cart.items.find(i => i.id === itemId)
+        return cartItem?.quantity || 0
+    }
+
+    // ✅ NEW: Check if item is out of stock
+    const isOutOfStock = (item: any) => {
+        const stock = item.stock_quantity ?? 999
+        return stock === 0
+    }
+
+    // ✅ NEW: Check if can add more to cart
+    const canAddMore = (item: any) => {
+        const stock = item.stock_quantity ?? 999
+        const inCart = getCartQuantity(item.id)
+        return stock === 999 || inCart < stock
+    }
+
+    // ✅ NEW: Handle add to cart with stock validation
     const handleAddToCart = (item: any) => {
         if (!hydrated) return
+        if (isOutOfStock(item)) return
+        if (!canAddMore(item)) return
 
         cart.addItem({
             id: item.id,
             name: item.name,
             price: item.price,
-            image_url: item.image_url
+            image_url: item.image_url,
+            stock_quantity: item.stock_quantity ?? 999
         })
+    }
+
+    // ✅ NEW: Open quantity modal
+    const openQuantityModal = (item: any) => {
+        const currentQty = getCartQuantity(item.id)
+        setQuantityModal({
+            show: true,
+            item,
+            currentQty,
+            inputValue: currentQty > 0 ? currentQty.toString() : '1'
+        })
+    }
+
+    // ✅ NEW: Handle quantity change in modal
+    const handleQuantityChange = (value: string) => {
+        if (value === '' || /^\d+$/.test(value)) {
+            const num = parseInt(value) || 0
+            const maxStock = quantityModal?.item?.stock_quantity ?? 999
+
+            if (num <= maxStock || maxStock === 999) {
+                setQuantityModal(prev => prev ? { ...prev, inputValue: value } : null)
+            }
+        }
+    }
+
+    // ✅ NEW: Save quantity from modal
+    const saveQuantity = () => {
+        if (!quantityModal || !hydrated) return
+
+        const qty = parseInt(quantityModal.inputValue) || 0
+        const item = quantityModal.item
+        const maxStock = item.stock_quantity ?? 999
+
+        if (qty <= 0) {
+            cart.removeItem(item.id)
+        } else if (qty <= maxStock || maxStock === 999) {
+            // Remove first, then add with new quantity
+            cart.removeItem(item.id)
+            for (let i = 0; i < qty; i++) {
+                cart.addItem({
+                    id: item.id,
+                    name: item.name,
+                    price: item.price,
+                    image_url: item.image_url,
+                    stock_quantity: item.stock_quantity ?? 999
+                })
+            }
+        }
+
+        setQuantityModal(null)
     }
 
     return (
         <>
-            {/* Desktop Sidebar - Hidden on mobile */}
+            {/* Desktop Sidebar */}
             <div className="hidden lg:block">
                 <AutoSidebar items={sidebarItems} title="Categories" />
             </div>
 
-            {/* Mobile Sidebar Overlay */}
+            {/* Mobile Sidebar */}
             {sidebarOpen && (
                 <>
-                    {/* Backdrop */}
                     <div
                         className="fixed inset-0 bg-black/50 z-40 lg:hidden"
                         onClick={() => setSidebarOpen(false)}
                     />
-
-                    {/* Sidebar */}
                     <div className="fixed top-0 left-0 h-full w-64 bg-[var(--card)] border-r border-[var(--border)] z-50 lg:hidden overflow-y-auto">
                         <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
                             <h2 className="text-lg font-bold text-[var(--fg)]">Categories</h2>
@@ -140,13 +217,11 @@ export default function MenuPage() {
             )}
 
             <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
-                {/* Fixed Header with Menu Button */}
+                {/* Fixed Header */}
                 <header className="sticky top-0 z-40 bg-[var(--card)]/95 border-b border-[var(--border)] backdrop-blur-lg shadow-sm">
                     <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3.5">
                         <div className="flex items-center justify-between gap-2 sm:gap-3">
-                            {/* Left Side - Menu Button + Title */}
                             <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                                {/* Mobile Menu Button */}
                                 <button
                                     onClick={() => setSidebarOpen(true)}
                                     className="lg:hidden p-2 hover:bg-[var(--bg)] rounded-lg transition-colors shrink-0"
@@ -172,7 +247,6 @@ export default function MenuPage() {
                                 </div>
                             </div>
 
-                            {/* Cart Button */}
                             <button
                                 onClick={() => setCartOpen(!cartOpen)}
                                 className="relative px-2.5 sm:px-4 py-1.5 sm:py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 sm:gap-2 font-medium text-xs sm:text-base shadow-lg active:scale-95 transition-all shrink-0"
@@ -188,7 +262,7 @@ export default function MenuPage() {
                         </div>
                     </div>
 
-                    {/* Horizontal Scrollable Categories - Mobile Only */}
+                    {/* Horizontal Categories - Mobile */}
                     <div className="lg:hidden border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-lg">
                         <div className="max-w-7xl mx-auto overflow-x-auto scrollbar-hide">
                             <div className="flex gap-2 px-3 py-3 min-w-max">
@@ -236,57 +310,175 @@ export default function MenuPage() {
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-3">
-                            {filtered.map(item => (
-                                <div
-                                    key={item.id}
-                                    className="bg-[var(--card)] border border-[var(--border)] rounded-lg sm:rounded-xl overflow-hidden hover:shadow-xl hover:border-blue-600 transition-all group flex flex-col h-full"
-                                >
-                                    {item.image_url && (
-                                        <div className="relative w-full aspect-square overflow-hidden bg-[var(--bg)]">
-                                            <img
-                                                src={item.image_url}
-                                                alt={item.name}
-                                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                                                loading="lazy"
-                                            />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                        </div>
-                                    )}
+                            {filtered.map(item => {
+                                const cartQty = getCartQuantity(item.id)
+                                const outOfStock = isOutOfStock(item)
+                                const stock = item.stock_quantity ?? 999
+                                const remaining = stock === 999 ? 999 : stock - cartQty
 
-                                    <div className="p-2.5 sm:p-3 flex flex-col flex-grow">
-                                        <div className="flex-grow space-y-1 sm:space-y-2">
-                                            <h3 className="font-semibold text-xs sm:text-sm text-[var(--fg)] leading-snug line-clamp-2">
-                                                {item.name}
-                                            </h3>
+                                return (
+                                    <div
+                                        key={item.id}
+                                        className={`bg-[var(--card)] border border-[var(--border)] rounded-lg sm:rounded-xl overflow-hidden hover:shadow-xl hover:border-blue-600 transition-all group flex flex-col h-full ${
+                                            outOfStock ? 'opacity-60' : ''
+                                        }`}
+                                    >
+                                        {item.image_url && (
+                                            <div className="relative w-full aspect-square overflow-hidden bg-[var(--bg)]">
+                                                <img
+                                                    src={item.image_url}
+                                                    alt={item.name}
+                                                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                                    loading="lazy"
+                                                />
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                                            {item.description && (
-                                                <p className="text-[10px] sm:text-xs text-[var(--muted)] leading-relaxed line-clamp-2 hidden xs:block">
-                                                    {item.description}
-                                                </p>
-                                            )}
-                                        </div>
+                                                {/* ✅ NEW: Stock badge */}
+                                                {stock !== 999 && (
+                                                    <div className="absolute top-2 right-2">
+                                                        <div className={`px-2 py-1 rounded-full text-xs font-bold text-white shadow-lg ${
+                                                            outOfStock ? 'bg-red-600' :
+                                                                remaining <= 5 ? 'bg-orange-600' : 'bg-green-600'
+                                                        }`}>
+                                                            {outOfStock ? 'Out' : `${remaining} left`}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
 
-                                        <div className="flex items-center justify-between pt-2 mt-auto gap-1.5">
-                                            <span className="text-xs sm:text-sm font-bold text-blue-600 shrink-0">
-                                                PKR {item.price}
-                                            </span>
+                                        <div className="p-2.5 sm:p-3 flex flex-col flex-grow">
+                                            <div className="flex-grow space-y-1 sm:space-y-2">
+                                                <h3 className="font-semibold text-xs sm:text-sm text-[var(--fg)] leading-snug line-clamp-2">
+                                                    {item.name}
+                                                </h3>
 
-                                            <button
-                                                onClick={() => handleAddToCart(item)}
-                                                disabled={!hydrated}
-                                                className="px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-0.5 sm:gap-1 shrink-0"
-                                            >
-                                                <Plus className="w-3 h-3" />
-                                                <span className="hidden xs:inline">Add</span>
-                                            </button>
+                                                {item.description && (
+                                                    <p className="text-[10px] sm:text-xs text-[var(--muted)] leading-relaxed line-clamp-2 hidden xs:block">
+                                                        {item.description}
+                                                    </p>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center justify-between pt-2 mt-auto gap-1">
+                                                <span className="text-[10px] sm:text-sm font-bold text-blue-600 shrink-0">
+                                                    PKR {item.price}
+                                                </span>
+
+                                                {/* ✅ NEW: Quantity badge + Add button */}
+                                                <div className="flex items-center gap-0.5 sm:gap-1">
+                                                    {cartQty > 0 && (
+                                                        <button
+                                                            onClick={() => openQuantityModal(item)}
+                                                            className="px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9px] sm:text-xs bg-blue-600 text-white rounded hover:bg-blue-700 active:scale-95 transition-all font-bold min-w-[20px] sm:min-w-[26px] h-[20px] sm:h-auto flex items-center justify-center"
+                                                        >
+                                                            {cartQty}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleAddToCart(item)}
+                                                        disabled={!hydrated || outOfStock || !canAddMore(item)}
+                                                        className="px-1.5 py-0.5 sm:px-2.5 sm:py-1.5 text-[9px] sm:text-xs bg-blue-600 text-white rounded hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-0.5 shrink-0 h-[20px] sm:h-auto"
+                                                    >
+                                                        <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                                        <span className="hidden xs:inline">
+                                                            {outOfStock ? 'Out' : !canAddMore(item) ? 'Max' : 'Add'}
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                )
+                            })}
                         </div>
                     )}
                 </div>
             </div>
+
+            {/* ✅ NEW: Quantity Modal */}
+            {quantityModal?.show && (
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                    <div className="bg-[var(--card)] rounded-xl w-full max-w-sm border border-[var(--border)] shadow-2xl">
+                        <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-[var(--fg)]">Set Quantity</h3>
+                            <button
+                                onClick={() => setQuantityModal(null)}
+                                className="p-2 hover:bg-[var(--bg)] rounded-lg transition-colors"
+                            >
+                                <X className="w-5 h-5 text-[var(--muted)]" />
+                            </button>
+                        </div>
+
+                        <div className="p-6">
+                            <p className="text-sm text-[var(--fg)] mb-2 font-medium">
+                                {quantityModal.item.name}
+                            </p>
+                            <p className="text-xs text-[var(--muted)] mb-4">
+                                {quantityModal.item.stock_quantity === 999
+                                    ? 'Unlimited stock available'
+                                    : `${quantityModal.item.stock_quantity} available`}
+                            </p>
+
+                            <div className="flex items-center gap-3 mb-6">
+                                <button
+                                    onClick={() => {
+                                        const current = parseInt(quantityModal.inputValue) || 0
+                                        if (current > 1) {
+                                            handleQuantityChange((current - 1).toString())
+                                        }
+                                    }}
+                                    className="p-3 bg-red-600 text-white rounded-lg hover:bg-red-700 active:scale-95 transition-all"
+                                >
+                                    <Minus className="w-5 h-5" />
+                                </button>
+
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={quantityModal.inputValue}
+                                    onChange={(e) => handleQuantityChange(e.target.value)}
+                                    onFocus={(e) => e.target.select()}
+                                    className="flex-1 px-4 py-3 text-center text-2xl font-bold text-[var(--fg)] bg-[var(--bg)] border-2 border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+                                    maxLength={3}
+                                />
+
+                                <button
+                                    onClick={() => {
+                                        const current = parseInt(quantityModal.inputValue) || 0
+                                        const max = quantityModal.item.stock_quantity ?? 999
+                                        if (max === 999 || current < max) {
+                                            handleQuantityChange((current + 1).toString())
+                                        }
+                                    }}
+                                    disabled={
+                                        quantityModal.item.stock_quantity !== 999 &&
+                                        parseInt(quantityModal.inputValue) >= quantityModal.item.stock_quantity
+                                    }
+                                    className="p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <Plus className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setQuantityModal(null)}
+                                    className="flex-1 px-4 py-2.5 border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--bg)] transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={saveQuantity}
+                                    className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                                >
+                                    Save
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <CartDrawer
                 isOpen={cartOpen}

@@ -49,6 +49,7 @@ export type MenuCategory = {
     created_at: string
 }
 
+// ✅ UPDATED: Added stock_quantity field
 export type MenuItem = {
     id: string
     category_id: string
@@ -56,7 +57,8 @@ export type MenuItem = {
     description?: string
     price: number
     image_url?: string
-    thumbnail_url?: string // ✅ NEW: For offline thumbnails
+    thumbnail_url?: string // For offline thumbnails
+    stock_quantity: number // ✅ NEW: Stock tracking (999 = unlimited, 0 = out of stock)
     is_available: boolean
     preparation_time?: number
     created_at: string
@@ -72,16 +74,16 @@ export type Order = {
     total_amount: number
     notes?: string
 
-    // ✅ NEW: Support 3 order types
+    // Support 3 order types
     order_type: 'dine-in' | 'delivery' | 'takeaway'
 
-    // ✅ NEW: Delivery/Takeaway fields
+    // Delivery/Takeaway fields
     customer_name?: string | null
     customer_phone?: string | null
     delivery_address?: string | null
     delivery_charges?: number | null
 
-    // ✅ NEW: Payment tracking
+    // Payment tracking
     payment_method?: 'cash' | 'online' | 'card' | null
     receipt_printed?: boolean
 
@@ -147,6 +149,7 @@ export type OrderWithRelations = Order & {
     }>
 }
 
+// ✅ UPDATED: With stock_quantity
 export type MenuItemWithCategory = MenuItem & {
     menu_categories?: Pick<MenuCategory, 'name' | 'icon'>
 }
@@ -160,14 +163,16 @@ export type InventoryItemWithCategory = InventoryItem & {
 // UTILITY TYPES
 // ============================================
 export type StockStatus = 'critical' | 'low' | 'medium' | 'high'
+
+// ✅ UPDATED: Added stock_quantity to cart for validation
 export type CartItem = {
     id: string
     name: string
     price: number
     quantity: number
     image_url?: string
+    stock_quantity?: number // ✅ NEW: For stock validation in cart
 }
-
 
 // ============================================
 // PRINT TYPES
@@ -192,7 +197,6 @@ export interface ReceiptData {
     orderNumber: string
     date: string
     orderType: 'dine-in' | 'delivery' | 'takeaway'
-
 
     // Dine-in specific
     tableNumber?: number

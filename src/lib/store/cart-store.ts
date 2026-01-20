@@ -1,13 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-
-type CartItem = {
-    id: string
-    name: string
-    price: number
-    quantity: number
-    image_url?: string
-}
+import type { CartItem } from '@/types' // ✅ Import from types instead of local definition
 
 type CartStore = {
     items: CartItem[]
@@ -46,7 +39,14 @@ export const useCart = create<CartStore>()(
                         )
                     }
                 }
-                return { items: [...state.items, { ...item, quantity: 1 }] }
+                // ✅ Include stock_quantity when adding new item
+                return {
+                    items: [...state.items, {
+                        ...item,
+                        quantity: 1,
+                        stock_quantity: item.stock_quantity // ✅ Preserve stock info
+                    }]
+                }
             }),
 
             updateQuantity: (id, quantity) => set((state) => {

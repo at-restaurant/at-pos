@@ -1,9 +1,9 @@
-// src/app/admin/(pages)/menu/page.tsx - SUPER COOL & MOBILE PERFECT
+// src/app/admin/(pages)/menu/page.tsx - WITH STOCK MANAGEMENT
 "use client"
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Edit2, Trash2, Menu } from 'lucide-react'
+import { Plus, Edit2, Trash2, Menu, Package, AlertTriangle } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import { FormModal } from '@/components/ui/UniversalModal'
 import ResponsiveInput from '@/components/ui/ResponsiveInput'
@@ -19,7 +19,12 @@ export default function MenuPage() {
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [modal, setModal] = useState<any>(null)
     const [form, setForm] = useState({
-        name: '', category_id: '', price: '', description: '', image_url: ''
+        name: '',
+        category_id: '',
+        price: '',
+        description: '',
+        image_url: '',
+        stock_quantity: '1' // ✅ NEW: Default 1 item added
     })
     const [refreshKey, setRefreshKey] = useState(0)
     const supabase = createClient()
@@ -41,12 +46,19 @@ export default function MenuPage() {
             return toast.add('error', '❌ Fill required fields')
         }
 
+        // ✅ NEW: Validate stock quantity
+        const stockQty = parseInt(form.stock_quantity)
+        if (isNaN(stockQty) || stockQty < 0) {
+            return toast.add('error', '❌ Stock quantity must be 0 or more')
+        }
+
         const data = {
             name: form.name,
             category_id: form.category_id,
             price: +form.price,
             description: form.description || null,
             image_url: form.image_url || null,
+            stock_quantity: stockQty, // ✅ NEW: Include stock
             is_available: true
         }
 
@@ -64,7 +76,14 @@ export default function MenuPage() {
             }
 
             setModal(null)
-            setForm({ name: '', category_id: '', price: '', description: '', image_url: '' })
+            setForm({
+                name: '',
+                category_id: '',
+                price: '',
+                description: '',
+                image_url: '',
+                stock_quantity: '1' // ✅ Reset to default 1
+            })
         } catch (error: any) {
             toast.add('error', `❌ ${error.message || 'Failed'}`)
         }
@@ -100,15 +119,34 @@ export default function MenuPage() {
                 category_id: item.category_id,
                 price: item.price.toString(),
                 description: item.description || '',
-                image_url: item.image_url || ''
+                image_url: item.image_url || '',
+                stock_quantity: (item.stock_quantity ?? 999).toString() // ✅ NEW: Load existing stock
             })
         } else {
-            setForm({ name: '', category_id: '', price: '', description: '', image_url: '' })
+            setForm({
+                name: '',
+                category_id: '',
+                price: '',
+                description: '',
+                image_url: '',
+                stock_quantity: '1' // ✅ Default 1 for new items
+            })
         }
         setModal(item || {})
     }
 
+    // ✅ NEW: Get stock status color and label
+    const getStockStatus = (qty: number) => {
+        if (qty === 0) return { label: 'Out of Stock', color: '#ef4444' }
+        if (qty <= 10) return { label: 'Low Stock', color: '#f59e0b' }
+        if (qty <= 50) return { label: 'Medium', color: '#3b82f6' }
+        return { label: 'In Stock', color: '#10b981' }
+    }
+
     const filtered = selectedCategory === 'all' ? items : items.filter(i => i.category_id === selectedCategory)
+
+    // ✅ NEW: Count low stock items for header warning
+    const lowStockCount = items.filter(i => (i.stock_quantity ?? 999) <= 10).length
 
     const sidebarItems = useSidebarItems([
         { id: 'all', label: 'All Items', icon: '🍽️', count: items.length },
@@ -195,7 +233,16 @@ export default function MenuPage() {
 
                                     <div className="flex-1 min-w-0">
                                         <h1 className="text-lg sm:text-2xl font-bold text-[var(--fg)] truncate">Menu</h1>
-                                        <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">{filtered.length} items</p>
+                                        <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">
+                                            {filtered.length} items
+                                            {/* ✅ NEW: Low stock warning badge */}
+                                            {lowStockCount > 0 && (
+                                                <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-500/10 border border-orange-500/30 rounded-full text-orange-600 font-medium">
+                                                    <AlertTriangle className="w-3 h-3" />
+                                                    {lowStockCount} low stock
+                                                </span>
+                                            )}
+                                        </p>
                                     </div>
                                 </div>
 
@@ -254,45 +301,83 @@ export default function MenuPage() {
 
                         {/* Menu Items Grid */}
                         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                            {filtered.map(i => (
-                                <div key={i.id} className="bg-[var(--card)] border border-[var(--border)] rounded-lg sm:rounded-xl overflow-hidden hover:shadow-xl hover:border-blue-600 transition-all group">
-                                    {i.image_url && (
-                                        <div className="relative h-32 sm:h-40 overflow-hidden">
-                                            <img src={i.image_url} alt={i.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                                        </div>
-                                    )}
-                                    <div className="p-3 sm:p-4">
-                                        <div className="flex items-start justify-between mb-2">
-                                            <div className="flex-1 min-w-0">
-                                                <h3 className="font-semibold text-sm sm:text-base text-[var(--fg)] truncate">{i.name}</h3>
-                                                <p className="text-xs text-[var(--muted)] truncate">
-                                                    {i.menu_categories?.icon || '📋'} {i.menu_categories?.name}
-                                                </p>
+                            {filtered.map(i => {
+                                // ✅ NEW: Get stock status for this item
+                                const stockStatus = getStockStatus(i.stock_quantity ?? 999)
+
+                                return (
+                                    <div key={i.id} className="bg-[var(--card)] border border-[var(--border)] rounded-lg sm:rounded-xl overflow-hidden hover:shadow-xl hover:border-blue-600 transition-all group">
+                                        {i.image_url && (
+                                            <div className="relative h-32 sm:h-40 overflow-hidden">
+                                                <img src={i.image_url} alt={i.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                {/* ✅ NEW: Stock badge on image */}
+                                                <div className="absolute top-2 right-2">
+                                                    <div
+                                                        className="px-2 py-1 rounded-full text-xs font-bold text-white flex items-center gap-1 shadow-lg"
+                                                        style={{ backgroundColor: stockStatus.color }}
+                                                    >
+                                                        <Package className="w-3 h-3" />
+                                                        {i.stock_quantity ?? 999}
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
-                                        {i.description && (
-                                            <p className="text-xs sm:text-sm text-[var(--muted)] mb-3 line-clamp-2">{i.description}</p>
                                         )}
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-base sm:text-lg font-bold text-blue-600 truncate">PKR {i.price}</span>
-                                            <div className="flex gap-1 sm:gap-2 flex-shrink-0">
-                                                <button
-                                                    onClick={() => openModal(i)}
-                                                    className="p-1.5 sm:p-2 text-blue-600 hover:bg-blue-600/10 rounded transition-colors"
-                                                >
-                                                    <Edit2 className="w-3 h-3 sm:w-4 sm:h-4" />
-                                                </button>
-                                                <button
-                                                    onClick={() => deleteItem(i.id, i.image_url)}
-                                                    className="p-1.5 sm:p-2 text-red-600 hover:bg-red-600/10 rounded transition-colors"
-                                                >
-                                                    <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
-                                                </button>
+                                        <div className="p-3 sm:p-4">
+                                            <div className="flex items-start justify-between mb-2">
+                                                <div className="flex-1 min-w-0">
+                                                    <h3 className="font-semibold text-sm sm:text-base text-[var(--fg)] truncate">{i.name}</h3>
+                                                    <p className="text-xs text-[var(--muted)] truncate">
+                                                        {i.menu_categories?.icon || '📋'} {i.menu_categories?.name}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* ✅ NEW: Stock status bar */}
+                                            <div className="mb-3">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-xs text-[var(--muted)]">Stock</span>
+                                                    <span
+                                                        className="text-xs font-bold"
+                                                        style={{ color: stockStatus.color }}
+                                                    >
+                                                        {stockStatus.label}
+                                                    </span>
+                                                </div>
+                                                <div className="h-1.5 bg-[var(--bg)] rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full rounded-full transition-all"
+                                                        style={{
+                                                            backgroundColor: stockStatus.color,
+                                                            width: `${Math.min(((i.stock_quantity ?? 999) / 100) * 100, 100)}%`
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {i.description && (
+                                                <p className="text-xs sm:text-sm text-[var(--muted)] mb-3 line-clamp-2">{i.description}</p>
+                                            )}
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-base sm:text-lg font-bold text-blue-600 truncate">PKR {i.price}</span>
+                                                <div className="flex gap-1 sm:gap-2 flex-shrink-0">
+                                                    <button
+                                                        onClick={() => openModal(i)}
+                                                        className="p-1.5 sm:p-2 text-blue-600 hover:bg-blue-600/10 rounded transition-colors"
+                                                    >
+                                                        <Edit2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => deleteItem(i.id, i.image_url)}
+                                                        className="p-1.5 sm:p-2 text-red-600 hover:bg-red-600/10 rounded transition-colors"
+                                                    >
+                                                        <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                )
+                            })}
                         </div>
 
                         {filtered.length === 0 && (
@@ -337,6 +422,20 @@ export default function MenuPage() {
                             placeholder="450"
                             required
                         />
+                        {/* ✅ NEW: Stock quantity input */}
+                        <div>
+                            <ResponsiveInput
+                                label="Stock Quantity"
+                                type="number"
+                                value={form.stock_quantity}
+                                onChange={e => setForm({ ...form, stock_quantity: e.target.value })}
+                                placeholder="1"
+                                required
+                            />
+                            <p className="text-xs text-[var(--muted)] mt-1">
+                                💡 Default is 1 item. Increase quantity as needed for inventory tracking
+                            </p>
+                        </div>
                         <ResponsiveInput
                             label="Description"
                             type="textarea"

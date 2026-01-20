@@ -11,6 +11,25 @@ import { createClient } from '@/lib/supabase/client'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
 import type { ReceiptData } from '@/types'
 
+// ✅ ADD THIS HELPER FUNCTION after imports, before component
+const getStockStatus = (cartQty: number, stockQty?: number) => {
+    const stock = stockQty ?? 999
+    if (stock === 999) return { canAdd: true, remaining: 999, warning: null }
+
+    const remaining = stock - cartQty
+    if (remaining <= 0) return {
+        canAdd: false,
+        remaining: 0,
+        warning: '⚠️ Out of stock'
+    }
+    if (remaining <= 3) return {
+        canAdd: true,
+        remaining,
+        warning: `⚠️ Only ${remaining} left`
+    }
+    return { canAdd: true, remaining, warning: null }
+}
+
 interface CartDrawerProps {
     isOpen: boolean
     onClose: () => void
@@ -130,10 +149,13 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         const value = editingQuantity[itemId]
         if (value && value !== '') {
             const num = parseInt(value)
-            if (num > 0 && num <= 999) {
+            const cartItem = cart.items.find(i => i.id === itemId)
+            const maxStock = cartItem?.stock_quantity ?? 999
+
+            if (num > 0 && num <= maxStock) {
                 cart.updateQuantity(itemId, num)
-            } else if (num > 999) {
-                cart.updateQuantity(itemId, 999)
+            } else if (num > maxStock) {
+                cart.updateQuantity(itemId, maxStock)
             } else if (num <= 0) {
                 cart.updateQuantity(itemId, 1)
             }
@@ -546,19 +568,55 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                                                 </div>
                                                 <span className="font-bold text-blue-600 text-sm whitespace-nowrap">PKR {(item.price * item.quantity).toLocaleString()}</span>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <button onClick={() => cart.updateQuantity(item.id, item.quantity - 1)} disabled={item.quantity <= 1} className="p-1.5 bg-red-600 text-white border-2 border-red-600 rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-[var(--bg)] disabled:text-[var(--muted)] disabled:border-[var(--border)]">
-                                                    <Minus className="w-4 h-4" />
-                                                </button>
-                                                <div className="relative flex-shrink-0">
-                                                    <input type="text" inputMode="numeric" value={editingQuantity[item.id] !== undefined ? editingQuantity[item.id] : item.quantity} onChange={(e) => handleQuantityChange(item.id, e.target.value)} onFocus={(e) => handleQuantityFocus(e, item.id, item.quantity)} onBlur={() => handleQuantityBlur(item.id)} onKeyDown={(e) => handleQuantityKeyDown(e, item.id)} placeholder="Qty" className="w-20 px-3 py-2 text-center font-bold text-sm text-[var(--fg)] bg-[var(--card)] border-2 border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all cursor-text" maxLength={3} />
-                                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] pointer-events-none text-[var(--muted)]">✏️</span>
-                                                </div>
-                                                <button onClick={() => cart.updateQuantity(item.id, item.quantity + 1)} disabled={item.quantity >= 999} className="p-1.5 bg-green-600 text-white border-2 border-green-600 rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-[var(--bg)] disabled:text-[var(--muted)] disabled:border-[var(--border)]">
-                                                    <Plus className="w-4 h-4" />
-                                                </button>
-                                                <button onClick={() => cart.removeItem(item.id)} className="ml-auto px-3 py-1.5 text-xs bg-red-600 text-white font-medium border border-red-600 rounded-lg transition-all active:scale-95">Remove</button>
-                                            </div>
+                                            {(() => {
+                                                const stockStatus = getStockStatus(item.quantity, item.stock_quantity)
+                                                return (
+                                                    <>
+                                                        {stockStatus.warning && (
+                                                            <div className="mb-2 px-2 py-1 bg-orange-500/10 border border-orange-500/30 rounded text-xs text-orange-600 font-medium">
+                                                                {stockStatus.warning}
+                                                            </div>
+                                                        )}
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => cart.updateQuantity(item.id, item.quantity - 1)}
+                                                                disabled={item.quantity <= 1}
+                                                                className="p-1.5 bg-red-600 text-white border-2 border-red-600 rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-[var(--bg)] disabled:text-[var(--muted)] disabled:border-[var(--border)]"
+                                                            >
+                                                                <Minus className="w-4 h-4" />
+                                                            </button>
+                                                            <div className="relative flex-shrink-0">
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="numeric"
+                                                                    value={editingQuantity[item.id] !== undefined ? editingQuantity[item.id] : item.quantity}
+                                                                    onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                                                                    onFocus={(e) => handleQuantityFocus(e, item.id, item.quantity)}
+                                                                    onBlur={() => handleQuantityBlur(item.id)}
+                                                                    onKeyDown={(e) => handleQuantityKeyDown(e, item.id)}
+                                                                    placeholder="Qty"
+                                                                    className="w-20 px-3 py-2 text-center font-bold text-sm text-[var(--fg)] bg-[var(--card)] border-2 border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all cursor-text"
+                                                                    maxLength={3}
+                                                                />
+                                                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] pointer-events-none text-[var(--muted)]">✏️</span>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => cart.updateQuantity(item.id, item.quantity + 1)}
+                                                                disabled={!stockStatus.canAdd || item.quantity >= (item.stock_quantity ?? 999)}
+                                                                className="p-1.5 bg-green-600 text-white border-2 border-green-600 rounded-lg transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:bg-[var(--bg)] disabled:text-[var(--muted)] disabled:border-[var(--border)]"
+                                                            >
+                                                                <Plus className="w-4 h-4" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => cart.removeItem(item.id)}
+                                                                className="ml-auto px-3 py-1.5 text-xs bg-red-600 text-white font-medium border border-red-600 rounded-lg transition-all active:scale-95"
+                                                            >
+                                                                Remove
+                                                            </button>
+                                                        </div>
+                                                    </>
+                                                )
+                                            })()}
                                         </div>
                                     ))}
                                 </div>
