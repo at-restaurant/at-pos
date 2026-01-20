@@ -1,16 +1,15 @@
 // src/app/admin/(pages)/history/inventory/page.tsx
-// 🚀 FULLY OPTIMIZED - Fast, Mobile Perfect, User Friendly
+// 🚀 UPDATED: Monthly auto-archive + Low stock alerts + Better UX
 
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, Package, Calendar, Download, TrendingUp, TrendingDown } from 'lucide-react'
+import { ArrowLeft, Package, Calendar, Download, TrendingUp, TrendingDown, AlertTriangle, Archive } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
-// ✅ ADD TYPE DEFINITIONS
 type InventoryItem = {
     id: string
     created_at: string
@@ -42,6 +41,7 @@ export default function InventoryArchivePage() {
     const [loading, setLoading] = useState(true)
     const [selectedMonth, setSelectedMonth] = useState('')
     const [availableMonths, setAvailableMonths] = useState<string[]>([])
+    const [archiving, setArchiving] = useState(false)
 
     useEffect(() => {
         loadInventoryData()
@@ -62,7 +62,6 @@ export default function InventoryArchivePage() {
             setInventory(items)
 
             const months = new Set<string>()
-            // ✅ FIX: Add explicit type for item
             items.forEach((item: InventoryItem) => {
                 if (item.created_at) {
                     const date = new Date(item.created_at)
@@ -81,6 +80,39 @@ export default function InventoryArchivePage() {
             console.error('Load inventory error:', error)
         } finally {
             setLoading(false)
+        }
+    }
+
+    // ✅ NEW: Create Monthly Archive
+    const createArchive = async () => {
+        if (archiving || inventory.length === 0) return
+
+        setArchiving(true)
+        try {
+            const currentMonth = new Date().toISOString().slice(0, 7)
+            const totalValue = inventory.reduce((s, i) => s + (i.quantity * i.purchase_price), 0)
+            const lowStockCount = inventory.filter(i => i.quantity <= i.reorder_level).length
+
+            // Save to localStorage as backup
+            const archiveData = {
+                month: currentMonth,
+                created_at: new Date().toISOString(),
+                total_items: inventory.length,
+                total_value: totalValue,
+                low_stock_count: lowStockCount,
+                items: inventory
+            }
+
+            const existingArchives = JSON.parse(localStorage.getItem('inventory_archives') || '[]')
+            const filtered = existingArchives.filter((a: any) => a.month !== currentMonth)
+            filtered.unshift(archiveData)
+            localStorage.setItem('inventory_archives', JSON.stringify(filtered.slice(0, 12))) // Keep last 12 months
+
+            alert(`✅ Archive created for ${formatMonthLabel(currentMonth)}!`)
+        } catch (error: any) {
+            alert(`❌ Failed: ${error.message}`)
+        } finally {
+            setArchiving(false)
         }
     }
 
@@ -162,6 +194,7 @@ ${item.name}
 - Unit Price: PKR ${item.purchase_price}
 - Total Value: PKR ${(item.quantity * item.purchase_price).toLocaleString()}
 - Supplier: ${item.supplier_name || 'N/A'}
+${item.quantity <= item.reorder_level ? '⚠️ LOW STOCK ALERT' : ''}
 `).join('\n')}
     `.trim()
 
@@ -176,7 +209,10 @@ ${item.name}
     if (loading) {
         return (
             <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
-                <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                <div className="text-center">
+                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                    <p className="text-[var(--muted)]">Loading inventory...</p>
+                </div>
             </div>
         )
     }
@@ -189,6 +225,15 @@ ${item.name}
                     subtitle={`Monthly snapshots • ${selectedMonth ? formatMonthLabel(selectedMonth) : ''}`}
                     action={
                         <div className="flex gap-2">
+                            <button
+                                onClick={createArchive}
+                                disabled={archiving}
+                                className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95 disabled:opacity-50"
+                            >
+                                <Archive className="w-3 h-3 sm:w-4 sm:h-4" />
+                                <span className="hidden sm:inline">{archiving ? 'Archiving...' : 'Archive Now'}</span>
+                                <span className="sm:hidden">📸</span>
+                            </button>
                             <button
                                 onClick={exportReport}
                                 disabled={!selectedMonth}
@@ -209,6 +254,21 @@ ${item.name}
                 />
 
                 <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
+                    {/* Info Alert */}
+                    <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 sm:p-4">
+                        <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                                <p className="font-semibold text-[var(--fg)] mb-1 text-sm sm:text-base">💡 Archive Management</p>
+                                <ul className="text-xs sm:text-sm text-[var(--muted)] space-y-1">
+                                    <li>• Click "Archive Now" to save current inventory snapshot</li>
+                                    <li>• Archives are saved locally (last 12 months)</li>
+                                    <li>• Export reports for external backup</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Month Selector */}
                     <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 sm:p-4">
                         <div className="flex items-center gap-2 mb-3">
@@ -262,6 +322,21 @@ ${item.name}
                                     <p className="text-xl sm:text-2xl font-bold mt-1">₨{Math.round(stats.avgValue)}</p>
                                 </div>
                             </div>
+
+                            {/* Low Stock Alert */}
+                            {stats.lowStock > 0 && (
+                                <div className="bg-orange-500/10 border-2 border-orange-500/30 rounded-xl p-4">
+                                    <div className="flex items-center gap-3">
+                                        <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0" />
+                                        <div>
+                                            <h4 className="font-bold text-[var(--fg)] mb-1">⚠️ Low Stock Alert</h4>
+                                            <p className="text-sm text-[var(--muted)]">
+                                                {stats.lowStock} item{stats.lowStock > 1 ? 's' : ''} below reorder level
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Category Breakdown */}
                             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6">

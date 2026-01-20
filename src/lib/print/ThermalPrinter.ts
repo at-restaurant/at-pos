@@ -1,5 +1,5 @@
-// src/lib/print/ThermalPrinter.ts - FIXED
-// ✅ Proper browser dialog size, NO extra spacing, NO feedLines
+// src/lib/print/ThermalPrinter.ts
+// ✅ BOLD Restaurant Name using CSS
 
 import { ReceiptData, PrintResponse } from '@/types'
 import ThermalFormatter from './ThermalFormatter'
@@ -40,8 +40,8 @@ export class ThermalPrinter {
         try {
             this.isPrinting = true
 
-            const receiptText = this.formatter.format(receipt)
-            const success = await this.printViaWindow(receiptText)
+            const formatted = this.formatter.formatForHTML(receipt)
+            const success = await this.printViaWindow(formatted.header, formatted.body)
 
             if (success) {
                 console.log('✅ Print completed')
@@ -67,12 +67,11 @@ export class ThermalPrinter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // PRINT VIA IFRAME - NO LOCALHOST FETCH
+    // PRINT VIA IFRAME - WITH BOLD HEADER
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private async printViaWindow(receiptText: string): Promise<boolean> {
+    private async printViaWindow(header: string, body: string): Promise<boolean> {
         return new Promise((resolve) => {
             try {
-                // ✅ Create hidden iframe
                 const iframe = document.createElement('iframe')
                 iframe.style.position = 'fixed'
                 iframe.style.right = '0'
@@ -89,19 +88,15 @@ export class ThermalPrinter {
                     return
                 }
 
-                // Write HTML to iframe
                 iframeDoc.open()
-                iframeDoc.write(this.generatePrintHTML(receiptText))
+                iframeDoc.write(this.generatePrintHTML(header, body))
                 iframeDoc.close()
 
-                // Wait for content to load
                 setTimeout(() => {
                     try {
-                        // Trigger print dialog
                         iframe.contentWindow?.focus()
                         iframe.contentWindow?.print()
 
-                        // Cleanup after print (reduced delay)
                         setTimeout(() => {
                             document.body.removeChild(iframe)
                             resolve(true)
@@ -122,12 +117,11 @@ export class ThermalPrinter {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // HTML - ULTRA TIGHT SPACING (No extra space)
+    // HTML - WITH BOLD RESTAURANT NAME
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private generatePrintHTML(receiptText: string): string {
-        // Calculate approximate height based on line count
-        const lineCount = receiptText.split('\n').length
-        const approximateHeight = Math.ceil(lineCount * 4.5) // 4.5mm per line
+    private generatePrintHTML(header: string, body: string): string {
+        const lineCount = body.split('\n').length + 5
+        const approximateHeight = Math.ceil(lineCount * 4.5)
 
         return `<!DOCTYPE html>
 <html>
@@ -170,6 +164,19 @@ export class ThermalPrinter {
             background: white;
             color: black;
             overflow: hidden;
+            text-align: center;
+        }
+        
+        .restaurant-name {
+            font-weight: bold;
+            font-size: 20px;
+            margin-top: 10px !important;
+            margin-bottom: 10px !important;
+            letter-spacing: 2px;
+        }
+        
+        .separator {
+            margin: 5px 0 !important;
         }
         
         pre {
@@ -178,10 +185,14 @@ export class ThermalPrinter {
             font-size: inherit;
             line-height: inherit;
             display: block;
+            text-align: left;
         }
     </style>
 </head>
-<body><pre>${receiptText}</pre></body>
+<body>
+    <div class="restaurant-name">${header}</div>
+    <pre>${body}</pre>
+</body>
 </html>`
     }
 

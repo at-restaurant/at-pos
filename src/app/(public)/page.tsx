@@ -45,7 +45,7 @@ export default function MenuPage() {
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [isMounted, setIsMounted] = useState(false)
 
-    // ✅ NEW: Quantity modal state
+    // ✅ Quantity modal state
     const [quantityModal, setQuantityModal] = useState<{
         show: boolean
         item: any
@@ -59,6 +59,24 @@ export default function MenuPage() {
             offlineManager.downloadAllData()
         }
     }, [])
+
+    // ✅ FIXED: Auto-reload when all stock items are finished
+    useEffect(() => {
+        if (loading || isOffline || items.length === 0) return
+
+        // Check if ALL items with limited stock are now out of stock
+        const itemsWithStock = items.filter(i => (i.stock_quantity ?? 999) !== 999)
+        const allStockItemsFinished = itemsWithStock.length > 0 &&
+            itemsWithStock.every(i => (i.stock_quantity ?? 0) === 0)
+
+        if (allStockItemsFinished) {
+            console.log('🔄 All stock items finished, reloading in 3 seconds...')
+            const timer = setTimeout(() => {
+                window.location.reload()
+            }, 3000)
+            return () => clearTimeout(timer)
+        }
+    }, [items, loading, isOffline])
 
     const filtered = useMemo(
         () => items.filter(i => selectedCat === 'all' || i.category_id === selectedCat),
@@ -75,26 +93,26 @@ export default function MenuPage() {
         }))
     ], selectedCat, setSelectedCat)
 
-    // ✅ NEW: Get current quantity in cart
+    // ✅ Get current quantity in cart
     const getCartQuantity = (itemId: string) => {
         const cartItem = cart.items.find(i => i.id === itemId)
         return cartItem?.quantity || 0
     }
 
-    // ✅ NEW: Check if item is out of stock
+    // ✅ Check if item is out of stock
     const isOutOfStock = (item: any) => {
         const stock = item.stock_quantity ?? 999
         return stock === 0
     }
 
-    // ✅ NEW: Check if can add more to cart
+    // ✅ Check if can add more to cart
     const canAddMore = (item: any) => {
         const stock = item.stock_quantity ?? 999
         const inCart = getCartQuantity(item.id)
         return stock === 999 || inCart < stock
     }
 
-    // ✅ NEW: Handle add to cart with stock validation
+    // ✅ Handle add to cart with stock validation
     const handleAddToCart = (item: any) => {
         if (!hydrated) return
         if (isOutOfStock(item)) return
@@ -109,7 +127,7 @@ export default function MenuPage() {
         })
     }
 
-    // ✅ NEW: Open quantity modal
+    // ✅ Open quantity modal
     const openQuantityModal = (item: any) => {
         const currentQty = getCartQuantity(item.id)
         setQuantityModal({
@@ -120,7 +138,7 @@ export default function MenuPage() {
         })
     }
 
-    // ✅ NEW: Handle quantity change in modal
+    // ✅ Handle quantity change in modal
     const handleQuantityChange = (value: string) => {
         if (value === '' || /^\d+$/.test(value)) {
             const num = parseInt(value) || 0
@@ -132,7 +150,7 @@ export default function MenuPage() {
         }
     }
 
-    // ✅ NEW: Save quantity from modal
+    // ✅ Save quantity from modal
     const saveQuantity = () => {
         if (!quantityModal || !hydrated) return
 
@@ -333,7 +351,7 @@ export default function MenuPage() {
                                                 />
                                                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                                                {/* ✅ NEW: Stock badge */}
+                                                {/* Stock badge */}
                                                 {stock !== 999 && (
                                                     <div className="absolute top-2 right-2">
                                                         <div className={`px-2 py-1 rounded-full text-xs font-bold text-white shadow-lg ${
@@ -365,7 +383,7 @@ export default function MenuPage() {
                                                     PKR {item.price}
                                                 </span>
 
-                                                {/* ✅ NEW: Quantity badge + Add button */}
+                                                {/* Quantity badge + Add button */}
                                                 <div className="flex items-center gap-0.5 sm:gap-1">
                                                     {cartQty > 0 && (
                                                         <button
@@ -396,12 +414,12 @@ export default function MenuPage() {
                 </div>
             </div>
 
-            {/* ✅ NEW: Quantity Modal */}
+            {/* ✅ FIXED: Quantity Modal - Fully Responsive */}
             {quantityModal?.show && (
                 <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
                     <div className="bg-[var(--card)] rounded-xl w-full max-w-sm border border-[var(--border)] shadow-2xl">
                         <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-[var(--fg)]">Set Quantity</h3>
+                            <h3 className="text-base sm:text-lg font-bold text-[var(--fg)]">Set Quantity</h3>
                             <button
                                 onClick={() => setQuantityModal(null)}
                                 className="p-2 hover:bg-[var(--bg)] rounded-lg transition-colors"
@@ -410,7 +428,7 @@ export default function MenuPage() {
                             </button>
                         </div>
 
-                        <div className="p-6">
+                        <div className="p-4 sm:p-6">
                             <p className="text-sm text-[var(--fg)] mb-2 font-medium">
                                 {quantityModal.item.name}
                             </p>
@@ -420,7 +438,8 @@ export default function MenuPage() {
                                     : `${quantityModal.item.stock_quantity} available`}
                             </p>
 
-                            <div className="flex items-center gap-3 mb-6">
+                            {/* ✅ FIXED: Fully Responsive Layout */}
+                            <div className="flex items-stretch gap-2 sm:gap-3 mb-6">
                                 <button
                                     onClick={() => {
                                         const current = parseInt(quantityModal.inputValue) || 0
@@ -428,9 +447,9 @@ export default function MenuPage() {
                                             handleQuantityChange((current - 1).toString())
                                         }
                                     }}
-                                    className="p-3 bg-red-600 text-white rounded-lg hover:bg-red-700 active:scale-95 transition-all"
+                                    className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 bg-red-600 text-white rounded-lg hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center"
                                 >
-                                    <Minus className="w-5 h-5" />
+                                    <Minus className="w-5 h-5 sm:w-6 sm:h-6" />
                                 </button>
 
                                 <input
@@ -439,7 +458,7 @@ export default function MenuPage() {
                                     value={quantityModal.inputValue}
                                     onChange={(e) => handleQuantityChange(e.target.value)}
                                     onFocus={(e) => e.target.select()}
-                                    className="flex-1 px-4 py-3 text-center text-2xl font-bold text-[var(--fg)] bg-[var(--bg)] border-2 border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+                                    className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-3 text-center text-xl sm:text-2xl font-bold text-[var(--fg)] bg-[var(--bg)] border-2 border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
                                     maxLength={3}
                                 />
 
@@ -455,22 +474,22 @@ export default function MenuPage() {
                                         quantityModal.item.stock_quantity !== 999 &&
                                         parseInt(quantityModal.inputValue) >= quantityModal.item.stock_quantity
                                     }
-                                    className="p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 bg-green-600 text-white rounded-lg hover:bg-green-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                                 >
-                                    <Plus className="w-5 h-5" />
+                                    <Plus className="w-5 h-5 sm:w-6 sm:h-6" />
                                 </button>
                             </div>
 
                             <div className="flex gap-3">
                                 <button
                                     onClick={() => setQuantityModal(null)}
-                                    className="flex-1 px-4 py-2.5 border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--bg)] transition-colors"
+                                    className="flex-1 px-4 py-2.5 border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--bg)] transition-colors font-medium text-sm"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     onClick={saveQuantity}
-                                    className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                                    className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
                                 >
                                     Save
                                 </button>

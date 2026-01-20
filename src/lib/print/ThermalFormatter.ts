@@ -1,6 +1,5 @@
 // src/lib/print/ThermalFormatter.ts
-// ✅ ENHANCED: Better restaurant name display with AT on top, RESTAURANT below
-// ✅ Tighter spacing, smaller fonts for more info
+// ✅ PROFESSIONAL: Clean, minimal, business-like receipt
 
 import type { ReceiptData } from '@/types'
 
@@ -17,14 +16,10 @@ export class ThermalFormatter {
     format(data: ReceiptData): string {
         let receipt = ''
 
-        // ✅ ESC/POS Commands
-        receipt += '\x1B\x40'           // ESC @ - Initialize printer
-        receipt += '\x1D\x50\x50\x00'   // GS P 80 0 - Set 80mm width
+        // Header
+        receipt += this.formatHeader(data)
 
-        // Enhanced Header
-        receipt += this.formatEnhancedHeader(data)
-
-        // Order Info (compact)
+        // Order Info
         receipt += this.formatOrderInfo(data)
 
         // Delivery Details (if applicable)
@@ -32,8 +27,8 @@ export class ThermalFormatter {
             receipt += this.formatDeliveryDetails(data)
         }
 
-        // Items (compact)
-        receipt += this.formatItems(data)
+        // Items Table
+        receipt += this.formatItemsTable(data)
 
         // Totals
         receipt += this.formatTotals(data)
@@ -49,280 +44,238 @@ export class ThermalFormatter {
         }
 
         // Footer
-        receipt += this.formatFooter(data.orderType)
+        receipt += this.formatFooter()
 
         return receipt
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ✅ ENHANCED HEADER - AT on top, RESTAURANT below, both centered
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private formatEnhancedHeader(data: ReceiptData): string {
-        let text = ''
-
-        // Large "AT" on first line (clean, not too spread)
-        text += this.centerLarge('AT')
-        text += '\n'
-
-        // "RESTAURANT" on second line (normal but bold)
-        text += this.centerBold('RESTAURANT')
-        text += '\n\n'
-
-        // Tagline (small, normal)
-        text += this.centerSmall(data.tagline || 'Delicious Food, Memorable Moments')
-        text += '\n'
-
-        // Separator
-        text += this.line('-')
-
-        // Address (small)
-        text += this.centerSmall(data.address || 'Sooter Mills Rd, Lahore')
-        text += '\n'
-
-        if (data.phone) {
-            text += this.centerSmall(data.phone)
-            text += '\n'
+    // ✅ Format for HTML (returns header and body separately)
+    formatForHTML(data: ReceiptData): { header: string; body: string } {
+        return {
+            header: 'AT RESTAURANT',
+            body: this.format(data)
         }
+    }
 
-        text += this.line('=')
-
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // HEADER - Minimal
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private formatHeader(data: ReceiptData): string {
+        let text = '\n'
+        text += this.centerText('Quality Food & Service', this.width)
+        text += '\n\n'
         return text
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ORDER INFO - Compact with smaller text
+    // ORDER INFO - Compact single block
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatOrderInfo(data: ReceiptData): string {
-        let text = '\n'
+        let text = ''
 
-        // Order number in bold
-        text += this.leftRightBold('Order #:', data.orderNumber)
+        // Order number and date
+        const orderNum = data.orderNumber.length > 6
+            ? data.orderNumber.substring(0, 6)
+            : data.orderNumber
+        const date = this.formatDate(data.date)
+        text += this.leftRight(`Order #${orderNum}`, date)
 
-        // Date and time (small)
-        text += this.leftRightSmall('Date:', data.date)
-
-        // Order type
-        const orderTypeLabel =
-            data.orderType === 'delivery' ? 'DELIVERY' :
-                data.orderType === 'takeaway' ? 'TAKEAWAY' :
-                    'DINE-IN'
-
-        text += this.leftRightSmall('Type:', orderTypeLabel)
-
-        if (data.tableNumber) {
-            text += this.leftRightSmall('Table:', `#${data.tableNumber}`)
+        // Type and table/customer
+        if (data.orderType === 'dine-in') {
+            const tableInfo = data.tableNumber ? `Table ${data.tableNumber}` : ''
+            text += this.leftRight('Dine-In', tableInfo)
+            if (data.waiter) {
+                text += this.leftRight('Server:', data.waiter)
+            }
+        } else if (data.orderType === 'delivery') {
+            text += `Delivery Order\n`
+        } else {
+            text += `Takeaway Order\n`
         }
 
-        if (data.waiter) {
-            text += this.leftRightSmall('Waiter:', data.waiter)
-        }
-
-        text += this.line('-')
-
+        text += '\n'
         return text
     }
 
     private formatDeliveryDetails(data: ReceiptData): string {
-        let text = '\n'
-        text += this.bold('DELIVERY DETAILS')
-        text += '\n'
-        text += this.line('-')
+        let text = ''
 
         if (data.customerName) {
-            text += this.leftRightSmall('Name:', data.customerName)
+            text += `${data.customerName}\n`
         }
         if (data.customerPhone) {
-            text += this.leftRightSmall('Phone:', data.customerPhone)
+            text += `${data.customerPhone}\n`
         }
         if (data.deliveryAddress) {
-            text += this.small('Address: ')
-            text += this.wrapTextSmall(data.deliveryAddress, this.width)
+            text += `${this.wrapText(data.deliveryAddress, this.width)}\n`
         }
 
-        text += this.line('-')
-
+        text += '\n'
         return text
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // ITEMS - Compact with smaller price info
+    // ITEMS TABLE - Clean table format
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private formatItems(data: ReceiptData): string {
-        let text = '\n'
-        text += this.bold('ORDER ITEMS')
-        text += '\n'
+    private formatItemsTable(data: ReceiptData): string {
+        let text = ''
+
+        // Table Header
+        text += this.formatTableRow('Item', 'Qty', 'Price', 'Total')
         text += this.line('-')
 
-        const grouped = this.groupByCategory(data.items)
+        // Items (no category grouping)
+        data.items.forEach(item => {
+            const maxNameLen = 20
+            const itemName = item.name.length > maxNameLen
+                ? item.name.substring(0, maxNameLen - 2) + '..'
+                : item.name
 
-        Object.entries(grouped).forEach(([category, items]) => {
-            if (category && category !== 'Other' && category !== 'Uncategorized') {
-                text += this.small(category)
-                text += '\n'
-            }
-
-            items.forEach(item => {
-                // Item name and total (normal size)
-                const itemLine = `${item.quantity}x ${item.name}`
-                const price = `${item.total.toFixed(0)}`
-                text += this.leftRight(itemLine, price)
-
-                // Unit price (small)
-                text += this.small(`   @ PKR ${item.price.toFixed(0)} each`)
-                text += '\n'
-            })
+            text += this.formatTableRow(
+                itemName,
+                item.quantity.toString(),
+                item.price.toFixed(0),
+                item.total.toFixed(0)
+            )
         })
 
         return text
     }
 
+    private formatTableRow(
+        item: string,
+        qty: string,
+        price: string,
+        total: string
+    ): string {
+        // Column widths: Item(20) Qty(4) Price(7) Total(7)
+        const itemCol = this.padRight(item, 20)
+        const qtyCol = this.padLeft(qty, 4)
+        const priceCol = this.padLeft(price, 7)
+        const totalCol = this.padLeft(total, 7)
+
+        return `${itemCol} ${qtyCol} ${priceCol} ${totalCol}\n`
+    }
+
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // TOTALS - Clear hierarchy
+    // TOTALS - Minimal with right-aligned dash
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatTotals(data: ReceiptData): string {
-        let text = '\n' + this.line('=')
+        let text = this.line('-')
 
-        // Subtotal and tax (small)
-        text += this.leftRightSmall('Subtotal:', `PKR ${data.subtotal.toFixed(0)}`)
-        text += this.leftRightSmall('Tax:', `PKR ${data.tax.toFixed(0)}`)
+        // Show subtotal and tax only if tax > 0
+        if (data.tax > 0) {
+            text += this.formatTotalLine('Subtotal', data.subtotal)
+            text += this.formatTotalLine('Tax', data.tax)
+        }
 
+        // Delivery charges
         if (data.deliveryCharges && data.deliveryCharges > 0) {
-            text += this.leftRightSmall('Delivery:', `PKR ${data.deliveryCharges.toFixed(0)}`)
+            text += this.formatTotalLine('Delivery', data.deliveryCharges)
         }
 
+        // Discount
         if (data.discount && data.discount > 0) {
-            text += this.leftRightSmall('Discount:', `-PKR ${data.discount.toFixed(0)}`)
+            text += this.formatTotalLine('Discount', -data.discount)
         }
 
-        text += this.line('-')
+        // Separator line before total (right-aligned)
+        if (data.tax > 0 || (data.deliveryCharges && data.deliveryCharges > 0)) {
+            text += ' '.repeat(this.width - 9) + '---------\n'
+        }
 
-        // Total (BOLD and LARGE)
-        text += this.leftRightLarge('TOTAL:', `PKR ${data.total.toFixed(0)}`)
+        // TOTAL
+        text += this.formatTotalLine('TOTAL', data.total)
 
         return text
+    }
+
+    private formatTotalLine(label: string, amount: number): string {
+        const value = `PKR ${amount.toFixed(0)}`
+        const spaces = this.width - label.length - value.length
+        return label + ' '.repeat(Math.max(1, spaces)) + value + '\n'
     }
 
     private formatPaymentMethod(method: string): string {
-        const display = method === 'cash' ? 'CASH' :
-            method === 'online' ? 'ONLINE' :
-                method === 'card' ? 'CARD' :
-                    method.toUpperCase()
+        const display = method === 'cash' ? 'Cash' :
+            method === 'online' ? 'Online' :
+                method === 'card' ? 'Card' : method
 
-        let text = '\n' + this.centerBold(`Payment: ${display}`)
-
-        return text
+        return `\nPayment: ${display}\n`
     }
 
     private formatNotes(notes: string): string {
-        let text = '\n' + this.line('-')
-        text += this.small('Special Instructions:')
-        text += '\n'
-        text += this.wrapTextSmall(notes, this.width)
-        return text
+        return `\nNote: ${this.wrapText(notes, this.width - 6)}\n`
     }
 
-    private formatFooter(orderType?: 'dine-in' | 'delivery' | 'takeaway'): string {
-        let text = '\n' + this.line('=')
+    private formatFooter(): string {
+        return `\nThank you - Visit again!\n\n`
+    }
 
-        if (orderType === 'delivery') {
-            text += this.center('Thank you for your order!')
-            text += '\n'
-            text += this.centerSmall('Order again soon!')
-        } else if (orderType === 'takeaway') {
-            text += this.center('Thank you for your order!')
-            text += '\n'
-            text += this.centerSmall('Enjoy your meal!')
-        } else {
-            text += this.center('Thank you for dining with us!')
-            text += '\n'
-            text += this.centerSmall('Visit us again!')
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // UTILITIES
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private formatDate(dateStr: string): string {
+        // Convert "21/1/2026, 3:30:45 pm" to "21/1/26 3:30PM"
+        try {
+            const parts = dateStr.split(',')
+            if (parts.length === 2) {
+                const datePart = parts[0].trim()
+                const timePart = parts[1].trim()
+
+                // Shorten year
+                const dateSegments = datePart.split('/')
+                if (dateSegments.length === 3) {
+                    const shortYear = dateSegments[2].slice(-2)
+                    const shortDate = `${dateSegments[0]}/${dateSegments[1]}/${shortYear}`
+
+                    // Shorten time
+                    const timeSegments = timePart.split(':')
+                    if (timeSegments.length >= 2) {
+                        const hour = timeSegments[0]
+                        const minute = timeSegments[1]
+                        const period = timePart.toLowerCase().includes('pm') ? 'PM' : 'AM'
+                        return `${shortDate} ${hour}:${minute}${period}`
+                    }
+                }
+            }
+        } catch (e) {
+            // Fallback
         }
-
-        return text
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // TEXT FORMATTING HELPERS
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private bold(text: string): string {
-        return `\x1B\x45\x01${text}\x1B\x45\x00` // ESC E 1 (bold on) ... ESC E 0 (bold off)
-    }
-
-    private small(text: string): string {
-        return `\x1B\x21\x01${text}\x1B\x21\x00` // ESC ! 1 (small) ... ESC ! 0 (normal)
-    }
-
-    private large(text: string): string {
-        return `\x1B\x21\x30${text}\x1B\x21\x00` // ESC ! 48 (double width+height) ... ESC ! 0 (normal)
-    }
-
-    private centerLarge(text: string): string {
-        const effectiveWidth = Math.floor(this.width / 2) // Large text takes 2x space
-        const pad = Math.max(0, Math.floor((effectiveWidth - text.length) / 2))
-        return this.large(' '.repeat(pad) + text)
-    }
-
-    private centerBold(text: string): string {
-        const pad = Math.max(0, Math.floor((this.width - text.length) / 2))
-        return this.bold(' '.repeat(pad) + text)
-    }
-
-    private center(text: string): string {
-        const pad = Math.max(0, Math.floor((this.width - text.length) / 2))
-        return ' '.repeat(pad) + text
-    }
-
-    private centerSmall(text: string): string {
-        const pad = Math.max(0, Math.floor((this.width - text.length) / 2))
-        return this.small(' '.repeat(pad) + text)
+        return dateStr
     }
 
     private leftRight(left: string, right: string): string {
         const maxLeft = this.width - right.length - 1
         const truncatedLeft = left.length > maxLeft
-            ? left.substring(0, maxLeft - 3) + '...'
+            ? left.substring(0, maxLeft - 2) + '..'
             : left
         const spaces = this.width - truncatedLeft.length - right.length
-        const padding = ' '.repeat(Math.max(1, spaces))
-        return truncatedLeft + padding + right + '\n'
+        return truncatedLeft + ' '.repeat(Math.max(1, spaces)) + right + '\n'
     }
 
-    private leftRightSmall(left: string, right: string): string {
-        const maxLeft = this.width - right.length - 1
-        const truncatedLeft = left.length > maxLeft
-            ? left.substring(0, maxLeft - 3) + '...'
-            : left
-        const spaces = this.width - truncatedLeft.length - right.length
-        const padding = ' '.repeat(Math.max(1, spaces))
-        return this.small(truncatedLeft + padding + right) + '\n'
+    private centerText(text: string, width: number): string {
+        const pad = Math.max(0, Math.floor((width - text.length) / 2))
+        return ' '.repeat(pad) + text
     }
 
-    private leftRightBold(left: string, right: string): string {
-        const maxLeft = this.width - right.length - 1
-        const truncatedLeft = left.length > maxLeft
-            ? left.substring(0, maxLeft - 3) + '...'
-            : left
-        const spaces = this.width - truncatedLeft.length - right.length
-        const padding = ' '.repeat(Math.max(1, spaces))
-        return this.bold(truncatedLeft + padding + right) + '\n'
+    private padRight(text: string, width: number): string {
+        return text.length >= width
+            ? text.substring(0, width)
+            : text + ' '.repeat(width - text.length)
     }
 
-    private leftRightLarge(left: string, right: string): string {
-        const effectiveWidth = Math.floor(this.width / 2)
-        const maxLeft = effectiveWidth - right.length - 1
-        const truncatedLeft = left.length > maxLeft
-            ? left.substring(0, maxLeft - 3) + '...'
-            : left
-        const spaces = effectiveWidth - truncatedLeft.length - right.length
-        const padding = ' '.repeat(Math.max(1, spaces))
-        return this.large(truncatedLeft + padding + right) + '\n'
+    private padLeft(text: string, width: number): string {
+        return text.length >= width
+            ? text.substring(0, width)
+            : ' '.repeat(width - text.length) + text
     }
 
     private line(char: string): string {
         return char.repeat(this.width) + '\n'
     }
 
-    private wrapTextSmall(text: string, width: number): string {
+    private wrapText(text: string, width: number): string {
         const words = text.split(' ')
         const lines: string[] = []
         let currentLine = ''
@@ -331,35 +284,13 @@ export class ThermalFormatter {
             if ((currentLine + word).length <= width) {
                 currentLine += (currentLine ? ' ' : '') + word
             } else {
-                if (currentLine) lines.push(this.small(currentLine))
+                if (currentLine) lines.push(currentLine)
                 currentLine = word
             }
         })
-        if (currentLine) lines.push(this.small(currentLine))
+        if (currentLine) lines.push(currentLine)
 
-        return lines.join('\n') + '\n'
-    }
-
-    private groupByCategory(items: any[]): Record<string, any[]> {
-        const grouped: Record<string, any[]> = {}
-
-        items.forEach(item => {
-            let category = 'Other'
-
-            if (item.category) {
-                category = item.category.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim()
-                if (!category) {
-                    category = item.category
-                }
-            }
-
-            if (!grouped[category]) {
-                grouped[category] = []
-            }
-            grouped[category].push(item)
-        })
-
-        return grouped
+        return lines.join('\n')
     }
 
     setWidth(width: number) {

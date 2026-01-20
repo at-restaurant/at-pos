@@ -9,9 +9,9 @@ import { Plus, Minus, X, CheckCircle, Truck, Home, CreditCard, Banknote, Chevron
 import { useOrderManagement } from '@/lib/hooks'
 import { createClient } from '@/lib/supabase/client'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
-import type { ReceiptData } from '@/types'
+import type { ReceiptData, CartItem } from '@/types'
 
-// ✅ ADD THIS HELPER FUNCTION after imports, before component
+// ✅ EXISTING CODE (Don't change this)
 const getStockStatus = (cartQty: number, stockQty?: number) => {
     const stock = stockQty ?? 999
     if (stock === 999) return { canAdd: true, remaining: 999, warning: null }
@@ -30,6 +30,49 @@ const getStockStatus = (cartQty: number, stockQty?: number) => {
     return { canAdd: true, remaining, warning: null }
 }
 
+// ✅ NEW: Add this RIGHT AFTER getStockStatus
+const validateStockBeforeOrder = async (
+    supabase: any,
+    items: CartItem[]
+): Promise<{ valid: boolean; errors: string[] }> => {
+    const errors: string[] = []
+
+    for (const item of items) {
+        try {
+            const { data: menuItem, error } = await supabase
+                .from('menu_items')
+                .select('stock_quantity, name')
+                .eq('id', item.id)
+                .single()
+
+            if (error || !menuItem) {
+                errors.push(`❌ ${item.name}: Item not found`)
+                continue
+            }
+
+            const availableStock = menuItem.stock_quantity ?? 999
+
+            // Skip unlimited stock items
+            if (availableStock === 999) continue
+
+            // Check if enough stock
+            if (item.quantity > availableStock) {
+                errors.push(
+                    `❌ ${item.name}: Only ${availableStock} available (you have ${item.quantity} in cart)`
+                )
+            }
+        } catch (err) {
+            errors.push(`❌ ${item.name}: Validation failed`)
+        }
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors
+    }
+}
+
+// ✅ EXISTING CODE CONTINUES (CartDrawer component starts here)
 interface CartDrawerProps {
     isOpen: boolean
     onClose: () => void
@@ -197,12 +240,35 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         return (cart.subtotal() * percent) / 100
     }
 
-    // ✅ FIXED: Print receipt when adding to existing order
+// ✅ FIXED: Print receipt when adding to existing order + Backend Stock Validation
     const placeOrder = async () => {
         if (cart.items.length === 0) return
         if (orderType === 'dine-in' && (!cart.tableId || !cart.waiterId)) return
         if (orderType === 'delivery' && !paymentMethod) return
 
+        // ✅ NEW: Backend Stock Validation
+        if (typeof window !== 'undefined') {
+            const event = new CustomEvent('toast-add', {
+                detail: { type: 'info', message: '🔍 Validating stock...' }
+            })
+            window.dispatchEvent(event)
+        }
+
+        const stockValidation = await validateStockBeforeOrder(supabase, cart.items)
+
+        if (!stockValidation.valid) {
+            if (typeof window !== 'undefined') {
+                stockValidation.errors.forEach(error => {
+                    const event = new CustomEvent('toast-add', {
+                        detail: { type: 'error', message: error }
+                    })
+                    window.dispatchEvent(event)
+                })
+            }
+            return // Stop order creation
+        }
+
+        // ✅ EXISTING CODE CONTINUES (don't change below)
         const subtotal = cart.subtotal()
         const tax = calculateTax()
         const deliveryFee = orderType === 'delivery' ? details.delivery_charges : 0
