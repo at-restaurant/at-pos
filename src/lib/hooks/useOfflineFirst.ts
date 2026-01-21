@@ -16,6 +16,7 @@ interface UseOfflineFirstOptions {
     order?: { column: string; ascending?: boolean }
     autoSync?: boolean
     enableRealtime?: boolean
+    select?: string
 }
 
 export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
@@ -81,7 +82,7 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
 
         setSyncing(true)
         try {
-            let query = supabase.from(options.table).select('*')
+            let query = supabase.from(options.table).select(options.select || '*')
 
             if (options.filter) {
                 Object.entries(options.filter).forEach(([key, value]) => {

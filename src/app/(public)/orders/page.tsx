@@ -34,7 +34,19 @@ export default function OrdersPage() {
     const { data: orders, loading, isOffline, refresh } = useOfflineFirst<any>({
         store: STORES.ORDERS,
         table: 'orders',
-        autoSync: true
+        autoSync: true,
+        select: `
+        *,
+        order_items(
+            *,
+            menu_items(
+                *,
+                menu_categories(name, icon)
+            )
+        ),
+        restaurant_tables(table_number),
+        waiters(name)
+    ` // ✅ ADD THIS
     })
 
     // ✅ FIXED: Load categories only ONCE on mount
