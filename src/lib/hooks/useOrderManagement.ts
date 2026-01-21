@@ -71,6 +71,72 @@ async function reduceMenuStock(
     }
 }
 
+// ✅ NEW: Reduce linked ingredients
+async function reduceLinkedIngredients(
+    supabase: any,
+    menuItemId: string,
+    quantitySold: number
+) {
+    try {
+        // Get menu item with linked ingredients
+        const { data: menuItem, error } = await supabase
+            .from('menu_items')
+            .select('linked_ingredients, name')
+            .eq('id', menuItemId)
+            .single()
+
+        if (error || !menuItem) {
+            console.log('❌ Menu item not found:', menuItemId)
+            return
+        }
+
+        const linkedIngredients = menuItem.linked_ingredients as Array<{
+            ingredient_id: string
+            quantity_needed: number
+        }> | null
+
+        if (!linkedIngredients || linkedIngredients.length === 0) {
+            console.log(`ℹ️ ${menuItem.name} has no linked ingredients`)
+            return
+        }
+
+        // Reduce each linked ingredient
+        for (const link of linkedIngredients) {
+            const totalNeeded = link.quantity_needed * quantitySold
+
+            const { data: ingredient, error: fetchError } = await supabase
+                .from('inventory_items')
+                .select('quantity, name, unit')
+                .eq('id', link.ingredient_id)
+                .single()
+
+            if (fetchError || !ingredient) {
+                console.log(`❌ Ingredient not found: ${link.ingredient_id}`)
+                continue
+            }
+
+            const newQuantity = Math.max(0, ingredient.quantity - totalNeeded)
+
+            const { error: updateError } = await supabase
+                .from('inventory_items')
+                .update({
+                    quantity: newQuantity,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', link.ingredient_id)
+
+            if (updateError) {
+                console.log(`❌ Failed to update ${ingredient.name}:`, updateError)
+                continue
+            }
+
+            console.log(`✅ Ingredient reduced: ${ingredient.name} → ${ingredient.quantity} - ${totalNeeded} = ${newQuantity} ${ingredient.unit}`)
+        }
+    } catch (error) {
+        console.log('❌ Linked ingredients reduction error:', error)
+    }
+}
+
 export function useOrderManagement() {
     const [loading, setLoading] = useState(false)
     const supabase = createClient()
@@ -302,9 +368,10 @@ export function useOrderManagement() {
 
                     if (itemsError) throw itemsError
 
-                    // ✅ SIMPLIFIED: Only reduce menu stock
+                    // ✅ UPDATED: Reduce both menu stock AND linked ingredients
                     for (const item of items) {
                         await reduceMenuStock(supabase, item.id, item.quantity)
+                        await reduceLinkedIngredients(supabase, item.id, item.quantity) // 🆕 NEW
                     }
 
                     if (orderData.order_type === 'dine-in' && orderData.table_id) {

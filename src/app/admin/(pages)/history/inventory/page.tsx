@@ -1,168 +1,201 @@
 // src/app/admin/(pages)/history/inventory/page.tsx
-// 🚀 UPDATED: Monthly auto-archive + Low stock alerts + Better UX
+// 🚀 AUTO-SAVE: Menu Items → Raw Materials (Separate Tabs)
 
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, Package, Calendar, Download, TrendingUp, TrendingDown, AlertTriangle, Archive } from 'lucide-react'
+import { ArrowLeft, Package, Calendar, Download, TrendingUp, AlertTriangle, Link2, Boxes } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
-type InventoryItem = {
+type InventorySnapshot = {
     id: string
-    created_at: string
-    quantity: number
-    purchase_price: number
-    reorder_level: number
+    type: 'menu' | 'raw'
     name: string
+    quantity: number
     unit: string
+    price: number
+    category_name: string
+    category_icon: string
     supplier_name?: string
     image_url?: string
-    inventory_categories?: {
-        name: string
-        icon: string
-    }
+    linked_ingredients?: Array<{ ingredient_id: string; quantity_needed: number }>
+    created_at: string
 }
 
-type CategoryBreakdown = {
-    name: string
-    icon: string
-    items: number
-    value: number
+type MonthlyHistory = {
+    month: string
+    last_updated: string
+    menu_items: InventorySnapshot[]
+    raw_items: InventorySnapshot[]
 }
 
-export default function InventoryArchivePage() {
+export default function InventoryHistoryPage() {
     const router = useRouter()
     const supabase = createClient()
 
-    const [inventory, setInventory] = useState<InventoryItem[]>([])
-    const [loading, setLoading] = useState(true)
+    const [history, setHistory] = useState<MonthlyHistory[]>([])
     const [selectedMonth, setSelectedMonth] = useState('')
-    const [availableMonths, setAvailableMonths] = useState<string[]>([])
-    const [archiving, setArchiving] = useState(false)
+    const [loading, setLoading] = useState(true)
+    const [view, setView] = useState<'menu' | 'raw'>('menu')
+    const [autoSaving, setAutoSaving] = useState(false)
 
     useEffect(() => {
-        loadInventoryData()
+        loadHistory()
+        autoSaveCurrentMonth()
     }, [])
 
-    const loadInventoryData = async () => {
-        setLoading(true)
+    const loadHistory = () => {
         try {
-            const { data, error } = await supabase
-                .from('inventory_items')
-                .select('*, inventory_categories(name, icon)')
-                .eq('is_active', true)
-                .order('created_at', { ascending: false })
+            const stored = localStorage.getItem('inventory_monthly_history')
+            const parsed: MonthlyHistory[] = stored ? JSON.parse(stored) : []
+            setHistory(parsed)
 
-            if (error) throw error
-
-            const items = (data || []) as InventoryItem[]
-            setInventory(items)
-
-            const months = new Set<string>()
-            items.forEach((item: InventoryItem) => {
-                if (item.created_at) {
-                    const date = new Date(item.created_at)
-                    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-                    months.add(monthKey)
-                }
-            })
-
-            const sortedMonths = Array.from(months).sort().reverse()
-            setAvailableMonths(sortedMonths)
-
-            if (sortedMonths.length > 0 && !selectedMonth) {
-                setSelectedMonth(sortedMonths[0])
+            if (parsed.length > 0 && !selectedMonth) {
+                setSelectedMonth(parsed[0].month)
             }
         } catch (error) {
-            console.error('Load inventory error:', error)
+            console.error('Load history error:', error)
         } finally {
             setLoading(false)
         }
     }
 
-    // ✅ NEW: Create Monthly Archive
-    const createArchive = async () => {
-        if (archiving || inventory.length === 0) return
-
-        setArchiving(true)
+    // ✅ AUTO-SAVE: Current month inventory
+    const autoSaveCurrentMonth = async () => {
+        setAutoSaving(true)
         try {
             const currentMonth = new Date().toISOString().slice(0, 7)
-            const totalValue = inventory.reduce((s, i) => s + (i.quantity * i.purchase_price), 0)
-            const lowStockCount = inventory.filter(i => i.quantity <= i.reorder_level).length
 
-            // Save to localStorage as backup
-            const archiveData = {
+            // Fetch menu items
+            const { data: menuItems } = await supabase
+                .from('menu_items')
+                .select('*, menu_categories(name, icon)')
+                .eq('is_available', true)
+
+            // Fetch raw materials
+            const { data: rawItems } = await supabase
+                .from('inventory_items')
+                .select('*, inventory_categories(name, icon)')
+                .eq('is_active', true)
+
+            // Transform menu items
+            const menuSnapshots: InventorySnapshot[] = (menuItems || []).map((item: any) => ({
+                id: item.id,
+                type: 'menu' as const,
+                name: item.name,
+                quantity: item.stock_quantity ?? 1,
+                unit: item.stock_unit || 'piece',
+                price: item.price,
+                category_name: item.menu_categories?.name || 'Uncategorized',
+                category_icon: item.menu_categories?.icon || '📋',
+                image_url: item.image_url,
+                linked_ingredients: item.linked_ingredients,
+                created_at: item.created_at
+            }))
+
+            // Transform raw materials
+            const rawSnapshots: InventorySnapshot[] = (rawItems || []).map((item: any) => ({
+                id: item.id,
+                type: 'raw' as const,
+                name: item.name,
+                quantity: item.quantity,
+                unit: item.unit,
+                price: item.purchase_price,
+                category_name: item.inventory_categories?.name || 'Uncategorized',
+                category_icon: item.inventory_categories?.icon || '📦',
+                supplier_name: item.supplier_name,
+                image_url: item.image_url,
+                created_at: item.created_at
+            }))
+
+            const monthData: MonthlyHistory = {
                 month: currentMonth,
-                created_at: new Date().toISOString(),
-                total_items: inventory.length,
-                total_value: totalValue,
-                low_stock_count: lowStockCount,
-                items: inventory
+                last_updated: new Date().toISOString(),
+                menu_items: menuSnapshots,
+                raw_items: rawSnapshots
             }
 
-            const existingArchives = JSON.parse(localStorage.getItem('inventory_archives') || '[]')
-            const filtered = existingArchives.filter((a: any) => a.month !== currentMonth)
-            filtered.unshift(archiveData)
-            localStorage.setItem('inventory_archives', JSON.stringify(filtered.slice(0, 12))) // Keep last 12 months
+            // Update or add current month
+            const stored = localStorage.getItem('inventory_monthly_history')
+            const existing: MonthlyHistory[] = stored ? JSON.parse(stored) : []
 
-            alert(`✅ Archive created for ${formatMonthLabel(currentMonth)}!`)
-        } catch (error: any) {
-            alert(`❌ Failed: ${error.message}`)
+            const filtered = existing.filter(h => h.month !== currentMonth)
+            const updated = [monthData, ...filtered].slice(0, 12) // Keep last 12 months
+
+            localStorage.setItem('inventory_monthly_history', JSON.stringify(updated))
+            setHistory(updated)
+
+            if (!selectedMonth) {
+                setSelectedMonth(currentMonth)
+            }
+
+            console.log(`✅ Auto-saved inventory for ${formatMonthLabel(currentMonth)}`)
+        } catch (error) {
+            console.error('Auto-save error:', error)
         } finally {
-            setArchiving(false)
+            setAutoSaving(false)
         }
     }
 
-    const filteredInventory = useMemo(() => {
-        if (!selectedMonth) return inventory
+    const selectedHistory = useMemo(() => {
+        return history.find(h => h.month === selectedMonth)
+    }, [history, selectedMonth])
 
-        return inventory.filter(item => {
-            if (!item.created_at) return false
-            const date = new Date(item.created_at)
-            const itemMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-            return itemMonth === selectedMonth
-        })
-    }, [inventory, selectedMonth])
+    const currentItems = useMemo(() => {
+        if (!selectedHistory) return []
+        return view === 'menu' ? selectedHistory.menu_items : selectedHistory.raw_items
+    }, [selectedHistory, view])
 
     const stats = useMemo(() => {
-        const totalValue = filteredInventory.reduce((s, i) => s + (i.quantity * i.purchase_price), 0)
-        const totalItems = filteredInventory.length
-        const lowStock = filteredInventory.filter(i => i.quantity <= i.reorder_level).length
-        const avgValue = totalItems > 0 ? totalValue / totalItems : 0
+        if (!selectedHistory) return {
+            totalItems: 0,
+            totalValue: 0,
+            lowStock: 0,
+            linkedCount: 0
+        }
+
+        const items = currentItems
+        const totalValue = items.reduce((sum, i) => sum + (i.quantity * i.price), 0)
+        const lowStock = items.filter(i => i.quantity <= 10).length
+        const linkedCount = view === 'menu'
+            ? items.filter(i => i.linked_ingredients && i.linked_ingredients.length > 0).length
+            : 0
 
         return {
+            totalItems: items.length,
             totalValue,
-            totalItems,
             lowStock,
-            avgValue
+            linkedCount
         }
-    }, [filteredInventory])
+    }, [selectedHistory, currentItems, view])
 
     const categoryBreakdown = useMemo(() => {
-        const breakdown: Record<string, CategoryBreakdown> = {}
+        const breakdown: Record<string, {
+            name: string
+            icon: string
+            items: number
+            value: number
+        }> = {}
 
-        filteredInventory.forEach(item => {
-            const catName = item.inventory_categories?.name || 'Uncategorized'
-            const catIcon = item.inventory_categories?.icon || '📦'
-
-            if (!breakdown[catName]) {
-                breakdown[catName] = {
-                    name: catName,
-                    icon: catIcon,
+        currentItems.forEach(item => {
+            const key = item.category_name
+            if (!breakdown[key]) {
+                breakdown[key] = {
+                    name: item.category_name,
+                    icon: item.category_icon,
                     items: 0,
                     value: 0
                 }
             }
-
-            breakdown[catName].items++
-            breakdown[catName].value += item.quantity * item.purchase_price
+            breakdown[key].items++
+            breakdown[key].value += item.quantity * item.price
         })
 
         return Object.values(breakdown).sort((a, b) => b.value - a.value)
-    }, [filteredInventory])
+    }, [currentItems])
 
     const formatMonthLabel = (monthKey: string) => {
         const [year, month] = monthKey.split('-')
@@ -171,38 +204,42 @@ export default function InventoryArchivePage() {
     }
 
     const exportReport = () => {
-        const report = `INVENTORY ARCHIVE REPORT
+        if (!selectedHistory) return
+
+        const report = `INVENTORY HISTORY REPORT - ${view.toUpperCase()}
 Month: ${formatMonthLabel(selectedMonth)}
+Last Updated: ${new Date(selectedHistory.last_updated).toLocaleString()}
 Generated: ${new Date().toLocaleString()}
 
 === SUMMARY ===
 Total Items: ${stats.totalItems}
 Total Value: PKR ${stats.totalValue.toLocaleString()}
 Low Stock Items: ${stats.lowStock}
-Average Item Value: PKR ${Math.round(stats.avgValue).toLocaleString()}
+${view === 'menu' ? `Items with Linked Ingredients: ${stats.linkedCount}` : ''}
 
 === BY CATEGORY ===
-${categoryBreakdown.map((cat: CategoryBreakdown) =>
+${categoryBreakdown.map(cat =>
             `${cat.icon} ${cat.name}: ${cat.items} items - PKR ${cat.value.toLocaleString()}`
         ).join('\n')}
 
 === DETAILED INVENTORY ===
-${filteredInventory.map(item => `
+${currentItems.map(item => `
 ${item.name}
-- Category: ${item.inventory_categories?.name || 'N/A'}
-- Quantity: ${item.quantity} ${item.unit}
-- Unit Price: PKR ${item.purchase_price}
-- Total Value: PKR ${(item.quantity * item.purchase_price).toLocaleString()}
-- Supplier: ${item.supplier_name || 'N/A'}
-${item.quantity <= item.reorder_level ? '⚠️ LOW STOCK ALERT' : ''}
+- Category: ${item.category_icon} ${item.category_name}
+- Stock: ${item.quantity} ${item.unit}
+- ${view === 'menu' ? 'Price' : 'Unit Price'}: PKR ${item.price}
+- Total Value: PKR ${(item.quantity * item.price).toLocaleString()}
+${item.supplier_name ? `- Supplier: ${item.supplier_name}` : ''}
+${item.linked_ingredients?.length ? `- 🔗 Linked to ${item.linked_ingredients.length} ingredients` : ''}
+${item.quantity <= 10 ? '⚠️ LOW STOCK' : ''}
 `).join('\n')}
-    `.trim()
+`.trim()
 
         const blob = new Blob([report], { type: 'text/plain' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `inventory-${selectedMonth}.txt`
+        a.download = `inventory-${view}-${selectedMonth}.txt`
         a.click()
     }
 
@@ -211,7 +248,7 @@ ${item.quantity <= item.reorder_level ? '⚠️ LOW STOCK ALERT' : ''}
             <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
                 <div className="text-center">
                     <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                    <p className="text-[var(--muted)]">Loading inventory...</p>
+                    <p className="text-[var(--muted)]">Loading history...</p>
                 </div>
             </div>
         )
@@ -221,27 +258,19 @@ ${item.quantity <= item.reorder_level ? '⚠️ LOW STOCK ALERT' : ''}
         <ErrorBoundary>
             <div className="min-h-screen bg-[var(--bg)]">
                 <PageHeader
-                    title="Inventory Archive"
-                    subtitle={`Monthly snapshots • ${selectedMonth ? formatMonthLabel(selectedMonth) : ''}`}
+                    title="Inventory History"
+                    subtitle={`Auto-saved monthly snapshots • ${selectedMonth ? formatMonthLabel(selectedMonth) : 'No history'}`}
                     action={
                         <div className="flex gap-2">
-                            <button
-                                onClick={createArchive}
-                                disabled={archiving}
-                                className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95 disabled:opacity-50"
-                            >
-                                <Archive className="w-3 h-3 sm:w-4 sm:h-4" />
-                                <span className="hidden sm:inline">{archiving ? 'Archiving...' : 'Archive Now'}</span>
-                                <span className="sm:hidden">📸</span>
-                            </button>
-                            <button
-                                onClick={exportReport}
-                                disabled={!selectedMonth}
-                                className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95 disabled:opacity-50"
-                            >
-                                <Download className="w-3 h-3 sm:w-4 sm:h-4" />
-                                <span className="hidden sm:inline">Export</span>
-                            </button>
+                            {selectedHistory && (
+                                <button
+                                    onClick={exportReport}
+                                    className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-xs sm:text-sm active:scale-95"
+                                >
+                                    <Download className="w-3 h-3 sm:w-4 sm:h-4" />
+                                    <span className="hidden sm:inline">Export</span>
+                                </button>
+                            )}
                             <button
                                 onClick={() => router.push('/admin/history')}
                                 className="px-3 sm:px-4 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--fg)] rounded-lg hover:bg-[var(--card)] flex items-center gap-2 text-xs sm:text-sm active:scale-95"
@@ -259,43 +288,94 @@ ${item.quantity <= item.reorder_level ? '⚠️ LOW STOCK ALERT' : ''}
                         <div className="flex items-start gap-3">
                             <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                             <div className="flex-1">
-                                <p className="font-semibold text-[var(--fg)] mb-1 text-sm sm:text-base">💡 Archive Management</p>
+                                <p className="font-semibold text-[var(--fg)] mb-1 text-sm sm:text-base">💡 Auto-Save System</p>
                                 <ul className="text-xs sm:text-sm text-[var(--muted)] space-y-1">
-                                    <li>• Click "Archive Now" to save current inventory snapshot</li>
-                                    <li>• Archives are saved locally (last 12 months)</li>
-                                    <li>• Export reports for external backup</li>
+                                    <li>• Automatically saves current inventory when you visit</li>
+                                    <li>• Separate tabs for Menu Items & Raw Materials</li>
+                                    <li>• Tracks linked ingredients for menu items</li>
+                                    <li>• Keeps last 12 months of history</li>
                                 </ul>
                             </div>
                         </div>
                     </div>
 
                     {/* Month Selector */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 sm:p-4">
-                        <div className="flex items-center gap-2 mb-3">
-                            <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
-                            <h3 className="font-bold text-[var(--fg)] text-sm sm:text-base">Select Month</h3>
-                        </div>
+                    {history.length > 0 ? (
+                        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 sm:p-4">
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+                                    <h3 className="font-bold text-[var(--fg)] text-sm sm:text-base">Select Month</h3>
+                                </div>
+                                {autoSaving && (
+                                    <span className="text-xs text-green-600 flex items-center gap-1">
+                                        <div className="w-2 h-2 bg-green-600 rounded-full animate-pulse" />
+                                        Auto-saving...
+                                    </span>
+                                )}
+                            </div>
 
-                        {availableMonths.length > 0 ? (
                             <select
                                 value={selectedMonth}
                                 onChange={(e) => setSelectedMonth(e.target.value)}
                                 className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:ring-2 focus:ring-blue-600 focus:outline-none text-sm"
                                 style={{ colorScheme: 'dark' }}
                             >
-                                {availableMonths.map(month => (
-                                    <option key={month} value={month}>
-                                        {formatMonthLabel(month)}
+                                {history.map(h => (
+                                    <option key={h.month} value={h.month}>
+                                        {formatMonthLabel(h.month)} ({h.menu_items.length}M + {h.raw_items.length}R)
                                     </option>
                                 ))}
                             </select>
-                        ) : (
-                            <p className="text-[var(--muted)] text-xs sm:text-sm">No archive data available</p>
-                        )}
-                    </div>
+                        </div>
+                    ) : (
+                        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-8 text-center">
+                            <div className="text-5xl mb-4">📦</div>
+                            <p className="text-[var(--fg)] font-medium mb-2">No History Yet</p>
+                            <p className="text-sm text-[var(--muted)]">History will auto-save shortly...</p>
+                        </div>
+                    )}
 
-                    {selectedMonth && (
+                    {selectedHistory && (
                         <>
+                            {/* View Tabs */}
+                            <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 sm:p-4">
+                                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                                    <button
+                                        onClick={() => setView('menu')}
+                                        className={`flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-4 rounded-lg font-semibold transition-all text-sm sm:text-base ${
+                                            view === 'menu'
+                                                ? 'bg-blue-600 text-white shadow-lg'
+                                                : 'bg-[var(--bg)] text-[var(--fg)] border border-[var(--border)]'
+                                        }`}
+                                    >
+                                        <Package className="w-4 h-4 sm:w-5 sm:h-5" />
+                                        <span>Menu Items</span>
+                                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                            view === 'menu' ? 'bg-white/20' : 'bg-[var(--card)]'
+                                        }`}>
+                                            {selectedHistory.menu_items.length}
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={() => setView('raw')}
+                                        className={`flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-4 rounded-lg font-semibold transition-all text-sm sm:text-base ${
+                                            view === 'raw'
+                                                ? 'bg-purple-600 text-white shadow-lg'
+                                                : 'bg-[var(--bg)] text-[var(--fg)] border border-[var(--border)]'
+                                        }`}
+                                    >
+                                        <Boxes className="w-4 h-4 sm:w-5 sm:h-5" />
+                                        <span>Raw Materials</span>
+                                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                            view === 'raw' ? 'bg-white/20' : 'bg-[var(--card)]'
+                                        }`}>
+                                            {selectedHistory.raw_items.length}
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+
                             {/* Stats Cards */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                                 <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
@@ -311,101 +391,110 @@ ${item.quantity <= item.reorder_level ? '⚠️ LOW STOCK ALERT' : ''}
                                 </div>
 
                                 <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
-                                    <TrendingDown className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
+                                    <AlertTriangle className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
                                     <p className="text-xs opacity-90">Low Stock</p>
                                     <p className="text-2xl sm:text-3xl font-bold mt-1">{stats.lowStock}</p>
                                 </div>
 
                                 <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
-                                    <Package className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
-                                    <p className="text-xs opacity-90">Avg Value</p>
-                                    <p className="text-xl sm:text-2xl font-bold mt-1">₨{Math.round(stats.avgValue)}</p>
+                                    <Link2 className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
+                                    <p className="text-xs opacity-90">{view === 'menu' ? 'Linked' : 'With Supplier'}</p>
+                                    <p className="text-2xl sm:text-3xl font-bold mt-1">
+                                        {view === 'menu'
+                                            ? stats.linkedCount
+                                            : currentItems.filter(i => i.supplier_name).length
+                                        }
+                                    </p>
                                 </div>
                             </div>
 
-                            {/* Low Stock Alert */}
-                            {stats.lowStock > 0 && (
-                                <div className="bg-orange-500/10 border-2 border-orange-500/30 rounded-xl p-4">
-                                    <div className="flex items-center gap-3">
-                                        <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0" />
-                                        <div>
-                                            <h4 className="font-bold text-[var(--fg)] mb-1">⚠️ Low Stock Alert</h4>
-                                            <p className="text-sm text-[var(--muted)]">
-                                                {stats.lowStock} item{stats.lowStock > 1 ? 's' : ''} below reorder level
-                                            </p>
-                                        </div>
+                            {/* Category Breakdown */}
+                            {categoryBreakdown.length > 0 && (
+                                <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6">
+                                    <h3 className="font-bold text-[var(--fg)] mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
+                                        <Package className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+                                        By Category
+                                    </h3>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                                        {categoryBreakdown.map((cat, i) => (
+                                            <div key={i} className="p-3 sm:p-4 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
+                                                <div className="flex items-center gap-2 mb-2 sm:mb-3">
+                                                    <span className="text-xl sm:text-2xl">{cat.icon}</span>
+                                                    <span className="font-semibold text-[var(--fg)] text-sm sm:text-base truncate">{cat.name}</span>
+                                                </div>
+                                                <p className="text-base sm:text-xl font-bold text-blue-600 mb-1">₨{(cat.value / 1000).toFixed(1)}k</p>
+                                                <p className="text-xs sm:text-sm text-[var(--muted)]">{cat.items} items</p>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             )}
 
-                            {/* Category Breakdown */}
-                            <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 sm:p-6">
-                                <h3 className="font-bold text-[var(--fg)] mb-3 sm:mb-4 flex items-center gap-2 text-sm sm:text-base">
-                                    <Package className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
-                                    By Category
-                                </h3>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                                    {categoryBreakdown.map((cat, i) => (
-                                        <div key={i} className="p-3 sm:p-4 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
-                                            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-                                                <span className="text-xl sm:text-2xl">{cat.icon}</span>
-                                                <span className="font-semibold text-[var(--fg)] text-sm sm:text-base truncate">{cat.name}</span>
-                                            </div>
-                                            <p className="text-base sm:text-xl font-bold text-blue-600 mb-1">₨{(cat.value / 1000).toFixed(1)}k</p>
-                                            <p className="text-xs sm:text-sm text-[var(--muted)]">{cat.items} items</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Detailed Item List */}
+                            {/* Items List */}
                             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
                                 <div className="p-3 sm:p-6 border-b border-[var(--border)]">
-                                    <h3 className="font-bold text-[var(--fg)] text-sm sm:text-base">All Items ({filteredInventory.length})</h3>
+                                    <h3 className="font-bold text-[var(--fg)] text-sm sm:text-base">
+                                        {view === 'menu' ? 'Menu Items' : 'Raw Materials'} ({currentItems.length})
+                                    </h3>
                                 </div>
 
                                 <div className="divide-y divide-[var(--border)]">
-                                    {filteredInventory.map(item => (
-                                        <div key={item.id} className="p-3 sm:p-4 hover:bg-[var(--bg)] transition-colors">
-                                            <div className="flex items-start gap-3 sm:gap-4">
-                                                {item.image_url && (
-                                                    <img src={item.image_url} alt={item.name} className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover shrink-0" />
-                                                )}
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4 mb-2">
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-semibold text-[var(--fg)] truncate text-sm sm:text-base">{item.name}</p>
-                                                            <p className="text-xs sm:text-sm text-[var(--muted)]">
-                                                                {item.inventory_categories?.icon || '📦'} {item.inventory_categories?.name || 'N/A'}
-                                                            </p>
-                                                            <p className="text-xs text-[var(--muted)] mt-1">
-                                                                Supplier: {item.supplier_name || 'N/A'}
-                                                            </p>
-                                                        </div>
+                                    {currentItems.map(item => {
+                                        const isLowStock = item.quantity <= 10
+                                        const totalValue = item.quantity * item.price
 
-                                                        <div className="text-left sm:text-right shrink-0">
-                                                            <p className="font-bold text-blue-600 text-base sm:text-lg">₨{(item.quantity * item.purchase_price).toLocaleString()}</p>
-                                                            <p className="text-xs sm:text-sm text-[var(--muted)]">{item.quantity} {item.unit}</p>
-                                                            <p className="text-xs text-[var(--muted)]">@ ₨{item.purchase_price}</p>
-                                                        </div>
-                                                    </div>
-
-                                                    {item.quantity <= item.reorder_level && (
-                                                        <div className="inline-block px-2 py-1 bg-red-500/10 border border-red-500/30 rounded">
-                                                            <p className="text-xs text-red-600 font-semibold">⚠️ Low Stock</p>
-                                                        </div>
+                                        return (
+                                            <div key={item.id} className="p-3 sm:p-4 hover:bg-[var(--bg)] transition-colors">
+                                                <div className="flex items-start gap-3 sm:gap-4">
+                                                    {item.image_url && (
+                                                        <img src={item.image_url} alt={item.name} className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover shrink-0" />
                                                     )}
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-start justify-between gap-4 mb-2">
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                                    <h4 className="font-semibold text-[var(--fg)] truncate text-sm sm:text-base">{item.name}</h4>
+                                                                    {item.linked_ingredients && item.linked_ingredients.length > 0 && (
+                                                                        <span className="px-2 py-0.5 bg-purple-500/10 border border-purple-500/30 rounded text-xs text-purple-600 font-semibold shrink-0 flex items-center gap-1">
+                                                                            <Link2 className="w-3 h-3" />
+                                                                            {item.linked_ingredients.length}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <p className="text-xs text-[var(--muted)]">
+                                                                    {item.category_icon} {item.category_name}
+                                                                </p>
+                                                                {item.supplier_name && (
+                                                                    <p className="text-xs text-[var(--muted)] mt-1">
+                                                                        Supplier: {item.supplier_name}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="text-right shrink-0">
+                                                                <p className="text-base sm:text-lg font-bold text-blue-600">{item.quantity} {item.unit}</p>
+                                                                <p className="text-xs text-[var(--muted)]">₨{totalValue.toLocaleString()}</p>
+                                                                <p className="text-xs text-[var(--muted)]">@ ₨{item.price}</p>
+                                                            </div>
+                                                        </div>
+
+                                                        {isLowStock && (
+                                                            <div className="inline-block px-2 py-1 bg-red-500/10 border border-red-500/30 rounded">
+                                                                <p className="text-xs text-red-600 font-semibold">⚠️ Low Stock</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        )
+                                    })}
                                 </div>
 
-                                {filteredInventory.length === 0 && (
+                                {currentItems.length === 0 && (
                                     <div className="p-8 sm:p-12 text-center">
                                         <Package className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 opacity-20 text-[var(--fg)]" />
-                                        <p className="text-[var(--fg)] font-medium text-sm sm:text-base">No inventory data for this month</p>
+                                        <p className="text-[var(--fg)] font-medium text-sm sm:text-base">No {view === 'menu' ? 'menu items' : 'raw materials'} found</p>
                                     </div>
                                 )}
                             </div>

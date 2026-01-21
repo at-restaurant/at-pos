@@ -1,5 +1,5 @@
 // src/app/admin/(pages)/inventory/page.tsx
-// 🎯 SIMPLE: Menu Items Tracking + Optional Raw Materials + Search + Filters
+// 🎯 COMPLETE FIXED VERSION - No NaN Issues
 
 'use client'
 
@@ -9,6 +9,7 @@ import { Package, Plus, AlertTriangle, TrendingDown, TrendingUp, Calendar, Boxes
 import { useRouter } from 'next/navigation'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+
 
 export default function InventoryPage() {
     const router = useRouter()
@@ -86,21 +87,27 @@ export default function InventoryPage() {
         return result
     }, [items, searchQuery, stockFilter, view])
 
-    // ✅ Monthly Summary
+    // ✅ FIXED: Monthly Summary - No NaN
     const monthlySummary = useMemo(() => {
         const startingStock = items.reduce((sum, i) => {
-            const stock = view === 'menu' ? (i.stock_quantity ?? 999) : i.quantity
-            const price = view === 'menu' ? i.price : i.purchase_price
-            return stock === 999 ? sum : sum + (stock * price)
+            const stock = view === 'menu' ? (i.stock_quantity ?? 1) : (i.quantity ?? 0)
+            const price = view === 'menu' ? (i.price ?? 0) : (i.purchase_price ?? 0)
+
+            // Skip if unlimited or invalid values
+            if (stock === 999 || isNaN(stock) || isNaN(price) || stock === null || price === null) {
+                return sum
+            }
+
+            return sum + (stock * price)
         }, 0)
 
-        const estimatedUsed = startingStock * 0.3
+        const estimatedUsed = isNaN(startingStock) || startingStock === 0 ? 0 : startingStock * 0.3
         const remaining = startingStock - estimatedUsed
 
         return {
-            starting: startingStock,
-            used: estimatedUsed,
-            remaining,
+            starting: isNaN(startingStock) ? 0 : startingStock,
+            used: isNaN(estimatedUsed) ? 0 : estimatedUsed,
+            remaining: isNaN(remaining) ? 0 : remaining,
             totalItems: items.length,
             lowStock: items.filter(i => {
                 const status = getStockStatus(i)
@@ -193,10 +200,12 @@ export default function InventoryPage() {
                                 </div>
                                 <button
                                     onClick={() => router.push(view === 'menu' ? '/admin/menu' : '/admin/inventory/raw')}
-                                    className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs sm:text-sm font-medium flex items-center gap-2 shrink-0"
+                                    className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs sm:text-sm font-medium flex items-center gap-2 shrink-0 active:scale-95 transition-transform"
+                                    title={view === 'menu' ? 'Add Menu Item' : 'Add Raw Material'}
                                 >
                                     <Plus className="w-4 h-4" />
-                                    <span className="hidden xs:inline">Add</span>
+                                    <span className="hidden xs:inline">Add {view === 'menu' ? 'Menu' : 'Raw'}</span>
+                                    <span className="xs:hidden">Add</span>
                                 </button>
                             </div>
                         </div>
@@ -275,7 +284,7 @@ export default function InventoryPage() {
                             </div>
                         </div>
 
-                        {/* Monthly Flow Tracker */}
+                        {/* Monthly Flow Tracker - FIXED */}
                         <div className="bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl p-4 sm:p-6 text-white">
                             <div className="flex items-center gap-2 mb-4">
                                 <Calendar className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -288,7 +297,9 @@ export default function InventoryPage() {
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                                 <div className="bg-white/10 backdrop-blur rounded-lg p-3 sm:p-4">
                                     <p className="text-xs opacity-90 mb-1">Month Starting</p>
-                                    <p className="text-xl sm:text-2xl font-bold">₨{(monthlySummary.starting / 1000).toFixed(1)}k</p>
+                                    <p className="text-xl sm:text-2xl font-bold">
+                                        ₨{(monthlySummary.starting / 1000).toFixed(1)}k
+                                    </p>
                                     <p className="text-xs opacity-75 mt-1">{monthlySummary.totalItems} items</p>
                                 </div>
 
@@ -297,7 +308,9 @@ export default function InventoryPage() {
                                         <TrendingDown className="w-3 h-3 sm:w-4 sm:h-4" />
                                         <p className="text-xs opacity-90">Used This Month</p>
                                     </div>
-                                    <p className="text-xl sm:text-2xl font-bold text-orange-300">-₨{(monthlySummary.used / 1000).toFixed(1)}k</p>
+                                    <p className="text-xl sm:text-2xl font-bold text-orange-300">
+                                        -₨{(monthlySummary.used / 1000).toFixed(1)}k
+                                    </p>
                                     <p className="text-xs opacity-75 mt-1">~30% consumed</p>
                                 </div>
 
@@ -306,7 +319,9 @@ export default function InventoryPage() {
                                         <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4" />
                                         <p className="text-xs opacity-90">Remaining</p>
                                     </div>
-                                    <p className="text-xl sm:text-2xl font-bold text-green-300">₨{(monthlySummary.remaining / 1000).toFixed(1)}k</p>
+                                    <p className="text-xl sm:text-2xl font-bold text-green-300">
+                                        ₨{(monthlySummary.remaining / 1000).toFixed(1)}k
+                                    </p>
                                     <p className="text-xs opacity-75 mt-1">Next month</p>
                                 </div>
                             </div>
@@ -334,8 +349,8 @@ export default function InventoryPage() {
                             <div className="divide-y divide-[var(--border)]">
                                 {filtered.map(item => {
                                     const stock = view === 'menu' ? (item.stock_quantity ?? 999) : item.quantity
-                                    const price = view === 'menu' ? item.price : item.purchase_price
-                                    const unit = view === 'menu' ? 'units' : item.unit
+                                    const price = view === 'menu' ? (item.price ?? 0) : (item.purchase_price ?? 0)
+                                    const unit = view === 'menu' ? (item.stock_unit || 'piece') : item.unit
                                     const category = view === 'menu' ? item.menu_categories : item.inventory_categories
                                     const status = getStockStatus(item)
                                     const reorder = view === 'menu' ? 10 : (item.reorder_level || 10)

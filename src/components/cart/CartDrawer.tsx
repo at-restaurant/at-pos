@@ -349,12 +349,18 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 // Print the new items receipt
                 await productionPrinter.print(receiptData)
 
-                // Success!
                 cart.clearCart()
+                setDetails({ customer_name: '', customer_phone: '', delivery_address: '', delivery_charges: 0 })
                 setTableWarning(null)
                 setEditingQuantity({})
                 setCustomTaxPercent('0')
+                setEditingTax(false)
                 onClose()
+
+                // ✅ NEW: Notify menu page to refresh stock
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('order-placed'))
+                }
 
                 if (typeof window !== 'undefined') {
                     const event = new CustomEvent('toast-add', {
@@ -471,6 +477,11 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             setCustomTaxPercent('0')
             setEditingTax(false)
             onClose()
+
+            // ✅ NEW: Notify menu page to refresh stock
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('order-placed'))
+            }
         }
     }
 

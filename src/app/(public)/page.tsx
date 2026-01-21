@@ -9,6 +9,7 @@ import { useCart } from '@/lib/store/cart-store'
 import { useHydration } from '@/lib/hooks/useHydration'
 import { useOfflineFirst } from '@/lib/hooks/useOfflineFirst'
 import { offlineManager } from '@/lib/db/offlineManager'
+import { createClient } from '@/lib/supabase/client' // ✅ ADD THIS LINE
 
 export default function MenuPage() {
     const { data: categories, loading: catLoading } = useOfflineFirst({
@@ -18,7 +19,7 @@ export default function MenuPage() {
         order: { column: 'display_order' }
     })
 
-    const { data: items, loading: itemsLoading, isOffline } = useOfflineFirst({
+    const { data: items, loading: itemsLoading, isOffline, refresh } = useOfflineFirst({
         store: 'menu_items',
         table: 'menu_items',
         filter: { is_available: true },
@@ -59,6 +60,20 @@ export default function MenuPage() {
             offlineManager.downloadAllData()
         }
     }, [])
+
+    // ✅ NEW: Listen for order completion
+    useEffect(() => {
+        const handleOrderPlaced = () => {
+            console.log('🔄 Order placed, refreshing menu...')
+            // Just refresh the menu items, no page reload
+            if (refresh) {
+                setTimeout(() => refresh(), 500)
+            }
+        }
+
+        window.addEventListener('order-placed', handleOrderPlaced)
+        return () => window.removeEventListener('order-placed', handleOrderPlaced)
+    }, [refresh])
 
     // ✅ FIXED: Auto-reload when all stock items are finished
     useEffect(() => {
