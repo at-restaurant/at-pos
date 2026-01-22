@@ -230,7 +230,9 @@ export default function OrdersPage() {
         setActionLoading(true)
         try {
             const isOfflineOrder = order.id.startsWith('offline_')
+            const isOnline = navigator.onLine
 
+            // ✅ Build receipt data
             const receiptData: ReceiptData = {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
@@ -263,17 +265,20 @@ export default function OrdersPage() {
                 notes: order.notes
             }
 
+            // ✅ Print receipt (works offline)
             await productionPrinter.print(receiptData)
 
-            if (isOfflineOrder) {
-                await db.put(STORES.ORDERS, {
-                    ...order,
-                    status: 'completed',
-                    payment_method: paymentMethod,
-                    receipt_printed: true,
-                    updated_at: new Date().toISOString()
-                })
-            } else {
+            // ✅ Update order status
+            const updatedOrder = {
+                ...order,
+                status: 'completed',
+                payment_method: paymentMethod,
+                receipt_printed: true,
+                updated_at: new Date().toISOString()
+            }
+
+            if (isOnline && !isOfflineOrder) {
+                // ✅ ONLINE: Direct Supabase update
                 const { error: updateError } = await supabase
                     .from('orders')
                     .update({
@@ -286,6 +291,7 @@ export default function OrdersPage() {
 
                 if (updateError) throw updateError
 
+                // Update table status
                 if (order.order_type === 'dine-in' && order.table_id) {
                     await supabase
                         .from('restaurant_tables')
@@ -296,6 +302,31 @@ export default function OrdersPage() {
                         })
                         .eq('id', order.table_id)
                 }
+            } else {
+                // ✅ OFFLINE: Store in IndexedDB + Queue for sync
+                const { addToQueue } = await import('@/lib/db/syncQueue')
+
+                // Update order locally
+                await db.put(STORES.ORDERS, updatedOrder)
+                await addToQueue('update', 'orders', {
+                    id: order.id,
+                    status: 'completed',
+                    payment_method: paymentMethod,
+                    receipt_printed: true,
+                    updated_at: updatedOrder.updated_at
+                })
+
+                // Queue table update
+                if (order.order_type === 'dine-in' && order.table_id) {
+                    await addToQueue('update', 'restaurant_tables', {
+                        id: order.table_id,
+                        status: 'available',
+                        current_order_id: null,
+                        waiter_id: null
+                    })
+                }
+
+                console.log('✅ Order completion queued for sync')
             }
 
             setSelectedOrder(null)
@@ -303,7 +334,10 @@ export default function OrdersPage() {
 
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('toast-add', {
-                    detail: { type: 'success', message: '✅ Order completed & printed!' }
+                    detail: {
+                        type: 'success',
+                        message: `✅ Order completed & printed${!isOnline ? ' (Offline - will sync)' : ''}!`
+                    }
                 }))
             }
         } catch (error: any) {
@@ -324,27 +358,69 @@ export default function OrdersPage() {
         setActionLoading(true)
         try {
             const isOfflineOrder = order.id.startsWith('offline_')
+            const isOnline = navigator.onLine
 
-            if (isOfflineOrder) {
-                await db.put(STORES.ORDERS, {
-                    ...order,
-                    status: 'cancelled',
-                    synced: true
-                })
-            } else {
+            const updatedOrder = {
+                ...order,
+                status: 'cancelled',
+                updated_at: new Date().toISOString()
+            }
+
+            if (isOnline && !isOfflineOrder) {
+                // ✅ ONLINE: Direct Supabase update
                 const { error } = await supabase
                     .from('orders')
-                    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                    .update({
+                        status: 'cancelled',
+                        updated_at: new Date().toISOString()
+                    })
                     .eq('id', order.id)
 
                 if (error) throw error
 
+                // Free up table
                 if (order.order_type === 'dine-in' && order.table_id) {
                     await supabase
                         .from('restaurant_tables')
-                        .update({ status: 'available', current_order_id: null, waiter_id: null })
+                        .update({
+                            status: 'available',
+                            current_order_id: null,
+                            waiter_id: null
+                        })
                         .eq('id', order.table_id)
                 }
+            } else {
+                // ✅ OFFLINE: Store in IndexedDB + Queue for sync
+                const { addToQueue } = await import('@/lib/db/syncQueue')
+
+                // For offline orders, mark as synced (won't upload)
+                if (isOfflineOrder) {
+                    updatedOrder.synced = true
+                }
+
+                // Update order locally
+                await db.put(STORES.ORDERS, updatedOrder)
+
+                // Queue cancellation (only for online orders)
+                if (!isOfflineOrder) {
+                    await addToQueue('update', 'orders', {
+                        id: order.id,
+                        status: 'cancelled',
+                        updated_at: updatedOrder.updated_at
+                    })
+                }
+
+                // Queue table update
+                if (order.order_type === 'dine-in' && order.table_id) {
+                    await addToQueue('update', 'restaurant_tables', {
+                        id: order.table_id,
+                        status: 'available',
+                        current_order_id: null,
+                        waiter_id: null
+                    })
+                }
+
+                console.log('✅ Order cancellation queued for sync')
             }
 
             setSelectedOrder(null)
@@ -352,10 +428,14 @@ export default function OrdersPage() {
 
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('toast-add', {
-                    detail: { type: 'success', message: '✅ Order cancelled' }
+                    detail: {
+                        type: 'success',
+                        message: `✅ Order cancelled${!isOnline ? ' (Offline - will sync)' : ''}`
+                    }
                 }))
             }
         } catch (error: any) {
+            console.error('Cancel order failed:', error)
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('toast-add', {
                     detail: { type: 'error', message: `❌ ${error.message}` }

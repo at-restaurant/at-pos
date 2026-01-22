@@ -276,64 +276,81 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
         if (tableWarning?.existingOrderId && orderType === 'dine-in') {
             try {
                 const existingOrderId = tableWarning.existingOrderId
+                const isOnline = navigator.onLine
 
                 const newOrderItems = cart.items.map(item => ({
+                    id: `offline_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
                     order_id: existingOrderId,
                     menu_item_id: item.id,
                     quantity: item.quantity,
                     unit_price: item.price,
-                    total_price: item.price * item.quantity
+                    total_price: item.price * item.quantity,
+                    created_at: new Date().toISOString()
                 }))
 
-                const { error: itemsError } = await supabase
-                    .from('order_items')
-                    .insert(newOrderItems)
+                if (isOnline) {
+                    // ✅ ONLINE: Direct Supabase insert
+                    const { error: itemsError } = await supabase
+                        .from('order_items')
+                        .insert(newOrderItems.map(({ id, ...rest }) => rest))
 
-                if (itemsError) throw itemsError
+                    if (itemsError) throw itemsError
 
-                const { data: currentOrder } = await supabase
-                    .from('orders')
-                    .select('subtotal, tax, total_amount')
-                    .eq('id', existingOrderId)
-                    .single()
-
-                if (!currentOrder) throw new Error('Order not found')
-
-                const newSubtotal = currentOrder.subtotal + subtotal
-                const newTax = currentOrder.tax + tax
-                const newTotal = currentOrder.total_amount + total
-
-                const { error: updateError } = await supabase
-                    .from('orders')
-                    .update({
-                        subtotal: newSubtotal,
-                        tax: newTax,
-                        total_amount: newTotal,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', existingOrderId)
-
-                if (updateError) throw updateError
-
-                // Auto-deduct ingredients for added items
-                for (const cartItem of cart.items) {
-                    const { data: menuItem } = await supabase
-                        .from('menu_items')
-                        .select('linked_ingredients')
-                        .eq('id', cartItem.id)
+                    const { data: currentOrder } = await supabase
+                        .from('orders')
+                        .select('subtotal, tax, total_amount')
+                        .eq('id', existingOrderId)
                         .single()
 
-                    if (menuItem?.linked_ingredients && Array.isArray(menuItem.linked_ingredients)) {
-                        for (const link of menuItem.linked_ingredients) {
-                            const quantityToDeduct = link.quantity_needed * cartItem.quantity
-                            await supabase.rpc('deduct_inventory', {
-                                p_ingredient_id: link.ingredient_id,
-                                p_quantity: quantityToDeduct
-                            })
-                        }
+                    if (!currentOrder) throw new Error('Order not found')
+
+                    const newSubtotal = currentOrder.subtotal + subtotal
+                    const newTax = currentOrder.tax + tax
+                    const newTotal = currentOrder.total_amount + total
+
+                    const { error: updateError } = await supabase
+                        .from('orders')
+                        .update({
+                            subtotal: newSubtotal,
+                            tax: newTax,
+                            total_amount: newTotal,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', existingOrderId)
+
+                    if (updateError) throw updateError
+                } else {
+                    // ✅ OFFLINE: Store in IndexedDB + Queue for sync
+                    const { db } = await import('@/lib/db/indexedDB')
+                    const { STORES } = await import('@/lib/db/schema')
+                    const { addToQueue } = await import('@/lib/db/syncQueue')
+
+                    // Store items locally
+                    for (const item of newOrderItems) {
+                        await db.put(STORES.ORDER_ITEMS, item)
+                        await addToQueue('create', 'order_items', item)
                     }
+
+                    // Queue order update
+                    const existingOrder = await db.get(STORES.ORDERS, existingOrderId) as any
+
+                    if (existingOrder) {
+                        const updatedOrder = {
+                            ...existingOrder,
+                            subtotal: (existingOrder.subtotal || 0) + subtotal,
+                            tax: (existingOrder.tax || 0) + tax,
+                            total_amount: (existingOrder.total_amount || 0) + total,
+                            updated_at: new Date().toISOString()
+                        }
+
+                        await db.put(STORES.ORDERS, updatedOrder)
+                        await addToQueue('update', 'orders', updatedOrder)
+                    }
+
+                    console.log('✅ Queued items to be added to existing order when online')
                 }
 
+                // ✅ Print receipt (works offline)
                 const selectedTable = tables.find(t => t.id === cart.tableId)
                 const selectedWaiter = waiters.find(w => w.id === cart.waiterId)
 
@@ -357,11 +374,12 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                     tax,
                     total,
                     paymentMethod: paymentMethod,
-                    notes: '🆕 NEW ITEMS ADDED TO ORDER'
+                    notes: `🆕 NEW ITEMS ADDED${isOnline ? '' : ' (OFFLINE)'}`
                 }
 
                 await productionPrinter.print(receiptData)
 
+                // ✅ Clear and close
                 cart.clearCart()
                 setDetails({ customer_name: '', customer_phone: '', delivery_address: '', delivery_charges: 0 })
                 setTableWarning(null)
@@ -370,15 +388,17 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                 setEditingTax(false)
                 onClose()
 
+                // ✅ Trigger refresh
                 if (typeof window !== 'undefined') {
                     window.dispatchEvent(new CustomEvent('order-placed'))
                 }
 
+                // ✅ Success message
                 if (typeof window !== 'undefined') {
                     const event = new CustomEvent('toast-add', {
                         detail: {
                             type: 'success',
-                            message: `✅ Added ${cart.items.length} items to Table ${tableWarning.tableNumber}'s order & printed receipt!`
+                            message: `✅ Added ${cart.items.length} items to Table ${tableWarning.tableNumber}${isOnline ? '' : ' (Offline - will sync)'}!`
                         }
                     })
                     window.dispatchEvent(event)
@@ -396,9 +416,11 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
                     })
                     window.dispatchEvent(event)
                 }
+
                 return
             }
         }
+
 
         // Create NEW order
         let finalOrderType: 'dine-in' | 'delivery' | 'takeaway'
