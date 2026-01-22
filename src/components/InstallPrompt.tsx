@@ -14,17 +14,17 @@ export default function InstallPrompt() {
     const isAdmin = pathname.startsWith('/admin')
 
     useEffect(() => {
-        // ✅ Check if already installed
+        // ✅ FIXED: Check if already installed
         const isInstalled = window.matchMedia('(display-mode: standalone)').matches ||
-            localStorage.removeItem('install_prompt_dismissed')
-        localStorage.removeItem('app_installed')
+            localStorage.getItem('app_installed') === 'true'
+
         if (isInstalled) return
 
-        // ✅ Check if prompt was dismissed recently (24h)
+        // ✅ Check if prompt was dismissed recently (24 hours)
         const dismissedAt = localStorage.getItem('install_prompt_dismissed')
         if (dismissedAt) {
-            const daysPassed = (Date.now() - parseInt(dismissedAt)) / (1000 * 60 * 60 * 24)
-            if (daysPassed < 1) return
+            const hoursPassed = (Date.now() - parseInt(dismissedAt)) / (1000 * 60 * 60)
+            if (hoursPassed < 24) return
         }
 
         const handler = (e: Event) => {
@@ -49,24 +49,62 @@ export default function InstallPrompt() {
 
         setDownloading(true)
 
-        // ✅ Download data first
-        const result = await offlineManager.downloadAllData(true)
+        try {
+            // ✅ Download data first for offline capability
+            const result = await offlineManager.downloadAllData(true)
 
-        if (result.success) {
-            setDownloaded(true)
+            if (result.success) {
+                setDownloaded(true)
 
-            // ✅ Show install prompt
-            deferredPrompt.prompt()
-            const { outcome } = await deferredPrompt.userChoice
+                // Wait a moment to show success state
+                await new Promise(resolve => setTimeout(resolve, 500))
 
-            if (outcome === 'accepted') {
-                localStorage.setItem('app_installed', 'true')
-                setShowPrompt(false)
+                // ✅ Show native install prompt
+                deferredPrompt.prompt()
+                const { outcome } = await deferredPrompt.userChoice
+
+                if (outcome === 'accepted') {
+                    localStorage.setItem('app_installed', 'true')
+                    setShowPrompt(false)
+
+                    // Show success message
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('toast-add', {
+                            detail: {
+                                type: 'success',
+                                message: '✅ App installed successfully! Ready for offline use.'
+                            }
+                        }))
+                    }
+                } else {
+                    // User cancelled installation
+                    setDownloaded(false)
+                }
+            } else {
+                // Download failed
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('toast-add', {
+                        detail: {
+                            type: 'error',
+                            message: '❌ Failed to download offline data. Please try again.'
+                        }
+                    }))
+                }
             }
+        } catch (error) {
+            console.error('Installation error:', error)
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('toast-add', {
+                    detail: {
+                        type: 'error',
+                        message: '❌ Installation failed. Please try again.'
+                    }
+                }))
+            }
+        } finally {
+            setDeferredPrompt(null)
+            setDownloading(false)
         }
-
-        setDeferredPrompt(null)
-        setDownloading(false)
     }
 
     const handleDismiss = () => {
@@ -74,31 +112,31 @@ export default function InstallPrompt() {
         setShowPrompt(false)
     }
 
-    if (!showPrompt || !deferredPrompt) return null
-
+    // Don't show on login page
     const isLoginPage = pathname === '/admin/login'
-    if (isLoginPage) return null
-
-    if (!showPrompt || !deferredPrompt) return null
+    if (isLoginPage || !showPrompt || !deferredPrompt) return null
 
     return (
         <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:max-w-sm z-[60] animate-in slide-in-from-bottom-4">
             <div className="bg-[var(--card)] border-2 border-blue-600 rounded-xl p-4 shadow-2xl">
                 <div className="flex items-start gap-3">
                     <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                        {downloaded ? <CheckCircle className="w-6 h-6 text-white" /> : <Download className="w-6 h-6 text-white" />}
+                        {downloaded ? (
+                            <CheckCircle className="w-6 h-6 text-white" />
+                        ) : (
+                            <Download className="w-6 h-6 text-white" />
+                        )}
                     </div>
-
 
                     <div className="flex-1 min-w-0">
                         <h3 className="font-bold text-[var(--fg)] mb-1">
                             {downloading ? '📥 Downloading...' :
                                 downloaded ? '✅ Ready to Install!' :
-                                    isAdmin ? '🛡️ AT Admin Panel' : '🍽️ AT Restaurant Management'}
+                                    isAdmin ? '🛡️ AT Admin Panel' : '🍽️ AT Restaurant POS'}
                         </h3>
                         <p className="text-sm text-[var(--muted)] mb-3">
                             {downloading ? 'Caching data for offline use...' :
-                                downloaded ? 'All data ready! Install now' :
+                                downloaded ? 'All data ready! Install now for offline access' :
                                     'Works offline • Fast • Professional'}
                         </p>
 
@@ -107,13 +145,13 @@ export default function InstallPrompt() {
                                 <button
                                     onClick={handleInstall}
                                     disabled={downloading}
-                                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 active:scale-95 disabled:opacity-50"
+                                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {downloaded ? 'Install App' : 'Download & Install'}
                                 </button>
                                 <button
                                     onClick={handleDismiss}
-                                    className="px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg hover:bg-[var(--card)]"
+                                    className="px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg hover:bg-[var(--card)] transition-colors"
                                 >
                                     <X className="w-5 h-5 text-[var(--muted)]" />
                                 </button>
@@ -122,7 +160,7 @@ export default function InstallPrompt() {
 
                         {downloading && (
                             <div className="w-full h-2 bg-[var(--bg)] rounded-full overflow-hidden">
-                                <div className="h-full bg-blue-600 animate-pulse" style={{ width: '100%' }} />
+                                <div className="h-full bg-blue-600 rounded-full animate-pulse" style={{ width: '100%' }} />
                             </div>
                         )}
                     </div>
