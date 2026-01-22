@@ -1,5 +1,5 @@
 // src/lib/hooks/useAdminAuth.ts
-// ✅ PRODUCTION-READY: Cookie-based auth with perfect error handling
+// ✅ FIXED: Proper cookie sync with middleware
 
 "use client"
 
@@ -84,7 +84,7 @@ export function useAdminAuth() {
         checkAuth()
     }, [checkAuth])
 
-    // ✅ Login with perfect error handling
+    // ✅ Login with PROPER cookie sync
     const login = async (password: string): Promise<LoginResult> => {
         try {
             // Check network first
@@ -123,6 +123,12 @@ export function useAdminAuth() {
             }
 
             setIsAuthenticated(true)
+
+            // 🔥 FIX: Force router to refresh and re-check middleware
+            // This ensures cookies are properly synced before navigation
+            await new Promise(resolve => setTimeout(resolve, 100))
+            router.refresh()
+
             return { success: true }
 
         } catch (error: any) {

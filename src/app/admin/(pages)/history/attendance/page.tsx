@@ -1,11 +1,11 @@
 // src/app/admin/(pages)/history/attendance/page.tsx
-// 🎯 ATTENDANCE TRACKING - Complete history with analytics
+// ✅ PRODUCTION-READY: Attendance history WITHOUT hours tracking
 
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, Calendar, Users, Clock, Download, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Calendar, Users, Download } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -105,9 +105,6 @@ export default function AttendanceHistoryPage() {
         const totalPresent = records.filter(r => r.status === 'present').length
         const totalAbsent = records.filter(r => r.status === 'absent').length
         const totalHalfDay = records.filter(r => r.status === 'half-day').length
-        const avgHours = records.length > 0
-            ? records.reduce((sum, r) => sum + (r.total_hours || 0), 0) / totalPresent
-            : 0
 
         // Staff wise breakdown
         const staffStats: Record<string, any> = {}
@@ -118,21 +115,18 @@ export default function AttendanceHistoryPage() {
                     name: record.waiters?.name || 'Unknown',
                     present: 0,
                     absent: 0,
-                    halfDay: 0,
-                    totalHours: 0
+                    halfDay: 0
                 }
             }
             if (record.status === 'present') staffStats[wId].present++
             if (record.status === 'absent') staffStats[wId].absent++
             if (record.status === 'half-day') staffStats[wId].halfDay++
-            staffStats[wId].totalHours += record.total_hours || 0
         })
 
         return {
             totalPresent,
             totalAbsent,
             totalHalfDay,
-            avgHours,
             attendanceRate: records.length > 0
                 ? ((totalPresent / records.length) * 100).toFixed(1)
                 : '0',
@@ -150,11 +144,10 @@ Total Records: ${records.length}
 Present: ${stats.totalPresent} (${stats.attendanceRate}%)
 Absent: ${stats.totalAbsent}
 Half Day: ${stats.totalHalfDay}
-Average Hours: ${stats.avgHours.toFixed(1)}h
 
 === STAFF BREAKDOWN ===
 ${stats.staffStats.map((s: any) =>
-            `${s.name}: ${s.present}P / ${s.absent}A / ${s.halfDay}H - ${s.totalHours.toFixed(1)}h total`
+            `${s.name}: ${s.present}P / ${s.absent}A / ${s.halfDay}H`
         ).join('\n')}
 
 === DETAILED RECORDS ===
@@ -162,7 +155,6 @@ ${records.map(r => `
 Date: ${new Date(r.date).toLocaleDateString()}
 Staff: ${r.waiters?.name || 'Unknown'}
 Status: ${r.status}
-Hours: ${r.total_hours?.toFixed(1) || 0}h
 Check In: ${r.check_in || 'N/A'}
 Check Out: ${r.check_out || 'N/A'}
 `).join('\n')}
@@ -253,7 +245,7 @@ Check Out: ${r.check_out || 'N/A'}
                     </div>
 
                     {/* Stats Cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
                         <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
                             <Users className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
                             <p className="text-xs opacity-90">Present</p>
@@ -268,15 +260,9 @@ Check Out: ${r.check_out || 'N/A'}
                         </div>
 
                         <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
-                            <Clock className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
+                            <Calendar className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
                             <p className="text-xs opacity-90">Half Day</p>
                             <p className="text-2xl sm:text-3xl font-bold mt-1">{stats.totalHalfDay}</p>
-                        </div>
-
-                        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
-                            <Clock className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
-                            <p className="text-xs opacity-90">Avg Hours</p>
-                            <p className="text-2xl sm:text-3xl font-bold mt-1">{stats.avgHours.toFixed(1)}h</p>
                         </div>
                     </div>
 
@@ -290,7 +276,7 @@ Check Out: ${r.check_out || 'N/A'}
 
                         <div className="divide-y divide-[var(--border)]">
                             {records.map(record => (
-                                <div key={record.id} className="p-3 sm:p-4 hover:bg-[var(--bg)]">
+                                <div key={record.id} className="p-3 sm:p-4 hover:bg-[var(--bg)] transition-colors">
                                     <div className="flex items-center gap-3 sm:gap-4">
                                         {record.waiters?.profile_pic ? (
                                             <img
@@ -330,9 +316,6 @@ Check Out: ${r.check_out || 'N/A'}
                                         </div>
 
                                         <div className="text-right">
-                                            <p className="text-sm sm:text-base font-bold text-blue-600">
-                                                {record.total_hours?.toFixed(1) || 0}h
-                                            </p>
                                             <p className="text-xs text-[var(--muted)]">
                                                 {record.check_in ? record.check_in.slice(0, 5) : '--:--'} -
                                                 {record.check_out ? record.check_out.slice(0, 5) : '--:--'}
