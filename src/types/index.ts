@@ -59,6 +59,8 @@ export type MenuItem = {
     image_url?: string
     thumbnail_url?: string // For offline thumbnails
     stock_quantity: number // ✅ NEW: Stock tracking (999 = unlimited, 0 = out of stock)
+    track_stock?: boolean // ✅ NEW: Toggle to track stock or not
+    variants?: Array<{ name: string; price: number }> | null // ✅ NEW: Portions and prices
     is_available: boolean
     preparation_time?: number
     created_at: string
@@ -100,6 +102,7 @@ export type OrderItem = {
     total_price: number
     notes?: string
     status: 'pending' | 'preparing' | 'ready' | 'served'
+    variant_name?: string | null // ✅ NEW: Portions/Sizes ordered
     created_at: string
 }
 

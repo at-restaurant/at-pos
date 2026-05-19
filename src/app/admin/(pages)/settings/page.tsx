@@ -8,7 +8,10 @@ import { Key, Save, Eye, EyeOff, User, Camera, ChevronDown, ChevronUp, Shield, B
 import { useToast } from '@/components/ui/Toast'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { useAdminAuth } from '@/lib/hooks/useAdminAuth'
+import { createClient } from '@/lib/supabase/client'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { db } from '@/lib/db/indexedDB'
+import { STORES } from '@/lib/db/schema'
 
 export default function SettingsPage() {
     const { profile, updateProfile } = useAdminAuth()
@@ -46,8 +49,6 @@ export default function SettingsPage() {
 
     useEffect(() => {
         const loadSettings = async () => {
-            const { db } = await import('@/lib/db/indexedDB')
-            const { STORES } = await import('@/lib/db/schema')
             const cached = await db.get(STORES.SETTINGS, 'receipt_settings')
             if (cached && (cached as any).value) {
                 setReceiptForm((cached as any).value)
@@ -66,11 +67,28 @@ export default function SettingsPage() {
     }
 
     const handleReceiptUpdate = async () => {
-        const { db } = await import('@/lib/db/indexedDB')
-        const { STORES } = await import('@/lib/db/schema')
         localStorage.setItem('receipt_settings', JSON.stringify(receiptForm))
         await db.put(STORES.SETTINGS, { key: 'receipt_settings', value: receiptForm })
-        toast.add('success', '✅ Receipt settings saved!')
+
+        // Push to cloud table (non-blocking)
+        let cloudSynced = false
+        if (navigator.onLine) {
+            try {
+                const supabase = createClient()
+                const { error } = await supabase
+                    .from('restaurant_settings')
+                    .upsert({ id: 1, phone: receiptForm.phone, tax_percent: receiptForm.tax_percent })
+
+                if (!error) cloudSynced = true
+            } catch (err) {
+                console.error('Cloud sync failed:', err)
+            }
+        }
+
+        toast.add('success', cloudSynced
+            ? '✅ Receipt settings saved & synced to cloud!'
+            : '✅ Receipt settings saved locally!'
+        )
     }
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

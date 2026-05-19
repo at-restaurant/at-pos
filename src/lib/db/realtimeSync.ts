@@ -87,8 +87,11 @@ export class RealtimeSync {
             const ordersResult = await this.syncOrders()
             totalSynced += ordersResult.synced
 
-            const waitersResult = await this.syncWaiters()
-            totalSynced += waitersResult.synced
+            const queueResult = await this.syncQueueItems()
+            totalSynced += queueResult.synced
+
+            const attendanceResult = await this.syncAttendance()
+            totalSynced += attendanceResult.synced
 
             this.dispatchEvent('sync-complete', { synced: totalSynced })
 
@@ -109,11 +112,10 @@ export class RealtimeSync {
         try {
             const allOrders = (await db.getAll(STORES.ORDERS)) as any[]
 
-            // ✅ KEY FIX: Filter out cancelled orders AND already synced orders
+            // ✅ KEY FIX: Filter out already synced orders (cancelled orders are now synced!)
             const pendingOrders = allOrders.filter(
                 o => !o.synced &&
-                    o.id.startsWith('offline_') &&
-                    o.status !== 'cancelled' // ✅ Don't sync cancelled orders
+                    o.id.startsWith('offline_')
             )
 
             if (pendingOrders.length === 0) {
@@ -129,11 +131,14 @@ export class RealtimeSync {
                 this.pendingOperations.set(order.id, 'processing')
 
                 try {
+                    const cleanWaiterId = (order.waiter_id && String(order.waiter_id).trim() !== '') ? order.waiter_id : null
+                    const cleanTableId = (order.table_id && String(order.table_id).trim() !== '') ? order.table_id : null
+
                     const { data: newOrder, error: orderError } = await supabase
                         .from('orders')
                         .insert({
-                            waiter_id: order.waiter_id,
-                            table_id: order.table_id,
+                            waiter_id: cleanWaiterId,
+                            table_id: cleanTableId,
                             status: order.status,
                             subtotal: order.subtotal,
                             tax: order.tax,
@@ -162,26 +167,29 @@ export class RealtimeSync {
                             menu_item_id: item.menu_item_id,
                             quantity: item.quantity,
                             unit_price: item.unit_price,
-                            total_price: item.total_price
+                            total_price: item.total_price,
+                            variant_name: item.variant_name || null
                         }))
 
-                        await supabase.from('order_items').insert(itemsToInsert)
+                        const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert)
+                        if (itemsError) throw itemsError
                     }
 
-                    if (order.order_type === 'dine-in' && order.table_id) {
-                        await supabase
+                    if (order.order_type === 'dine-in' && cleanTableId) {
+                        const { error: tableError } = await supabase
                             .from('restaurant_tables')
                             .update({
                                 status: 'occupied',
-                                waiter_id: order.waiter_id,
+                                waiter_id: cleanWaiterId,
                                 current_order_id: newOrder.id
                             })
-                            .eq('id', order.table_id)
+                            .eq('id', cleanTableId)
+                        if (tableError) throw tableError
                     }
 
-                    if (order.waiter_id) {
+                    if (cleanWaiterId) {
                         await supabase.rpc('increment_waiter_stats', {
-                            p_waiter_id: order.waiter_id,
+                            p_waiter_id: cleanWaiterId,
                             p_orders: 1,
                             p_revenue: order.total_amount
                         })
@@ -195,8 +203,9 @@ export class RealtimeSync {
                     synced++
                     this.pendingOperations.delete(order.id)
                     console.log(`✅ Synced order ${order.id}`)
-                } catch (error) {
-                    console.error(`❌ Failed to sync order ${order.id}:`, error)
+                } catch (error: any) {
+                    const errMsg = error?.message || error?.details || JSON.stringify(error) || String(error)
+                    console.error(`❌ Failed to sync order ${order.id}:`, errMsg, error)
                     this.pendingOperations.set(order.id, 'failed')
                     setTimeout(() => this.pendingOperations.delete(order.id), 300000)
                 }
@@ -209,39 +218,130 @@ export class RealtimeSync {
         }
     }
 
-    // ✅ NEW: Sync waiter status changes
-    private async syncWaiters(): Promise<{ success: boolean; synced: number }> {
+    // ✅ Sync general queue items (waiters, orders, restaurant_tables)
+    private async syncQueueItems(): Promise<{ success: boolean; synced: number }> {
         if (this.isDestroyed) return { success: false, synced: 0 }
 
         const supabase = createClient()
         let synced = 0
 
         try {
-            // Get pending waiter updates from sync queue
+            // Get pending updates from sync queue
             const allQueueItems = (await db.getAll(STORES.SYNC_QUEUE)) as any[]
-            const waiterUpdates = allQueueItems.filter(
-                item => item.table === 'waiters' && item.status === 'pending'
-            )
+            const pendingQueueItems = allQueueItems.filter(item => item.status === 'pending')
 
-            for (const update of waiterUpdates) {
+            for (const update of pendingQueueItems) {
                 if (this.isDestroyed) break
 
                 try {
-                    await supabase
-                        .from('waiters')
-                        .update({ is_on_duty: update.data.is_on_duty })
-                        .eq('id', update.data.id)
-
-                    await db.delete(STORES.SYNC_QUEUE, update.id)
-                    synced++
-                } catch (error) {
-                    console.error('Waiter sync error:', error)
+                    if (update.table === 'waiters') {
+                        await supabase
+                            .from('waiters')
+                            .update({ is_on_duty: update.data.is_on_duty })
+                            .eq('id', update.data.id)
+                        await db.delete(STORES.SYNC_QUEUE, update.id)
+                        synced++
+                    } else if (update.table === 'orders') {
+                        const { id, ...fieldsToUpdate } = update.data
+                        if (id && !id.startsWith('offline_')) {
+                            const { error } = await supabase
+                                .from('orders')
+                                .update(fieldsToUpdate)
+                                .eq('id', id)
+                            if (error) throw error
+                        }
+                        await db.delete(STORES.SYNC_QUEUE, update.id)
+                        synced++
+                    } else if (update.table === 'restaurant_tables') {
+                        const { id, ...fieldsToUpdate } = update.data
+                        if (id) {
+                            const { error } = await supabase
+                                .from('restaurant_tables')
+                                .update(fieldsToUpdate)
+                                .eq('id', id)
+                            if (error) throw error
+                        }
+                        await db.delete(STORES.SYNC_QUEUE, update.id)
+                        synced++
+                    }
+                } catch (error: any) {
+                    console.error(`Queue item sync error for table ${update.table}:`, error?.message || error)
                 }
             }
 
             return { success: true, synced }
         } catch (error) {
-            console.error('Waiters sync error:', error)
+            console.error('Queue items sync error:', error)
+            return { success: false, synced }
+        }
+    }
+
+    // ✅ Sync offline attendance records
+    private async syncAttendance(): Promise<{ success: boolean; synced: number }> {
+        if (this.isDestroyed) return { success: false, synced: 0 }
+
+        const supabase = createClient()
+        let synced = 0
+
+        try {
+            const allSettings = await db.getAll(STORES.SETTINGS) as any[]
+            const unsyncedAttendance = allSettings.filter(item => 
+                item.key && 
+                item.key.startsWith('attendance_') && 
+                item.value && 
+                !item.value.synced
+            )
+
+            for (const item of unsyncedAttendance) {
+                if (this.isDestroyed) break
+
+                try {
+                    const record = item.value
+                    const { data: existing } = await supabase
+                        .from('attendance')
+                        .select('id')
+                        .eq('waiter_id', record.waiter_id)
+                        .eq('date', record.date)
+                        .maybeSingle()
+
+                    if (existing) {
+                        await supabase
+                            .from('attendance')
+                            .update({
+                                status: record.status,
+                                check_in: record.check_in,
+                                check_out: record.check_out,
+                                total_hours: record.total_hours
+                            })
+                            .eq('id', existing.id)
+                    } else {
+                        await supabase
+                            .from('attendance')
+                            .insert({
+                                waiter_id: record.waiter_id,
+                                date: record.date,
+                                status: record.status,
+                                check_in: record.check_in,
+                                check_out: record.check_out,
+                                total_hours: record.total_hours
+                            })
+                    }
+
+                    // Mark as synced locally
+                    await db.put(STORES.SETTINGS, {
+                        key: item.key,
+                        value: { ...record, synced: true }
+                    })
+                    synced++
+                    console.log(`✅ Synced attendance record for waiter ${record.waiter_id} on ${record.date}`)
+                } catch (error) {
+                    console.error(`❌ Failed to sync attendance record ${item.key}:`, error)
+                }
+            }
+
+            return { success: true, synced }
+        } catch (error) {
+            console.error('Attendance sync error:', error)
             return { success: false, synced }
         }
     }
@@ -250,9 +350,10 @@ export class RealtimeSync {
         if (this.isDestroyed) return 0
 
         try {
-            const [orders, queueItems] = await Promise.all([
+            const [orders, queueItems, allSettings] = await Promise.all([
                 db.getAll(STORES.ORDERS),
-                db.getAll(STORES.SYNC_QUEUE)
+                db.getAll(STORES.SYNC_QUEUE),
+                db.getAll(STORES.SETTINGS)
             ])
 
             // ✅ Only count non-cancelled orders
@@ -266,7 +367,11 @@ export class RealtimeSync {
                 item => item.table === 'waiters' && item.status === 'pending'
             )
 
-            return pendingOrders.length + pendingQueue.length
+            const pendingAttendance = (allSettings as any[]).filter(
+                item => item.key && item.key.startsWith('attendance_') && item.value && !item.value.synced
+            )
+
+            return pendingOrders.length + pendingQueue.length + pendingAttendance.length
         } catch (error) {
             return 0
         }

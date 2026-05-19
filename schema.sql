@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS menu_items (
     image_url TEXT,
     is_available BOOLEAN DEFAULT true,
     preparation_time INTEGER DEFAULT 15,
+    track_stock BOOLEAN DEFAULT false,
+    variants JSONB DEFAULT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -102,6 +104,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     unit_price DECIMAL(10,2) NOT NULL,
     total_price DECIMAL(10,2) NOT NULL,
+    variant_name TEXT DEFAULT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
     );
 

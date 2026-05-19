@@ -153,6 +153,14 @@ html {
     overflow-x: hidden;
 }
 
+html {
+    background-color: var(--bg);
+    color: var(--fg);
+}
+
 body {
+    background-color: var(--bg);
+    color: var(--fg);
     overflow-x: hidden;
+    transition: background-color var(--transition-base), color var(--transition-base);
 }

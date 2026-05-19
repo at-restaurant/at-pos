@@ -35,12 +35,18 @@ async function reduceMenuStock(
     try {
         const { data: menuItem, error: fetchError } = await supabase
             .from('menu_items')
-            .select('stock_quantity, name')
+            .select('stock_quantity, name, track_stock')
             .eq('id', menuItemId)
             .single()
 
         if (fetchError || !menuItem) {
             console.error('❌ Menu item not found:', menuItemId)
+            return
+        }
+
+        const shouldTrack = menuItem.track_stock ?? false;
+        if (!shouldTrack) {
+            console.log(`ℹ️ ${menuItem.name} does not track stock, skipping reduction`)
             return
         }
 
@@ -137,6 +143,33 @@ async function reduceLinkedIngredients(
     }
 }
 
+async function updateLocalTableStatus(
+    tableId: string,
+    status: 'occupied' | 'available',
+    currentOrderId: string | null,
+    waiterId: string | null
+) {
+    try {
+        const tablesCache = await db.get(STORES.SETTINGS, 'restaurant_tables') as any
+        if (tablesCache && tablesCache.value) {
+            const updatedTables = tablesCache.value.map((t: any) => {
+                if (t.id === tableId) {
+                    return {
+                        ...t,
+                        status,
+                        current_order_id: currentOrderId,
+                        waiter_id: waiterId
+                    }
+                }
+                return t
+            })
+            await db.put(STORES.SETTINGS, { key: 'restaurant_tables', value: updatedTables })
+        }
+    } catch (err) {
+        console.error('Failed to update local table status:', err)
+    }
+}
+
 export function useOrderManagement() {
     const [loading, setLoading] = useState(false)
     const supabase = createClient()
@@ -145,18 +178,70 @@ export function useOrderManagement() {
     const completeOrder = useCallback(async (orderId: string, tableId?: string, orderType?: string) => {
         setLoading(true)
         try {
-            const { error: orderError } = await supabase
-                .from('orders')
-                .update({ status: 'completed', updated_at: new Date().toISOString() })
-                .eq('id', orderId)
+            const isOfflineOrder = orderId.startsWith('offline_')
+            let updatedOnline = false
 
-            if (orderError) throw orderError
+            if (!isOfflineOrder && navigator.onLine) {
+                try {
+                    const { error: orderError } = await supabase
+                        .from('orders')
+                        .update({ status: 'completed', updated_at: new Date().toISOString() })
+                        .eq('id', orderId)
+
+                    if (orderError) throw orderError
+
+                    if (orderType === 'dine-in' && tableId) {
+                        await supabase
+                            .from('restaurant_tables')
+                            .update({ status: 'available', current_order_id: null, waiter_id: null })
+                            .eq('id', tableId)
+                    }
+                    updatedOnline = true
+                } catch (netErr: any) {
+                    const isNetErr = netErr?.message?.includes('Failed to fetch') || netErr?.message?.includes('NetworkError') || !navigator.onLine
+                    if (!isNetErr) throw netErr
+                    console.warn('Failed to complete online due to network, falling back to offline sync queue')
+                }
+            }
+
+            if (!updatedOnline) {
+                const order = await db.get(STORES.ORDERS, orderId) as any
+                if (order) {
+                    await db.put(STORES.ORDERS, {
+                        ...order,
+                        status: 'completed',
+                        synced: false
+                    })
+                }
+
+                await addToQueue('update', 'orders', {
+                    id: orderId,
+                    status: 'completed',
+                    updated_at: new Date().toISOString()
+                })
+
+                if (orderType === 'dine-in' && tableId) {
+                    await addToQueue('update', 'restaurant_tables', {
+                        id: tableId,
+                        status: 'available',
+                        current_order_id: null,
+                        waiter_id: null
+                    })
+                }
+            }
 
             if (orderType === 'dine-in' && tableId) {
-                await supabase
-                    .from('restaurant_tables')
-                    .update({ status: 'available', current_order_id: null, waiter_id: null })
-                    .eq('id', tableId)
+                await updateLocalTableStatus(tableId, 'available', null, null)
+            }
+
+            // Always update order status locally
+            const orderObj = await db.get(STORES.ORDERS, orderId) as any
+            if (orderObj) {
+                await db.put(STORES.ORDERS, {
+                    ...orderObj,
+                    status: 'completed',
+                    updated_at: new Date().toISOString()
+                })
             }
 
             toast.add('success', '✅ Order completed!')
@@ -173,47 +258,77 @@ export function useOrderManagement() {
         setLoading(true)
         try {
             const isOfflineOrder = orderId.startsWith('offline_')
+            let updatedOnline = false
 
-            if (isOfflineOrder) {
+            if (!isOfflineOrder && navigator.onLine) {
+                try {
+                    const { error: orderError } = await supabase
+                        .from('orders')
+                        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                        .eq('id', orderId)
+
+                    if (orderError) throw orderError
+
+                    if (orderType === 'dine-in' && tableId) {
+                        await supabase
+                            .from('restaurant_tables')
+                            .update({ status: 'available', current_order_id: null, waiter_id: null })
+                            .eq('id', tableId)
+                    }
+                    updatedOnline = true
+                } catch (netErr: any) {
+                    const isNetErr = netErr?.message?.includes('Failed to fetch') || netErr?.message?.includes('NetworkError') || !navigator.onLine
+                    if (!isNetErr) throw netErr
+                    console.warn('Failed to cancel online due to network, falling back to offline sync queue')
+                }
+            }
+
+            if (!updatedOnline) {
                 const order = await db.get(STORES.ORDERS, orderId) as any
                 if (order) {
                     await db.put(STORES.ORDERS, {
                         ...order,
                         status: 'cancelled',
-                        synced: true
+                        synced: true // Marked as synced so we don't try to sync again if offline cancelled
                     })
                 }
 
-                const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
-                const orderItems = items.filter(i => i.order_id === orderId)
-                for (const item of orderItems) {
-                    await db.delete(STORES.ORDER_ITEMS, item.id)
+                if (!isOfflineOrder) {
+                    await addToQueue('update', 'orders', {
+                        id: orderId,
+                        status: 'cancelled',
+                        updated_at: new Date().toISOString()
+                    })
+                } else {
+                    const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
+                    const orderItems = items.filter(i => i.order_id === orderId)
+                    for (const item of orderItems) {
+                        await db.delete(STORES.ORDER_ITEMS, item.id)
+                    }
                 }
 
-                console.log(`✅ Cancelled offline order ${orderId} - marked as synced, won't upload`)
-            } else {
-                const { error: orderError } = await supabase
-                    .from('orders')
-                    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-                    .eq('id', orderId)
-
-                if (orderError) throw orderError
-            }
-
-            if (orderType === 'dine-in' && tableId) {
-                if (isOfflineOrder) {
+                if (orderType === 'dine-in' && tableId) {
                     await addToQueue('update', 'restaurant_tables', {
                         id: tableId,
                         status: 'available',
                         current_order_id: null,
                         waiter_id: null
                     })
-                } else {
-                    await supabase
-                        .from('restaurant_tables')
-                        .update({ status: 'available', current_order_id: null, waiter_id: null })
-                        .eq('id', tableId)
                 }
+            }
+
+            if (orderType === 'dine-in' && tableId) {
+                await updateLocalTableStatus(tableId, 'available', null, null)
+            }
+
+            // Always update order status locally
+            const orderObj = await db.get(STORES.ORDERS, orderId) as any
+            if (orderObj) {
+                await db.put(STORES.ORDERS, {
+                    ...orderObj,
+                    status: 'cancelled',
+                    updated_at: new Date().toISOString()
+                })
             }
 
             toast.add('success', '✅ Order cancelled')
@@ -331,76 +446,99 @@ export function useOrderManagement() {
 
         const createPromise = (async () => {
             try {
-                const isOnline = navigator.onLine
+                let isOnline = navigator.onLine
+                let onlineSuccess = false
 
                 if (isOnline) {
-                    const { data: existingOrder } = await supabase
-                        .from('orders')
-                        .select('id')
-                        .eq('table_id', orderData.table_id)
-                        .eq('status', 'pending')
-                        .gte('created_at', new Date(Date.now() - 60000).toISOString())
-                        .single()
+                    try {
+                        const { data: existingOrder } = await supabase
+                            .from('orders')
+                            .select('id')
+                            .eq('table_id', orderData.table_id)
+                            .eq('status', 'pending')
+                            .gte('created_at', new Date(Date.now() - 60000).toISOString())
+                            .single()
 
-                    if (existingOrder) {
-                        console.log('⚠️ Duplicate order prevented')
-                        return {
-                            success: true,
-                            order: existingOrder,
-                            isDuplicate: true
+                        if (existingOrder) {
+                            console.log('⚠️ Duplicate order prevented')
+                            return {
+                                success: true,
+                                order: existingOrder,
+                                isDuplicate: true
+                            }
+                        }
+
+                        const { data: order, error: orderError } = await supabase
+                            .from('orders')
+                            .insert(orderData)
+                            .select()
+                            .single()
+
+                        if (orderError) throw orderError
+
+                        const orderItems = items.map(item => {
+                            const isVariant = String(item.id).includes('__')
+                            const menuItemId = isVariant ? String(item.id).split('__')[0] : item.id
+                            const variantName = isVariant ? String(item.id).split('__')[1] : null
+                            return {
+                                order_id: order.id,
+                                menu_item_id: menuItemId,
+                                quantity: item.quantity,
+                                unit_price: item.price,
+                                total_price: item.price * item.quantity,
+                                variant_name: variantName
+                            }
+                        })
+
+                        const { error: itemsError } = await supabase
+                            .from('order_items')
+                            .insert(orderItems)
+
+                        if (itemsError) throw itemsError
+
+                        // ✅ UPDATED: Reduce both menu stock AND linked ingredients
+                        for (const item of items) {
+                            const isVariant = String(item.id).includes('__')
+                            const menuItemId = isVariant ? String(item.id).split('__')[0] : item.id
+                            await reduceMenuStock(supabase, menuItemId, item.quantity)
+                            await reduceLinkedIngredients(supabase, menuItemId, item.quantity) // 🆕 NEW
+                        }
+
+                        if (orderData.order_type === 'dine-in' && orderData.table_id) {
+                            await supabase
+                                .from('restaurant_tables')
+                                .update({
+                                    status: 'occupied',
+                                    waiter_id: orderData.waiter_id,
+                                    current_order_id: order.id
+                                })
+                                .eq('id', orderData.table_id)
+
+                            await updateLocalTableStatus(orderData.table_id, 'occupied', order.id, orderData.waiter_id)
+                        }
+
+                        if (orderData.waiter_id) {
+                            await supabase.rpc('increment_waiter_stats', {
+                                p_waiter_id: orderData.waiter_id,
+                                p_orders: 1,
+                                p_revenue: orderData.total_amount
+                            })
+                        }
+
+                        toast.add('success', '✅ Order created!')
+                        onlineSuccess = true
+                        return { success: true, order }
+                    } catch (err: any) {
+                        if (err?.message?.includes('Failed to fetch') || err?.message?.includes('NetworkError')) {
+                            console.warn('Network error during online order creation, falling back to offline mode')
+                            isOnline = false
+                        } else {
+                            throw err
                         }
                     }
+                }
 
-                    const { data: order, error: orderError } = await supabase
-                        .from('orders')
-                        .insert(orderData)
-                        .select()
-                        .single()
-
-                    if (orderError) throw orderError
-
-                    const orderItems = items.map(item => ({
-                        order_id: order.id,
-                        menu_item_id: item.id,
-                        quantity: item.quantity,
-                        unit_price: item.price,
-                        total_price: item.price * item.quantity
-                    }))
-
-                    const { error: itemsError } = await supabase
-                        .from('order_items')
-                        .insert(orderItems)
-
-                    if (itemsError) throw itemsError
-
-                    // ✅ UPDATED: Reduce both menu stock AND linked ingredients
-                    for (const item of items) {
-                        await reduceMenuStock(supabase, item.id, item.quantity)
-                        await reduceLinkedIngredients(supabase, item.id, item.quantity) // 🆕 NEW
-                    }
-
-                    if (orderData.order_type === 'dine-in' && orderData.table_id) {
-                        await supabase
-                            .from('restaurant_tables')
-                            .update({
-                                status: 'occupied',
-                                waiter_id: orderData.waiter_id,
-                                current_order_id: order.id
-                            })
-                            .eq('id', orderData.table_id)
-                    }
-
-                    if (orderData.waiter_id) {
-                        await supabase.rpc('increment_waiter_stats', {
-                            p_waiter_id: orderData.waiter_id,
-                            p_orders: 1,
-                            p_revenue: orderData.total_amount
-                        })
-                    }
-
-                    toast.add('success', '✅ Order created!')
-                    return { success: true, order }
-                } else {
+                if (!isOnline) {
                     const existingOffline = await db.get(STORES.ORDERS, idempotencyKey)
                     if (existingOffline) {
                         console.log('⚠️ Duplicate offline order prevented')
@@ -423,15 +561,25 @@ export function useOrderManagement() {
 
                     await db.put(STORES.ORDERS, offlineOrder)
 
-                    const orderItems = items.map(item => ({
-                        id: generateUUID(),
-                        order_id: orderId,
-                        menu_item_id: item.id,
-                        quantity: item.quantity,
-                        unit_price: item.price,
-                        total_price: item.price * item.quantity,
-                        created_at: new Date().toISOString()
-                    }))
+                    if (orderData.order_type === 'dine-in' && orderData.table_id) {
+                        await updateLocalTableStatus(orderData.table_id, 'occupied', orderId, orderData.waiter_id)
+                    }
+
+                    const orderItems = items.map(item => {
+                        const isVariant = String(item.id).includes('__')
+                        const menuItemId = isVariant ? String(item.id).split('__')[0] : item.id
+                        const variantName = isVariant ? String(item.id).split('__')[1] : null
+                        return {
+                            id: generateUUID(),
+                            order_id: orderId,
+                            menu_item_id: menuItemId,
+                            quantity: item.quantity,
+                            unit_price: item.price,
+                            total_price: item.price * item.quantity,
+                            variant_name: variantName,
+                            created_at: new Date().toISOString()
+                        }
+                    })
 
                     for (const item of orderItems) {
                         await db.put(STORES.ORDER_ITEMS, item)

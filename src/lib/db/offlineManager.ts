@@ -121,18 +121,19 @@ class OfflineManager {
 
             dispatchSyncEvent('sync-start', { message: 'Downloading all data...' })
 
-            const [categories, items, tables, waiters, orders, orderItems] = await Promise.allSettled([
+            const [categories, items, tables, waiters, orders, orderItems, settings] = await Promise.allSettled([
                 supabase.from('menu_categories').select('*').eq('is_active', true),
                 supabase.from('menu_items').select('*').eq('is_available', true),
                 supabase.from('restaurant_tables').select('*'),
                 supabase.from('waiters').select('*').eq('is_active', true),
                 supabase.from('orders').select('*, order_items(*, menu_items(name, price))').order('created_at', { ascending: false }).limit(100),
-                supabase.from('order_items').select('*').limit(500)
+                supabase.from('order_items').select('*').limit(500),
+                supabase.from('restaurant_settings').select('*').eq('id', 1).single()
             ])
 
             let progress = 0
             const updateProgress = (current: number, message: string) => {
-                progress = Math.round((current / 6) * 100)
+                progress = Math.round((current / 7) * 100)
                 dispatchSyncEvent('sync-progress', { progress, message })
             }
 
@@ -177,12 +178,32 @@ class OfflineManager {
                 updateProgress(5, 'Waiters downloaded')
             }
 
-            // 5. Active Orders
+            // 5. Active and Recent Orders (Historical 100)
             if (orders.status === 'fulfilled' && orders.value.data) {
-                const activeOrders = orders.value.data.filter((o: any) => o.status === 'pending' || o.status === 'preparing')
+                // Get all local orders to see what unsynced offline orders we must preserve
+                const allLocalOrders = await db.getAll(STORES.ORDERS) as any[]
+                const unsyncedOfflineOrderIds = new Set(
+                    allLocalOrders.filter(o => o.id.startsWith('offline_') && !o.synced).map(o => o.id)
+                )
 
-                for (const order of activeOrders) {
-                    if (!order.id.startsWith('offline_')) {
+                // Delete only cached/synced local orders to clear space and avoid stale data
+                for (const o of allLocalOrders) {
+                    if (!unsyncedOfflineOrderIds.has(o.id)) {
+                        await db.delete(STORES.ORDERS, o.id)
+                    }
+                }
+                
+                // Clear order items for the deleted orders
+                const allLocalItems = await db.getAll(STORES.ORDER_ITEMS) as any[]
+                for (const item of allLocalItems) {
+                    if (!unsyncedOfflineOrderIds.has(item.order_id)) {
+                        await db.delete(STORES.ORDER_ITEMS, item.id)
+                    }
+                }
+
+                // Now cache all 100 downloaded orders (pending, completed, preparing, etc.)
+                for (const order of orders.value.data) {
+                    if (!unsyncedOfflineOrderIds.has(order.id)) {
                         await db.put(STORES.ORDERS, { ...order, synced: true, cached: true })
 
                         if (order.order_items) {
@@ -194,6 +215,12 @@ class OfflineManager {
                 }
 
                 updateProgress(6, 'Orders downloaded')
+            }
+
+            // 6. Settings
+            if (settings.status === 'fulfilled' && settings.value.data) {
+                await db.put(STORES.SETTINGS, { key: 'receipt_settings', value: settings.value.data })
+                updateProgress(7, 'Settings downloaded')
             }
 
             localStorage.setItem('full_sync_timestamp', Date.now().toString())
@@ -253,17 +280,19 @@ class OfflineManager {
             const allOrders = await db.getAll(STORES.ORDERS) as any[]
             const pendingOrders = allOrders.filter(o =>
                 !o.synced &&
-                o.id.startsWith('offline_') &&
-                o.status !== 'cancelled' // ✅ Don't sync cancelled orders
+                o.id.startsWith('offline_')
             )
 
             for (const order of pendingOrders) {
                 try {
+                    const cleanWaiterId = (order.waiter_id && String(order.waiter_id).trim() !== '') ? order.waiter_id : null
+                    const cleanTableId = (order.table_id && String(order.table_id).trim() !== '') ? order.table_id : null
+
                     const { data: newOrder, error: orderError } = await supabase
                         .from('orders')
                         .insert({
-                            waiter_id: order.waiter_id,
-                            table_id: order.table_id,
+                            waiter_id: cleanWaiterId,
+                            table_id: cleanTableId,
                             status: order.status,
                             subtotal: order.subtotal,
                             tax: order.tax,
@@ -291,21 +320,24 @@ class OfflineManager {
                             menu_item_id: item.menu_item_id,
                             quantity: item.quantity,
                             unit_price: item.unit_price,
-                            total_price: item.total_price
+                            total_price: item.total_price,
+                            variant_name: item.variant_name || null
                         }))
 
-                        await supabase.from('order_items').insert(itemsToInsert)
+                        const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert)
+                        if (itemsError) throw itemsError
                     }
 
-                    if (order.order_type === 'dine-in' && order.table_id) {
-                        await supabase
+                    if (order.order_type === 'dine-in' && cleanTableId) {
+                        const { error: tableError } = await supabase
                             .from('restaurant_tables')
                             .update({
                                 status: 'occupied',
-                                waiter_id: order.waiter_id,
+                                waiter_id: cleanWaiterId,
                                 current_order_id: newOrder.id
                             })
-                            .eq('id', order.table_id)
+                            .eq('id', cleanTableId)
+                        if (tableError) throw tableError
                     }
 
                     await db.delete(STORES.ORDERS, order.id)
@@ -316,31 +348,113 @@ class OfflineManager {
                     syncedCount++
                     console.log(`✅ Synced order ${order.id}`)
 
-                } catch (error) {
-                    console.error(`❌ Failed to sync order ${order.id}:`, error)
+                } catch (error: any) {
+                    const errMsg = error?.message || error?.details || JSON.stringify(error) || String(error)
+                    console.error(`❌ Failed to sync order ${order.id}:`, errMsg, error)
                 }
             }
 
-            // 2. Sync waiter status changes
+            // 2. Sync general queue items (waiters, orders, restaurant_tables)
             const queueItems = await db.getAll(STORES.SYNC_QUEUE) as any[]
-            const waiterUpdates = queueItems.filter(item => item.table === 'waiters' && item.status === 'pending')
+            const pendingQueueItems = queueItems.filter(item => item.status === 'pending')
 
-            for (const update of waiterUpdates) {
+            for (const update of pendingQueueItems) {
                 try {
-                    await supabase
-                        .from('waiters')
-                        .update({ is_on_duty: update.data.is_on_duty })
-                        .eq('id', update.data.id)
+                    if (update.table === 'waiters') {
+                        await supabase
+                            .from('waiters')
+                            .update({ is_on_duty: update.data.is_on_duty })
+                            .eq('id', update.data.id)
+                        await db.delete(STORES.SYNC_QUEUE, update.id)
+                        syncedCount++
+                    } else if (update.table === 'orders') {
+                        const { id, ...fieldsToUpdate } = update.data
+                        if (id && !id.startsWith('offline_')) {
+                            const { error } = await supabase
+                                .from('orders')
+                                .update(fieldsToUpdate)
+                                .eq('id', id)
+                            if (error) throw error
+                        }
+                        await db.delete(STORES.SYNC_QUEUE, update.id)
+                        syncedCount++
+                    } else if (update.table === 'restaurant_tables') {
+                        const { id, ...fieldsToUpdate } = update.data
+                        if (id) {
+                            const { error } = await supabase
+                                .from('restaurant_tables')
+                                .update(fieldsToUpdate)
+                                .eq('id', id)
+                            if (error) throw error
+                        }
+                        await db.delete(STORES.SYNC_QUEUE, update.id)
+                        syncedCount++
+                    }
+                } catch (error: any) {
+                    console.error(`Queue item sync error for table ${update.table}:`, error?.message || error)
+                }
+            }
 
-                    await db.delete(STORES.SYNC_QUEUE, update.id)
+            // 3. Sync offline attendance records
+            const allSettings = await db.getAll(STORES.SETTINGS) as any[]
+            const unsyncedAttendance = allSettings.filter(item => 
+                item.key && 
+                item.key.startsWith('attendance_') && 
+                item.value && 
+                !item.value.synced
+            )
+
+            for (const item of unsyncedAttendance) {
+                try {
+                    const record = item.value
+                    const { data: existing } = await supabase
+                        .from('attendance')
+                        .select('id')
+                        .eq('waiter_id', record.waiter_id)
+                        .eq('date', record.date)
+                        .maybeSingle()
+
+                    if (existing) {
+                        await supabase
+                            .from('attendance')
+                            .update({
+                                status: record.status,
+                                check_in: record.check_in,
+                                check_out: record.check_out,
+                                total_hours: record.total_hours
+                            })
+                            .eq('id', existing.id)
+                    } else {
+                        await supabase
+                            .from('attendance')
+                            .insert({
+                                waiter_id: record.waiter_id,
+                                date: record.date,
+                                status: record.status,
+                                check_in: record.check_in,
+                                check_out: record.check_out,
+                                total_hours: record.total_hours
+                            })
+                    }
+
+                    // Mark as synced locally
+                    await db.put(STORES.SETTINGS, {
+                        key: item.key,
+                        value: { ...record, synced: true }
+                    })
                     syncedCount++
+                    console.log(`✅ Synced attendance record for waiter ${record.waiter_id} on ${record.date}`)
                 } catch (error) {
-                    console.error('Waiter sync error:', error)
+                    console.error(`❌ Failed to sync attendance record ${item.key}:`, error)
                 }
             }
 
             if (syncedCount > 0) {
                 dispatchSyncEvent('sync-complete', { synced: syncedCount })
+                // Trigger background refresh to get new online order IDs, waiter updates, table occupancy
+                this.downloadAllData(true).catch(err => {
+                    console.error('Background refresh post-sync failed:', err)
+                })
             }
 
             return { success: true, synced: syncedCount }

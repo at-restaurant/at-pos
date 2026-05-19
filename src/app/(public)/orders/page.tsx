@@ -19,6 +19,7 @@ import type { ReceiptData } from '@/types'
 import { createClient } from '@/lib/supabase/client'
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
+import { addToQueue } from '@/lib/db/syncQueue'
 
 export default function OrdersPage() {
     const [filter, setFilter] = useState<'active' | 'today-dinein' | 'today-delivery' | 'today-takeaway'>('active')
@@ -232,8 +233,6 @@ export default function OrdersPage() {
             const isOfflineOrder = order.id.startsWith('offline_')
             const isOnline = navigator.onLine
 
-            const { db } = await import('@/lib/db/indexedDB')
-            const { STORES } = await import('@/lib/db/schema')
             const cached = await db.get(STORES.SETTINGS, 'receipt_settings')
             let receiptSettings: any = {}
             if (cached && (cached as any).value) {
@@ -263,7 +262,9 @@ export default function OrdersPage() {
                     const category = menuCategories[menuItemId]
 
                     return {
-                        name: item.menu_items?.name || 'Unknown Item',
+                        name: item.variant_name 
+                            ? `${item.menu_items?.name || 'Unknown Item'} (${item.variant_name})` 
+                            : (item.menu_items?.name || 'Unknown Item'),
                         quantity: item.quantity,
                         price: item.unit_price || item.menu_items?.price || 0,
                         total: item.total_price,
@@ -289,36 +290,43 @@ export default function OrdersPage() {
                 updated_at: new Date().toISOString()
             }
 
+            let updatedOnline = false
             if (isOnline && !isOfflineOrder) {
-                // ✅ ONLINE: Direct Supabase update
-                const { error: updateError } = await supabase
-                    .from('orders')
-                    .update({
-                        status: 'completed',
-                        payment_method: paymentMethod,
-                        receipt_printed: true,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', order.id)
-
-                if (updateError) throw updateError
-
-                // Update table status
-                if (order.order_type === 'dine-in' && order.table_id) {
-                    await supabase
-                        .from('restaurant_tables')
+                try {
+                    // ✅ ONLINE: Direct Supabase update
+                    const { error: updateError } = await supabase
+                        .from('orders')
                         .update({
-                            status: 'available',
-                            current_order_id: null,
-                            waiter_id: null
+                            status: 'completed',
+                            payment_method: paymentMethod,
+                            receipt_printed: true,
+                            updated_at: new Date().toISOString()
                         })
-                        .eq('id', order.table_id)
-                }
-            } else {
-                // ✅ OFFLINE: Store in IndexedDB + Queue for sync
-                const { addToQueue } = await import('@/lib/db/syncQueue')
+                        .eq('id', order.id)
 
-                // Update order locally
+                    if (updateError) throw updateError
+
+                    // Update table status
+                    if (order.order_type === 'dine-in' && order.table_id) {
+                        await supabase
+                            .from('restaurant_tables')
+                            .update({
+                                status: 'available',
+                                current_order_id: null,
+                                waiter_id: null
+                            })
+                            .eq('id', order.table_id)
+                    }
+                    updatedOnline = true
+                } catch (netErr: any) {
+                    const isNetErr = netErr?.message?.includes('Failed to fetch') || netErr?.message?.includes('NetworkError') || !navigator.onLine
+                    if (!isNetErr) throw netErr
+                    console.warn('Failed to update online due to network, falling back to offline sync queue')
+                }
+            }
+
+            if (!updatedOnline) {
+                // ✅ OFFLINE: Store in IndexedDB + Queue for sync
                 await db.put(STORES.ORDERS, updatedOrder)
                 await addToQueue('update', 'orders', {
                     id: order.id,
@@ -341,6 +349,28 @@ export default function OrdersPage() {
                 console.log('✅ Order completion queued for sync')
             }
 
+            // Update table status locally (for both online and offline status changes)
+            if (order.order_type === 'dine-in' && order.table_id) {
+                const tablesCache = await db.get(STORES.SETTINGS, 'restaurant_tables') as any
+                if (tablesCache && tablesCache.value) {
+                    const updatedTables = tablesCache.value.map((t: any) => {
+                        if (t.id === order.table_id) {
+                            return {
+                                ...t,
+                                status: 'available',
+                                current_order_id: null,
+                                waiter_id: null
+                            }
+                        }
+                        return t
+                    })
+                    await db.put(STORES.SETTINGS, { key: 'restaurant_tables', value: updatedTables })
+                }
+            }
+
+            // Save completed status locally in all cases
+            await db.put(STORES.ORDERS, updatedOrder)
+
             setSelectedOrder(null)
             refresh()
 
@@ -353,10 +383,11 @@ export default function OrdersPage() {
                 }))
             }
         } catch (error: any) {
-            console.error('Print and complete failed:', error instanceof Error ? error.message : String(error))
+            const errMsg = error instanceof Error ? error.message : (error?.message || 'Unknown error')
+            console.error('Print and complete failed:', errMsg)
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('toast-add', {
-                    detail: { type: 'error', message: `❌ ${error instanceof Error ? error.message : 'Unknown error'}` }
+                    detail: { type: 'error', message: `❌ ${errMsg}` }
                 }))
             }
         } finally {
@@ -368,8 +399,6 @@ export default function OrdersPage() {
         if (actionLoading) return
         setActionLoading(true)
         try {
-            const { db } = await import('@/lib/db/indexedDB')
-            const { STORES } = await import('@/lib/db/schema')
             const cached = await db.get(STORES.SETTINGS, 'receipt_settings')
             let receiptSettings: any = {}
             if (cached && (cached as any).value) {
@@ -398,7 +427,9 @@ export default function OrdersPage() {
                     const category = menuCategories[menuItemId]
 
                     return {
-                        name: item.menu_items?.name || 'Unknown Item',
+                        name: item.variant_name 
+                            ? `${item.menu_items?.name || 'Unknown Item'} (${item.variant_name})` 
+                            : (item.menu_items?.name || 'Unknown Item'),
                         quantity: item.quantity,
                         price: item.unit_price || item.menu_items?.price || 0,
                         total: item.total_price,
@@ -420,10 +451,11 @@ export default function OrdersPage() {
                 }))
             }
         } catch (error: any) {
-            console.error('Reprint failed:', error instanceof Error ? error.message : String(error))
+            const errMsg = error instanceof Error ? error.message : (error?.message || 'Unknown error')
+            console.error('Reprint failed:', errMsg)
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('toast-add', {
-                    detail: { type: 'error', message: `❌ ${error instanceof Error ? error.message : 'Unknown error'}` }
+                    detail: { type: 'error', message: `❌ ${errMsg}` }
                 }))
             }
         } finally {
@@ -457,6 +489,9 @@ export default function OrdersPage() {
 
                 if (error) throw error
 
+                // Update order locally
+                await db.put(STORES.ORDERS, updatedOrder)
+
                 // Free up table
                 if (order.order_type === 'dine-in' && order.table_id) {
                     await supabase
@@ -467,10 +502,26 @@ export default function OrdersPage() {
                             waiter_id: null
                         })
                         .eq('id', order.table_id)
+
+                    // Update table status locally
+                    const tablesCache = await db.get(STORES.SETTINGS, 'restaurant_tables') as any
+                    if (tablesCache && tablesCache.value) {
+                        const updatedTables = tablesCache.value.map((t: any) => {
+                            if (t.id === order.table_id) {
+                                return {
+                                    ...t,
+                                    status: 'available',
+                                    current_order_id: null,
+                                    waiter_id: null
+                                }
+                            }
+                            return t
+                        })
+                        await db.put(STORES.SETTINGS, { key: 'restaurant_tables', value: updatedTables })
+                    }
                 }
             } else {
                 // ✅ OFFLINE: Store in IndexedDB + Queue for sync
-                const { addToQueue } = await import('@/lib/db/syncQueue')
 
                 // For offline orders, mark as synced (won't upload)
                 if (isOfflineOrder) {
@@ -530,10 +581,11 @@ export default function OrdersPage() {
                 }))
             }
         } catch (error: any) {
-            console.error('Cancel order failed:', error instanceof Error ? error.message : String(error))
+            const errMsg = error instanceof Error ? error.message : (error?.message || 'Unknown error')
+            console.error('Cancel order failed:', errMsg)
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('toast-add', {
-                    detail: { type: 'error', message: `❌ ${error instanceof Error ? error.message : 'Unknown error'}` }
+                    detail: { type: 'error', message: `❌ ${errMsg}` }
                 }))
             }
         } finally {
@@ -733,7 +785,10 @@ export default function OrdersPage() {
                                                     {item.quantity}×
                                                 </span>
                                                 <h4 className="font-semibold text-sm sm:text-base text-[var(--fg)] truncate">
-                                                    {item.menu_items?.name || 'Unknown Item'}
+                                                    {item.variant_name 
+                                                        ? `${item.menu_items?.name || 'Unknown Item'} (${item.variant_name})` 
+                                                        : (item.menu_items?.name || 'Unknown Item')
+                                                    }
                                                 </h4>
                                             </div>
 

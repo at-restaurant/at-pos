@@ -94,17 +94,32 @@ export class ThermalPrinter {
 
                 setTimeout(() => {
                     try {
-                        iframe.contentWindow?.focus()
-                        iframe.contentWindow?.print()
+                        const win = iframe.contentWindow;
+                        if (!win) {
+                            resolve(false);
+                            return;
+                        }
+                        win.focus()
+                        
+                        // Suppress "provided callback is no longer runnable" which happens if frame is removed
+                        try {
+                            win.print()
+                        } catch (e: any) {
+                            console.warn('Browser print dialog warning:', e.message)
+                        }
 
                         setTimeout(() => {
-                            document.body.removeChild(iframe)
+                            if (document.body.contains(iframe)) {
+                                document.body.removeChild(iframe)
+                            }
                             resolve(true)
                         }, 10000)
 
                     } catch (err) {
                         console.error('Print error:', err)
-                        document.body.removeChild(iframe)
+                        if (document.body.contains(iframe)) {
+                            document.body.removeChild(iframe)
+                        }
                         resolve(false)
                     }
                 }, 50)

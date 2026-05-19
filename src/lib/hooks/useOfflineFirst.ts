@@ -60,6 +60,56 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                 })
             }
 
+            if (options.store === STORES.ORDERS && Array.isArray(cachedData)) {
+                try {
+                    const allItems = await db.getAll(STORES.ORDER_ITEMS) as any[]
+                    const menuItems = await db.getAll(STORES.MENU_ITEMS) as any[]
+                    const menuItemsMap = new Map(menuItems.map(m => [m.id, m]))
+
+                    const tablesCache = await db.get(STORES.SETTINGS, 'restaurant_tables') as any
+                    const tables = tablesCache && tablesCache.value ? tablesCache.value : []
+                    const tablesMap = new Map(tables.map((t: any) => [t.id, t]))
+
+                    const waitersCache = await db.get(STORES.SETTINGS, 'waiters') as any
+                    const waiters = waitersCache && waitersCache.value ? waitersCache.value : []
+                    const waitersMap = new Map(waiters.map((w: any) => [w.id, w]))
+
+                    cachedData = cachedData.map(order => {
+                        let orderItems = order.order_items
+                        if (!orderItems || orderItems.length === 0) {
+                            orderItems = allItems.filter(item => item.order_id === order.id)
+                                .map(item => {
+                                    const menuItem = menuItemsMap.get(item.menu_item_id)
+                                    return {
+                                        ...item,
+                                        menu_items: menuItem || item.menu_items || { name: 'Unknown Item', price: item.unit_price || 0 }
+                                    }
+                                })
+                        } else {
+                            orderItems = orderItems.map((item: any) => {
+                                const menuItem = menuItemsMap.get(item.menu_item_id) || item.menu_items
+                                return {
+                                    ...item,
+                                    menu_items: menuItem
+                                }
+                            })
+                        }
+                        
+                        const table = tablesMap.get(order.table_id) as any
+                        const waiter = waitersMap.get(order.waiter_id) as any
+
+                        return {
+                            ...order,
+                            order_items: orderItems,
+                            restaurant_tables: table ? { table_number: table.table_number } : order.restaurant_tables,
+                            waiters: waiter ? { name: typeof waiter === 'object' ? waiter.name : waiter } : order.waiters
+                        }
+                    })
+                } catch (enrichErr) {
+                    console.error('Failed to enrich cached orders:', enrichErr)
+                }
+            }
+
             setData(cachedData as T[])
             setLoading(false)
 
@@ -100,31 +150,50 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
 
             if (error) throw error
 
-            if (freshData && freshData.length > 0) {
+            if (freshData) {
                 if (options.store === 'restaurant_tables' || options.store === 'waiters') {
                     await db.put(STORES.SETTINGS, {
                         key: options.store,
                         value: freshData
                     })
+                } else if (options.store === STORES.ORDERS) {
+                    // Preserve unsynced offline orders
+                    const allLocalOrders = await db.getAll(STORES.ORDERS) as any[]
+                    const unsyncedOfflineOrders = allLocalOrders.filter(
+                        o => o.id && o.id.startsWith('offline_') && !o.synced
+                    )
+
+                    await db.clear(options.store)
+                    if (freshData.length > 0) {
+                        await db.bulkPut(options.store, freshData)
+                    }
+                    if (unsyncedOfflineOrders.length > 0) {
+                        await db.bulkPut(options.store, unsyncedOfflineOrders)
+                    }
                 } else {
                     await db.clear(options.store)
-                    await db.bulkPut(options.store, freshData)
+                    if (freshData.length > 0) {
+                        await db.bulkPut(options.store, freshData)
+                    }
                 }
 
-                setData(freshData as T[])
+                await loadFromCache()
                 console.log(`✅ Synced ${freshData.length} items from Supabase:`, options.table)
             }
 
             setIsOffline(false)
-        } catch (error) {
-            if (navigator.onLine) {
-                console.error('Sync failed:', error instanceof Error ? error.message : String(error))
+        } catch (error: any) {
+            const isNetworkError = error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError');
+            if (navigator.onLine && !isNetworkError) {
+                console.error('Sync failed:', error instanceof Error ? error.message : (error?.message || JSON.stringify(error)))
+            } else if (isNetworkError) {
+                console.warn(`Network offline (fetch failed), switching offline mode on for ${options.table}`);
             }
             setIsOffline(true)
         } finally {
             setSyncing(false)
         }
-    }, [options.table, options.store, JSON.stringify(options.filter), JSON.stringify(options.order)])
+    }, [options.table, options.store, JSON.stringify(options.filter), JSON.stringify(options.order), loadFromCache])
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // ✅ STEP 3: Realtime Subscription (TypeScript Safe)
@@ -177,12 +246,19 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
         }
         const handleOffline = () => setIsOffline(true)
 
+        const handleSyncComplete = () => {
+            console.log(`🔄 Sync complete event detected for ${options.store}, refetching...`)
+            syncFromSupabase()
+        }
+
         window.addEventListener('online', handleOnline)
         window.addEventListener('offline', handleOffline)
+        window.addEventListener('sync-complete', handleSyncComplete)
 
         return () => {
             window.removeEventListener('online', handleOnline)
             window.removeEventListener('offline', handleOffline)
+            window.removeEventListener('sync-complete', handleSyncComplete)
         }
     }, [loadFromCache, syncFromSupabase])
 

@@ -79,6 +79,10 @@ export default function TablesPage() {
         waitersData: any[],
         ordersData: any[]
     ): Promise<TableWithDetails[]> => {
+        const allItems = await db.getAll(STORES.ORDER_ITEMS) as any[]
+        const menuItems = await db.getAll(STORES.MENU_ITEMS) as any[]
+        const menuItemsMap = new Map(menuItems.map(m => [m.id, m]))
+
         return tablesData.map((table: any) => {
             let cumulativeTotal = 0
             let itemCount = 0
@@ -91,13 +95,23 @@ export default function TablesPage() {
             if (table.status === 'occupied' && table.current_order_id) {
                 const order = ordersData.find(o => o.id === table.current_order_id)
 
-                if (order?.order_items) {
-                    orderItems = order.order_items
-                    cumulativeTotal = order.order_items.reduce(
+                if (order) {
+                    const items = (order.order_items && order.order_items.length > 0)
+                        ? order.order_items
+                        : allItems.filter(item => item.order_id === order.id).map(item => {
+                            const menuItem = menuItemsMap.get(item.menu_item_id)
+                            return {
+                                ...item,
+                                menu_items: menuItem || { name: 'Unknown Item', price: item.unit_price || 0 }
+                            }
+                        })
+
+                    orderItems = items
+                    cumulativeTotal = items.reduce(
                         (sum: number, item: any) => sum + (item.total_price || 0),
                         0
                     )
-                    itemCount = order.order_items.reduce(
+                    itemCount = items.reduce(
                         (sum: number, item: any) => sum + item.quantity,
                         0
                     )

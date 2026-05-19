@@ -32,9 +32,11 @@ export default function MenuPage() {
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [modal, setModal] = useState<any>(null)
     const [showIngredients, setShowIngredients] = useState(false)
-    const [form, setForm] = useState({
+        const [form, setForm] = useState({
         name: '', category_id: '', price: '', description: '', image_url: '',
-        stock_quantity: '1', stock_unit: 'piece', linked_ingredients: [] as IngredientLink[]
+        stock_quantity: '1', stock_unit: 'piece', linked_ingredients: [] as IngredientLink[],
+        track_stock: false,
+        variants: [] as Array<{ name: string; price: number }>
     })
     const [refreshKey, setRefreshKey] = useState(0)
     const supabase = createClient()
@@ -54,18 +56,30 @@ export default function MenuPage() {
     }
 
     const save = async () => {
-        if (!form.name || !form.category_id || !form.price) return toast.add('error', '❌ Fill required fields')
+        if (!form.name || !form.category_id) return toast.add('error', '❌ Fill required fields')
 
-        const stockQty = parseFloat(form.stock_quantity)
-        if (isNaN(stockQty) || stockQty < 0) return toast.add('error', '❌ Stock quantity must be ≥ 0')
+        const hasVariants = form.variants && form.variants.length > 0
+        if (!hasVariants && !form.price) return toast.add('error', '❌ Price is required')
+
+        const stockQty = form.track_stock ? parseFloat(form.stock_quantity) : 999
+        if (form.track_stock && (isNaN(stockQty) || stockQty < 0)) return toast.add('error', '❌ Stock quantity must be ≥ 0')
 
         const invalidLinks = form.linked_ingredients.filter(l => !l.quantity_needed || l.quantity_needed <= 0)
         if (invalidLinks.length > 0) return toast.add('error', '❌ All ingredient quantities must be > 0')
 
+        if (hasVariants) {
+            const invalidVariants = form.variants.filter(v => !v.name?.trim() || isNaN(parseFloat(String(v.price))) || parseFloat(String(v.price)) <= 0)
+            if (invalidVariants.length > 0) return toast.add('error', '❌ All variants must have a name and a price > 0')
+        }
+
+        const basePrice = parseFloat(form.price)
+
         const data = {
-            name: form.name, category_id: form.category_id, price: +form.price,
+            name: form.name, category_id: form.category_id, price: basePrice,
             description: form.description || null, image_url: form.image_url || null,
             stock_quantity: stockQty, stock_unit: form.stock_unit,
+            track_stock: form.track_stock,
+            variants: hasVariants ? form.variants : null,
             linked_ingredients: form.linked_ingredients.length > 0 ? form.linked_ingredients : null,
             is_available: true
         }
@@ -87,7 +101,7 @@ export default function MenuPage() {
 
     const resetForm = () => {
         setForm({ name: '', category_id: '', price: '', description: '', image_url: '',
-            stock_quantity: '1', stock_unit: 'piece', linked_ingredients: [] })
+            stock_quantity: '1', stock_unit: 'piece', linked_ingredients: [], track_stock: false, variants: [] })
         setShowIngredients(false)
     }
 
@@ -116,7 +130,9 @@ export default function MenuPage() {
                 name: item.name, category_id: item.category_id, price: item.price.toString(),
                 description: item.description || '', image_url: item.image_url || '',
                 stock_quantity: (item.stock_quantity ?? 1).toString(), stock_unit: item.stock_unit || 'piece',
-                linked_ingredients: item.linked_ingredients || []
+                linked_ingredients: item.linked_ingredients || [],
+                track_stock: item.track_stock ?? false,
+                variants: item.variants || []
             })
             setShowIngredients(item.linked_ingredients?.length > 0)
         } else {
@@ -137,6 +153,7 @@ export default function MenuPage() {
     }
 
     const canMakeQuantity = (item: any) => {
+        if (item.track_stock === false) return 999
         if (!item.linked_ingredients?.length) return item.stock_quantity ?? 1
 
         const maxPossible = item.linked_ingredients.map((link: IngredientLink) => {
@@ -239,6 +256,7 @@ export default function MenuPage() {
 
                         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                             {filtered.map(i => {
+                                const tracksStock = i.track_stock ?? false
                                 const availableQty = canMakeQuantity(i)
                                 const status = getStockStatus(availableQty)
                                 const hasLinks = i.linked_ingredients?.length > 0
@@ -254,9 +272,11 @@ export default function MenuPage() {
                                                             <Link2 className="w-3 h-3" />{i.linked_ingredients.length}
                                                         </div>
                                                     )}
-                                                    <div className="px-2 py-1 rounded-full text-xs font-bold text-white flex items-center gap-1 shadow-lg" style={{ backgroundColor: status.color }}>
-                                                        <Package className="w-3 h-3" />{availableQty}
-                                                    </div>
+                                                    {tracksStock && (
+                                                        <div className="px-2 py-1 rounded-full text-xs font-bold text-white flex items-center gap-1 shadow-lg" style={{ backgroundColor: status.color }}>
+                                                            <Package className="w-3 h-3" />{availableQty}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         )}
@@ -269,21 +289,42 @@ export default function MenuPage() {
                                             </div>
 
                                             <div className="mb-3">
-                                                <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-xs text-[var(--muted)]">
-                                                        {hasLinks ? 'Can Make' : 'Stock'}: {availableQty} {i.stock_unit}
-                                                    </span>
-                                                    <span className="text-xs font-bold" style={{ color: status.color }}>{status.label}</span>
-                                                </div>
-                                                <div className="h-1.5 bg-[var(--bg)] rounded-full overflow-hidden">
-                                                    <div className="h-full rounded-full transition-all" style={{ backgroundColor: status.color, width: `${Math.min((availableQty / 100) * 100, 100)}%` }} />
-                                                </div>
+                                                {tracksStock ? (
+                                                    <>
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <span className="text-xs text-[var(--muted)]">
+                                                                {hasLinks ? 'Can Make' : 'Stock'}: {availableQty} {i.stock_unit}
+                                                            </span>
+                                                            <span className="text-xs font-bold" style={{ color: status.color }}>{status.label}</span>
+                                                        </div>
+                                                        <div className="h-1.5 bg-[var(--bg)] rounded-full overflow-hidden">
+                                                            <div className="h-full rounded-full transition-all" style={{ backgroundColor: status.color, width: `${Math.min((availableQty / 100) * 100, 100)}%` }} />
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <span className="text-xs text-green-600 font-medium">✨ Unlimited Stock</span>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             {i.description && <p className="text-xs text-[var(--muted)] mb-3 line-clamp-2">{i.description}</p>}
 
+                                            {/* Price Variants list in admin card */}
+                                            {i.variants && i.variants.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 text-[9px] sm:text-[10px] text-[var(--muted)] mb-3 pt-1 border-t border-[var(--border)]/45">
+                                                    {i.variants.map((v: any, idx: number) => (
+                                                        <span key={idx} className="bg-[var(--bg)] px-1.5 py-0.5 rounded border border-[var(--border)] font-medium">
+                                                            {v.name}: <span className="text-blue-600 font-bold">₨{v.price}</span>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+
                                             <div className="flex items-center justify-between gap-2">
-                                                <span className="text-base sm:text-lg font-bold text-blue-600 truncate">₨{i.price}</span>
+                                                <span className="text-base sm:text-lg font-bold text-blue-600 truncate">
+                                                    ₨{i.price}
+                                                </span>
                                                 <div className="flex gap-1 sm:gap-2">
                                                     <button onClick={() => openModal(i)} className="p-1.5 sm:p-2 text-blue-600 hover:bg-blue-600/10 rounded">
                                                         <Edit2 className="w-3 h-3 sm:w-4 sm:h-4" />
@@ -314,11 +355,103 @@ export default function MenuPage() {
                         <ResponsiveInput label="Name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Chicken Biryani" required />
                         <ResponsiveInput label="Category" type="select" value={form.category_id} onChange={e => setForm({ ...form, category_id: e.target.value })}
                                          options={categories.map(c => ({ label: `${c.icon || '📋'} ${c.name}`, value: c.id }))} required key={refreshKey} />
-                        <ResponsiveInput label="Price (PKR)" type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder="450" required />
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <ResponsiveInput label="Stock Qty" type="number" value={form.stock_quantity} onChange={e => setForm({ ...form, stock_quantity: e.target.value })} placeholder="1" required />
-                            <ResponsiveInput label="Unit" type="select" value={form.stock_unit} onChange={e => setForm({ ...form, stock_unit: e.target.value })} options={STOCK_UNITS} required />
+                        <div className="flex items-center gap-2 p-2.5 bg-[var(--bg)] border border-[var(--border)] rounded-lg">
+                            <input
+                                type="checkbox"
+                                id="track_stock"
+                                checked={form.track_stock}
+                                onChange={e => setForm({ ...form, track_stock: e.target.checked })}
+                                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 bg-[var(--card)] border-[var(--border)]"
+                            />
+                            <label htmlFor="track_stock" className="text-xs font-semibold text-[var(--fg)] cursor-pointer select-none">
+                                Track Inventory/Stock Quantity
+                            </label>
+                        </div>
+
+                        {form.track_stock && (
+                            <div className="grid grid-cols-2 gap-3 p-3 bg-blue-500/5 border border-blue-500/10 rounded-lg">
+                                <ResponsiveInput label="Stock Qty" type="number" value={form.stock_quantity} onChange={e => setForm({ ...form, stock_quantity: e.target.value })} placeholder="1" required />
+                                <ResponsiveInput label="Unit" type="select" value={form.stock_unit} onChange={e => setForm({ ...form, stock_unit: e.target.value })} options={STOCK_UNITS} required />
+                            </div>
+                        )}
+
+                        <ResponsiveInput 
+                            label="Price (PKR) / Base Price"
+                            type="number" 
+                            value={form.price} 
+                            onChange={e => setForm({ ...form, price: e.target.value })} 
+                            placeholder="450" 
+                            required
+                        />
+
+                        {/* Price Variants (Portions/Sizes) */}
+                        <div className="border border-[var(--border)] rounded-lg p-3 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <span className="font-semibold text-xs text-[var(--fg)]">Price Variants (Portions/Sizes)</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setForm(prev => ({
+                                        ...prev,
+                                        variants: [...prev.variants, { name: '', price: 0 }]
+                                    }))}
+                                    className="px-2 py-0.5 text-[10px] bg-blue-600 text-white rounded hover:bg-blue-700 active:scale-95 transition-all font-semibold flex items-center gap-1"
+                                >
+                                    <Plus className="w-3 h-3" /> Add Portion
+                                </button>
+                            </div>
+
+                            {form.variants.length > 0 ? (
+                                <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                                    {form.variants.map((v, index) => (
+                                        <div key={index} className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={v.name}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    setForm(prev => {
+                                                        const copy = [...prev.variants];
+                                                        copy[index] = { ...copy[index], name: val };
+                                                        return { ...prev, variants: copy };
+                                                    });
+                                                }}
+                                                placeholder="Portion name (e.g. Half KG)"
+                                                className="flex-1 px-2 py-1 bg-[var(--card)] border border-[var(--border)] rounded text-[var(--fg)] text-xs focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                            />
+                                            <input
+                                                type="number"
+                                                value={v.price || ''}
+                                                onChange={e => {
+                                                    const val = e.target.value ? parseFloat(e.target.value) : 0;
+                                                    setForm(prev => {
+                                                        const copy = [...prev.variants];
+                                                        copy[index] = { ...copy[index], price: val };
+                                                        return { ...prev, variants: copy };
+                                                    });
+                                                }}
+                                                placeholder="Price (PKR)"
+                                                className="w-24 px-2 py-1 bg-[var(--card)] border border-[var(--border)] rounded text-[var(--fg)] text-xs text-center focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setForm(prev => ({
+                                                        ...prev,
+                                                        variants: prev.variants.filter((_, i) => i !== index)
+                                                    }));
+                                                }}
+                                                className="p-1 hover:bg-red-500/10 text-red-500 rounded transition-colors shrink-0"
+                                            >
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                    <p className="text-[10px] text-[var(--muted)]">Note: portion prices will override the base price in public menu.</p>
+                                </div>
+                            ) : (
+                                <p className="text-xs text-[var(--muted)] italic">No portions defined. Item has a single standard price.</p>
+                            )}
                         </div>
 
                         <ResponsiveInput label="Description" type="textarea" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} placeholder="Optional..." />

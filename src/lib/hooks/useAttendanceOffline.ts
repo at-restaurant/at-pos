@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { createClient } from '@/lib/supabase/client'
+import { addToQueue } from '@/lib/db/syncQueue'
 
 interface Waiter {
     id: string
@@ -30,7 +31,7 @@ export function useAttendanceOffline() {
             console.log('📅 New day detected, resetting attendance...')
 
             // Reset locally FIRST
-            const allWaiters = await db.get(STORES.SETTINGS, 'waiters_cache')
+            const allWaiters = await db.get(STORES.SETTINGS, 'waiters')
             if (allWaiters && (allWaiters as any).value && Array.isArray((allWaiters as any).value)) {
                 const resetWaiters = (allWaiters as any).value.map((w: any) => ({
                     ...w,
@@ -38,7 +39,7 @@ export function useAttendanceOffline() {
                 }))
 
                 await db.put(STORES.SETTINGS, {
-                    key: 'waiters_cache',
+                    key: 'waiters',
                     value: resetWaiters
                 })
 
@@ -66,7 +67,7 @@ export function useAttendanceOffline() {
     // ✅ Load from cache FIRST
     const loadFromCache = useCallback(async () => {
         try {
-            const cached = await db.get(STORES.SETTINGS, 'waiters_cache')
+            const cached = await db.get(STORES.SETTINGS, 'waiters')
             if (cached && (cached as any).value && Array.isArray((cached as any).value)) {
                 const sorted = (cached as any).value.sort((a: any, b: any) => {
                     if (a.is_on_duty && !b.is_on_duty) return -1
@@ -104,7 +105,7 @@ export function useAttendanceOffline() {
                 })
 
                 await db.put(STORES.SETTINGS, {
-                    key: 'waiters_cache',
+                    key: 'waiters',
                     value: sorted
                 })
 
@@ -219,7 +220,7 @@ export function useAttendanceOffline() {
         setWaiters(updatedWaiters)
 
         await db.put(STORES.SETTINGS, {
-            key: 'waiters_cache',
+            key: 'waiters',
             value: updatedWaiters
         })
 
@@ -236,6 +237,11 @@ export function useAttendanceOffline() {
             } catch (error) {
                 console.error('Server update failed:', error)
             }
+        } else {
+            await addToQueue('update', 'waiters', {
+                id: waiterId,
+                is_on_duty: newStatus
+            })
         }
 
         return { success: true, offline: !navigator.onLine }
@@ -258,7 +264,7 @@ export function useAttendanceOffline() {
         setWaiters(updatedWaiters)
 
         await db.put(STORES.SETTINGS, {
-            key: 'waiters_cache',
+            key: 'waiters',
             value: updatedWaiters
         })
 
@@ -276,6 +282,13 @@ export function useAttendanceOffline() {
                     .in('id', absentWaiters.map(w => w.id))
             } catch (error) {
                 console.error('Server update failed:', error)
+            }
+        } else {
+            for (const waiter of absentWaiters) {
+                await addToQueue('update', 'waiters', {
+                    id: waiter.id,
+                    is_on_duty: true
+                })
             }
         }
 

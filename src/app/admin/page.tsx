@@ -96,8 +96,12 @@ export default function AdminDashboard() {
             const waitersData = (Array.isArray(wait.data) ? wait.data : []) as WaiterData[]
 
             // ✅ FIX: Add explicit types for callback parameters
-            const revenue = ordersData.reduce((s: number, o: OrderData) => s + (o?.total_amount || 0), 0)
-            const todayRevenue = todayOrdersData.reduce((s: number, o: TodayOrderData) => s + (o?.total_amount || 0), 0)
+            const revenue = ordersData
+                .filter((o: OrderData) => o?.status === 'completed')
+                .reduce((s: number, o: OrderData) => s + (o?.total_amount || 0), 0)
+            const todayRevenue = todayOrdersData
+                .filter((o: TodayOrderData) => o?.status === 'completed')
+                .reduce((s: number, o: TodayOrderData) => s + (o?.total_amount || 0), 0)
             const lowStock = inventoryData.filter((i: InventoryData) => (i?.quantity || 0) <= (i?.reorder_level || 0)).length
             const pendingOrders = ordersData.filter((o: OrderData) => o?.status === 'pending').length
             const activeWaiters = waitersData.filter((w: WaiterData) => w?.is_on_duty).length
@@ -111,7 +115,7 @@ export default function AdminDashboard() {
             }))
 
             todayOrdersData.forEach((order: TodayOrderData) => {
-                if (order?.created_at) {
+                if (order?.created_at && order.status === 'completed') {
                     const hour = new Date(order.created_at).getHours()
                     hourly[hour].orders++
                     hourly[hour].revenue += order.total_amount || 0
