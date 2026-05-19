@@ -100,7 +100,7 @@ export class ThermalPrinter {
                         setTimeout(() => {
                             document.body.removeChild(iframe)
                             resolve(true)
-                        }, 500)
+                        }, 10000)
 
                     } catch (err) {
                         console.error('Print error:', err)
@@ -140,6 +140,9 @@ export class ThermalPrinter {
                 padding: 0 !important;
                 height: ${approximateHeight}mm !important;
                 overflow: hidden !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color: #000000 !important;
             }
             .no-print { display: none !important; }
         }
@@ -162,9 +165,10 @@ export class ThermalPrinter {
             width: 80mm;
             height: ${approximateHeight}mm;
             background: white;
-            color: black;
+            color: #000000;
             overflow: hidden;
             text-align: center;
+            font-weight: 600;
         }
         
         .restaurant-name {

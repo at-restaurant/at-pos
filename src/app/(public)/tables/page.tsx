@@ -297,7 +297,7 @@ export default function TablesPage() {
         <ErrorBoundary>
             <div className="min-h-screen bg-[var(--bg)]">
                 <AutoSidebar items={sidebarItems} title="Status" />
-                <div className="lg:ml-64">
+                <div className="lg:ml-80">
                     <PageHeader
                         title="Tables"
                         subtitle={`Restaurant tables & running bills${!isOnline ? ' • Offline mode' : ''}`}

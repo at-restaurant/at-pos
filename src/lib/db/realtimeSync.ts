@@ -263,7 +263,7 @@ export class RealtimeSync {
             )
 
             const pendingQueue = (queueItems as any[]).filter(
-                item => item.status === 'pending'
+                item => item.table === 'waiters' && item.status === 'pending'
             )
 
             return pendingOrders.length + pendingQueue.length

@@ -37,6 +37,17 @@ const validateStockBeforeOrder = async (
 ): Promise<{ valid: boolean; errors: string[] }> => {
     const errors: string[] = []
 
+    if (typeof window !== 'undefined' && !navigator.onLine) {
+        for (const item of items) {
+            const availableStock = item.stock_quantity ?? 999
+            if (availableStock === 999) continue
+            if (item.quantity > availableStock) {
+                errors.push(`❌ ${item.name}: Only ${availableStock} available (you have ${item.quantity} in cart)`)
+            }
+        }
+        return { valid: errors.length === 0, errors }
+    }
+
     for (const item of items) {
         try {
             const { data: menuItem, error } = await supabase
@@ -107,24 +118,67 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
 
     useEffect(() => {
         loadMenuCategories()
+        const loadReceiptSettings = async () => {
+            const { db } = await import('@/lib/db/indexedDB')
+            const { STORES } = await import('@/lib/db/schema')
+            const cached = await db.get(STORES.SETTINGS, 'receipt_settings')
+            let settings: any = {}
+            if (cached && (cached as any).value) {
+                settings = (cached as any).value
+            } else {
+                const savedReceipt = localStorage.getItem('receipt_settings')
+                if (savedReceipt) settings = JSON.parse(savedReceipt)
+            }
+            if (settings.tax_percent) {
+                setCustomTaxPercent(settings.tax_percent.toString())
+            }
+        }
+        loadReceiptSettings()
     }, [])
 
     const loadMenuCategories = async () => {
-        const {data} = await supabase
-            .from('menu_items')
-            .select('id, menu_categories(name, icon)')
-
-        if (data) {
-            const categoryMap: { [key: string]: { name: string; icon: string } } = {}
-            data.forEach((item: any) => {
-                if (item.menu_categories) {
-                    categoryMap[item.id] = {
-                        name: item.menu_categories.name,
-                        icon: item.menu_categories.icon || '📋'
+        try {
+            if (typeof window !== 'undefined' && !navigator.onLine) {
+                const { db } = await import('@/lib/db/indexedDB')
+                const { STORES } = await import('@/lib/db/schema')
+                const menuItems = await db.getAll(STORES.MENU_ITEMS) as any[]
+                const categories = await db.getAll(STORES.MENU_CATEGORIES) as any[]
+                
+                const categoryMap: { [key: string]: { name: string; icon: string } } = {}
+                menuItems.forEach(item => {
+                    const cat = categories.find(c => c.id === item.category_id)
+                    if (cat) {
+                        categoryMap[item.id] = {
+                            name: cat.name,
+                            icon: cat.icon || '📋'
+                        }
                     }
-                }
-            })
-            setMenuCategories(categoryMap)
+                })
+                setMenuCategories(categoryMap)
+                return
+            }
+
+            const {data, error} = await supabase
+                .from('menu_items')
+                .select('id, menu_categories(name, icon)')
+
+            if (error) throw error
+            if (data) {
+                const categoryMap: { [key: string]: { name: string; icon: string } } = {}
+                data.forEach((item: any) => {
+                    if (item.menu_categories) {
+                        categoryMap[item.id] = {
+                            name: item.menu_categories.name,
+                            icon: item.menu_categories.icon || '📋'
+                        }
+                    }
+                })
+                setMenuCategories(categoryMap)
+            }
+        } catch (error) {
+            if (navigator.onLine) {
+                console.error('Failed to load menu categories:', error)
+            }
         }
     }
 
@@ -476,36 +530,50 @@ export default function CartDrawer({ isOpen, onClose, tables, waiters }: CartDra
             mergedItems.push(...itemMap.values())
 
             // Auto-deduct ingredients
-            try {
-                for (const cartItem of cart.items) {
-                    const { data: menuItem } = await supabase
-                        .from('menu_items')
-                        .select('linked_ingredients')
-                        .eq('id', cartItem.id)
-                        .single()
+            if (typeof window !== 'undefined' && navigator.onLine) {
+                try {
+                    for (const cartItem of cart.items) {
+                        const { data: menuItem } = await supabase
+                            .from('menu_items')
+                            .select('linked_ingredients')
+                            .eq('id', cartItem.id)
+                            .single()
 
-                    if (menuItem?.linked_ingredients && Array.isArray(menuItem.linked_ingredients)) {
-                        for (const link of menuItem.linked_ingredients) {
-                            const quantityToDeduct = link.quantity_needed * cartItem.quantity
+                        if (menuItem?.linked_ingredients && Array.isArray(menuItem.linked_ingredients)) {
+                            for (const link of menuItem.linked_ingredients) {
+                                const quantityToDeduct = link.quantity_needed * cartItem.quantity
 
-                            await supabase.rpc('deduct_inventory', {
-                                p_ingredient_id: link.ingredient_id,
-                                p_quantity: quantityToDeduct
-                            })
+                                await supabase.rpc('deduct_inventory', {
+                                    p_ingredient_id: link.ingredient_id,
+                                    p_quantity: quantityToDeduct
+                                })
+                            }
                         }
                     }
+                    console.log('✅ Ingredients auto-deducted successfully')
+                } catch (deductError) {
+                    console.error('⚠️ Ingredient deduction failed:', deductError)
                 }
-                console.log('✅ Ingredients auto-deducted successfully')
-            } catch (deductError) {
-                console.error('⚠️ Ingredient deduction failed:', deductError)
+            }
+
+            const { db } = await import('@/lib/db/indexedDB')
+            const { STORES } = await import('@/lib/db/schema')
+            const cachedSettings = await db.get(STORES.SETTINGS, 'receipt_settings')
+            let receiptSettings: any = {}
+            if (cachedSettings && (cachedSettings as any).value) {
+                receiptSettings = (cachedSettings as any).value
+            } else {
+                const savedReceiptStr = localStorage.getItem('receipt_settings')
+                receiptSettings = savedReceiptStr ? JSON.parse(savedReceiptStr) : {}
             }
 
             const receiptData: ReceiptData = {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
                 address: 'Sooter Mills Rd, Lahore',
-                orderNumber: result.order.id.slice(0, 8).toUpperCase(),
-                date: new Date(result.order.created_at).toLocaleString('en-PK'),
+                phone: receiptSettings.phone,
+                orderNumber: (result.order?.id || 'OFFLINE').slice(0, 8).toUpperCase(),
+                date: result.order?.created_at ? new Date(result.order.created_at).toLocaleString('en-PK') : new Date().toLocaleString('en-PK'),
                 orderType: finalOrderType,
                 customerName: finalOrderType !== 'dine-in' ? details.customer_name : undefined,
                 customerPhone: finalOrderType !== 'dine-in' ? details.customer_phone : undefined,

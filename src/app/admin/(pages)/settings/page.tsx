@@ -4,7 +4,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Key, Save, Eye, EyeOff, User, Camera, ChevronDown, ChevronUp, Shield, Bell } from 'lucide-react'
+import { Key, Save, Eye, EyeOff, User, Camera, ChevronDown, ChevronUp, Shield, Bell, Printer } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { useAdminAuth } from '@/lib/hooks/useAdminAuth'
@@ -24,8 +24,11 @@ export default function SettingsPage() {
     const [openSections, setOpenSections] = useState({
         profile: true,
         password: false,
-        security: false
+        security: false,
+        receipt: false
     })
+
+    const [receiptForm, setReceiptForm] = useState({ phone: '', tax_percent: '0' })
 
     const [loading, setLoading] = useState(false)
     const [uploadingImage, setUploadingImage] = useState(false)
@@ -41,8 +44,33 @@ export default function SettingsPage() {
         }
     }, [profile])
 
-    const toggleSection = (section: 'profile' | 'password' | 'security') => {
+    useEffect(() => {
+        const loadSettings = async () => {
+            const { db } = await import('@/lib/db/indexedDB')
+            const { STORES } = await import('@/lib/db/schema')
+            const cached = await db.get(STORES.SETTINGS, 'receipt_settings')
+            if (cached && (cached as any).value) {
+                setReceiptForm((cached as any).value)
+            } else {
+                const savedReceipt = localStorage.getItem('receipt_settings')
+                if (savedReceipt) {
+                    setReceiptForm(JSON.parse(savedReceipt))
+                }
+            }
+        }
+        loadSettings()
+    }, [])
+
+    const toggleSection = (section: 'profile' | 'password' | 'security' | 'receipt') => {
         setOpenSections(prev => ({ ...prev, [section]: !prev[section] }))
+    }
+
+    const handleReceiptUpdate = async () => {
+        const { db } = await import('@/lib/db/indexedDB')
+        const { STORES } = await import('@/lib/db/schema')
+        localStorage.setItem('receipt_settings', JSON.stringify(receiptForm))
+        await db.put(STORES.SETTINGS, { key: 'receipt_settings', value: receiptForm })
+        toast.add('success', '✅ Receipt settings saved!')
     }
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -484,6 +512,72 @@ export default function SettingsPage() {
                                         💡 <strong>Tip:</strong> Use a strong password with at least 8 characters including letters, numbers, and symbols.
                                     </p>
                                 </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* RECEIPT SECTION */}
+                    <div className="bg-[var(--card)] border-2 border-[var(--border)] rounded-xl overflow-hidden transition-all hover:border-orange-600/30">
+                        <button
+                            onClick={() => toggleSection('receipt')}
+                            className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-[var(--bg)] transition-colors"
+                        >
+                            <div className="flex items-center gap-3 sm:gap-4">
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-orange-600/10 rounded-lg flex items-center justify-center shrink-0">
+                                    <Printer className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" />
+                                </div>
+                                <div className="text-left">
+                                    <h2 className="text-base sm:text-xl font-bold text-[var(--fg)]">Receipt Settings</h2>
+                                    <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">Customize printed receipts</p>
+                                </div>
+                            </div>
+                            {openSections.receipt ? (
+                                <ChevronUp className="w-5 h-5 text-[var(--muted)] shrink-0" />
+                            ) : (
+                                <ChevronDown className="w-5 h-5 text-[var(--muted)] shrink-0" />
+                            )}
+                        </button>
+
+                        {openSections.receipt && (
+                            <div className="p-4 sm:p-6 pt-0 border-t border-[var(--border)] space-y-4 animate-in slide-in-from-top-2">
+                                <div>
+                                    <label className="block text-sm font-medium text-[var(--fg)] mb-2">
+                                        Restaurant Phone Number
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={receiptForm.phone}
+                                        onChange={e => setReceiptForm({ ...receiptForm, phone: e.target.value })}
+                                        placeholder="e.g. +92 300 1234567"
+                                        className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-orange-600 text-sm sm:text-base"
+                                    />
+                                    <p className="text-xs text-[var(--muted)] mt-1">This will be printed on the receipt header.</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-[var(--fg)] mb-2">
+                                        Default Tax Percentage (%)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.1"
+                                        value={receiptForm.tax_percent}
+                                        onChange={e => setReceiptForm({ ...receiptForm, tax_percent: e.target.value })}
+                                        placeholder="e.g. 16"
+                                        className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-orange-600 text-sm sm:text-base"
+                                    />
+                                    <p className="text-xs text-[var(--muted)] mt-1">Applied automatically to new orders.</p>
+                                </div>
+
+                                <button
+                                    onClick={handleReceiptUpdate}
+                                    className="w-full px-4 py-2.5 sm:py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium flex items-center justify-center gap-2 transition-all active:scale-95 text-sm sm:text-base"
+                                >
+                                    <Save className="w-4 h-4 sm:w-5 sm:h-5" />
+                                    Save Receipt Settings
+                                </button>
                             </div>
                         )}
                     </div>

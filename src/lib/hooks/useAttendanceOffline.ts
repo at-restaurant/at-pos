@@ -31,7 +31,7 @@ export function useAttendanceOffline() {
 
             // Reset locally FIRST
             const allWaiters = await db.get(STORES.SETTINGS, 'waiters_cache')
-            if (allWaiters && (allWaiters as any).value) {
+            if (allWaiters && (allWaiters as any).value && Array.isArray((allWaiters as any).value)) {
                 const resetWaiters = (allWaiters as any).value.map((w: any) => ({
                     ...w,
                     is_on_duty: false
@@ -67,7 +67,7 @@ export function useAttendanceOffline() {
     const loadFromCache = useCallback(async () => {
         try {
             const cached = await db.get(STORES.SETTINGS, 'waiters_cache')
-            if (cached && (cached as any).value) {
+            if (cached && (cached as any).value && Array.isArray((cached as any).value)) {
                 const sorted = (cached as any).value.sort((a: any, b: any) => {
                     if (a.is_on_duty && !b.is_on_duty) return -1
                     if (!a.is_on_duty && b.is_on_duty) return 1
@@ -96,7 +96,7 @@ export function useAttendanceOffline() {
                 .eq('is_active', true)
                 .order('name')
 
-            if (data) {
+            if (data && Array.isArray(data)) {
                 const sorted = data.sort((a: any, b: any) => {
                     if (a.is_on_duty && !b.is_on_duty) return -1
                     if (!a.is_on_duty && b.is_on_duty) return 1

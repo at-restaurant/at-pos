@@ -249,10 +249,10 @@ export default function MenuPage() {
                 </>
             )}
 
-            <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
+            <div className="min-h-screen bg-[var(--bg)] lg:ml-80">
                 {/* Fixed Header */}
-                <header className="sticky top-0 z-40 bg-[var(--card)]/95 border-b border-[var(--border)] backdrop-blur-lg shadow-sm">
-                    <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3.5">
+                <header className="fixed top-0 left-0 lg:left-80 right-0 z-40 bg-[var(--card)]/95 border-b border-[var(--border)] backdrop-blur-lg shadow-sm lg:h-16 lg:flex lg:items-center">
+                    <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3.5 lg:py-0">
                         <div className="flex items-center justify-between gap-2 sm:gap-3">
                             <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
                                 <button
@@ -328,7 +328,7 @@ export default function MenuPage() {
                 </header>
 
                 {/* Content */}
-                <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
+                <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 pt-32 sm:pt-36">
                     {loading ? (
                         <div className="flex justify-center py-16 sm:py-20">
                             <div className="w-10 h-10 sm:w-12 sm:h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />

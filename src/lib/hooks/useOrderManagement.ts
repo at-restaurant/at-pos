@@ -264,10 +264,14 @@ export function useOrderManagement() {
                 .from('menu_categories')
                 .select('id, name, icon')
 
+            const savedReceiptStr = typeof window !== 'undefined' ? localStorage.getItem('receipt_settings') : null
+            const receiptSettings = savedReceiptStr ? JSON.parse(savedReceiptStr) : {}
+
             const receiptData: ReceiptData = {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
                 address: 'Sooter Mills Rd, Lahore',
+                phone: receiptSettings.phone,
                 orderNumber: orderId.slice(0, 8).toUpperCase(),
                 date: new Date(order.created_at).toLocaleString('en-PK'),
                 orderType: order.order_type || 'dine-in',
@@ -306,7 +310,8 @@ export function useOrderManagement() {
             const result = await completeOrder(orderId, tableId, orderType)
 
             return result
-        } catch (error: any) {  toast.add('error', `❌ ${error.message}`)
+        } catch (error: any) {
+            toast.add('error', `❌ ${error.message}`)
             return { success: false, error: error.message }
         } finally {
             setLoading(false)
@@ -430,21 +435,7 @@ export function useOrderManagement() {
 
                     for (const item of orderItems) {
                         await db.put(STORES.ORDER_ITEMS, item)
-                    }
-
-                    await addToQueue('create', 'orders', offlineOrder)
-
-                    for (const item of orderItems) {
                         await addToQueue('create', 'order_items', item)
-                    }
-
-                    if (orderData.order_type === 'dine-in' && orderData.table_id) {
-                        await addToQueue('update', 'restaurant_tables', {
-                            id: orderData.table_id,
-                            status: 'occupied',
-                            waiter_id: orderData.waiter_id,
-                            current_order_id: orderId
-                        })
                     }
 
                     toast.add('success', '✅ Order created offline! Will sync when online.')

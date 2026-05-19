@@ -51,18 +51,27 @@ export default function HistoryHub() {
 
     const getDateRange = () => {
         if (customStart && customEnd) {
-            return {
-                start: new Date(customStart),
-                end: new Date(customEnd)
-            }
+            const start = new Date(customStart)
+            start.setHours(0, 0, 0, 0)
+            const end = new Date(customEnd)
+            end.setHours(23, 59, 59, 999)
+            return { start, end }
         }
 
         const preset = PRESETS.find(p => p.id === selectedPreset)
-        if (!preset) return { start: new Date(), end: new Date() }
+        if (!preset) {
+            const start = new Date()
+            start.setHours(0, 0, 0, 0)
+            const end = new Date()
+            end.setHours(23, 59, 59, 999)
+            return { start, end }
+        }
 
         const end = new Date()
+        end.setHours(23, 59, 59, 999)
         const start = new Date()
         start.setDate(start.getDate() - preset.days)
+        start.setHours(0, 0, 0, 0)
 
         return { start, end }
     }

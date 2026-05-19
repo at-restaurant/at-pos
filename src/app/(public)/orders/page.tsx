@@ -160,7 +160,7 @@ export default function OrdersPage() {
                 item_count: order.order_items?.reduce((sum: number, item: any) =>
                     sum + item.quantity, 0) || 0
             }
-        })
+        }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
         switch (filter) {
             case 'active':
@@ -232,11 +232,23 @@ export default function OrdersPage() {
             const isOfflineOrder = order.id.startsWith('offline_')
             const isOnline = navigator.onLine
 
+            const { db } = await import('@/lib/db/indexedDB')
+            const { STORES } = await import('@/lib/db/schema')
+            const cached = await db.get(STORES.SETTINGS, 'receipt_settings')
+            let receiptSettings: any = {}
+            if (cached && (cached as any).value) {
+                receiptSettings = (cached as any).value
+            } else {
+                const savedReceiptStr = localStorage.getItem('receipt_settings')
+                receiptSettings = savedReceiptStr ? JSON.parse(savedReceiptStr) : {}
+            }
+
             // ✅ Build receipt data
             const receiptData: ReceiptData = {
                 restaurantName: 'AT RESTAURANT',
                 tagline: 'Delicious Food, Memorable Moments',
                 address: 'Sooter Mills Rd, Lahore',
+                phone: receiptSettings.phone,
                 orderNumber: order.id.slice(0, 8).toUpperCase(),
                 date: new Date(order.created_at).toLocaleString('en-PK'),
                 orderType: order.order_type || 'dine-in',
@@ -341,10 +353,77 @@ export default function OrdersPage() {
                 }))
             }
         } catch (error: any) {
-            console.error('Print and complete failed:', error)
+            console.error('Print and complete failed:', error instanceof Error ? error.message : String(error))
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('toast-add', {
-                    detail: { type: 'error', message: `❌ ${error.message}` }
+                    detail: { type: 'error', message: `❌ ${error instanceof Error ? error.message : 'Unknown error'}` }
+                }))
+            }
+        } finally {
+            setActionLoading(false)
+        }
+    }
+
+    const handleReprint = async (order: any) => {
+        if (actionLoading) return
+        setActionLoading(true)
+        try {
+            const { db } = await import('@/lib/db/indexedDB')
+            const { STORES } = await import('@/lib/db/schema')
+            const cached = await db.get(STORES.SETTINGS, 'receipt_settings')
+            let receiptSettings: any = {}
+            if (cached && (cached as any).value) {
+                receiptSettings = (cached as any).value
+            } else {
+                const savedReceiptStr = localStorage.getItem('receipt_settings')
+                receiptSettings = savedReceiptStr ? JSON.parse(savedReceiptStr) : {}
+            }
+            
+            const receiptData: ReceiptData = {
+                restaurantName: 'AT RESTAURANT',
+                tagline: 'Delicious Food, Memorable Moments',
+                address: 'Sooter Mills Rd, Lahore',
+                phone: receiptSettings.phone,
+                orderNumber: order.id.slice(0, 8).toUpperCase(),
+                date: new Date(order.created_at).toLocaleString('en-PK'),
+                orderType: order.order_type || 'dine-in',
+                customerName: order.customer_name,
+                customerPhone: order.customer_phone,
+                deliveryAddress: order.delivery_address,
+                deliveryCharges: order.delivery_charges,
+                tableNumber: order.restaurant_tables?.table_number,
+                waiter: order.waiters?.name,
+                items: order.order_items?.map((item: any) => {
+                    const menuItemId = item.menu_items?.id || item.menu_item_id
+                    const category = menuCategories[menuItemId]
+
+                    return {
+                        name: item.menu_items?.name || 'Unknown Item',
+                        quantity: item.quantity,
+                        price: item.unit_price || item.menu_items?.price || 0,
+                        total: item.total_price,
+                        category: category ? `${category.icon} ${category.name}` : '📋 Uncategorized'
+                    }
+                }) || [],
+                subtotal: order.display_total || order.total_amount,
+                tax: order.tax,
+                total: order.display_total || order.total_amount,
+                paymentMethod: order.payment_method || 'cash',
+                notes: order.notes
+            }
+
+            await productionPrinter.print(receiptData)
+            
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('toast-add', {
+                    detail: { type: 'success', message: '✅ Receipt reprinted!' }
+                }))
+            }
+        } catch (error: any) {
+            console.error('Reprint failed:', error instanceof Error ? error.message : String(error))
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('toast-add', {
+                    detail: { type: 'error', message: `❌ ${error instanceof Error ? error.message : 'Unknown error'}` }
                 }))
             }
         } finally {
@@ -412,6 +491,22 @@ export default function OrdersPage() {
 
                 // Queue table update
                 if (order.order_type === 'dine-in' && order.table_id) {
+                    const tablesCache = await db.get(STORES.SETTINGS, 'restaurant_tables') as any
+                    if (tablesCache && tablesCache.value) {
+                        const updatedTables = tablesCache.value.map((t: any) => {
+                            if (t.id === order.table_id) {
+                                return {
+                                    ...t,
+                                    status: 'available',
+                                    current_order_id: null,
+                                    waiter_id: null
+                                }
+                            }
+                            return t
+                        })
+                        await db.put(STORES.SETTINGS, { key: 'restaurant_tables', value: updatedTables })
+                    }
+
                     await addToQueue('update', 'restaurant_tables', {
                         id: order.table_id,
                         status: 'available',
@@ -435,10 +530,10 @@ export default function OrdersPage() {
                 }))
             }
         } catch (error: any) {
-            console.error('Cancel order failed:', error)
+            console.error('Cancel order failed:', error instanceof Error ? error.message : String(error))
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('toast-add', {
-                    detail: { type: 'error', message: `❌ ${error.message}` }
+                    detail: { type: 'error', message: `❌ ${error instanceof Error ? error.message : 'Unknown error'}` }
                 }))
             }
         } finally {
@@ -674,66 +769,85 @@ export default function OrdersPage() {
                         </div>
                     </div>
 
-                    {selectedOrder.status === 'pending' && (
-                        <div className="sticky bottom-0 bg-[var(--card)] border-t border-[var(--border)] p-4 sm:p-6">
-                            <div className="space-y-3">
-                                {selectedOrder.order_type === 'dine-in' && !selectedOrder.payment_method ? (
-                                    <>
-                                        <p className="text-xs text-center text-[var(--muted)] mb-2">Select payment method:</p>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <button
-                                                onClick={() => handlePrintAndComplete(selectedOrder, 'cash')}
-                                                disabled={actionLoading}
-                                                className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
-                                                {actionLoading ? (
-                                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                                ) : (
-                                                    <>
-                                                        <Banknote className="w-5 h-5" />
-                                                        <span className="text-sm">Cash</span>
-                                                    </>
-                                                )}
-                                            </button>
-                                            <button
-                                                onClick={() => handlePrintAndComplete(selectedOrder, 'online')}
-                                                disabled={actionLoading}
-                                                className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
-                                                {actionLoading ? (
-                                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                                ) : (
-                                                    <>
-                                                        <CreditCard className="w-5 h-5" />
-                                                        <span className="text-sm">Online</span>
-                                                    </>
-                                                )}
-                                            </button>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <button
-                                        onClick={() => handlePrintAndComplete(selectedOrder, selectedOrder.payment_method || 'cash')}
-                                        disabled={actionLoading}
-                                        className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
-                                        {actionLoading ? (
-                                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                        ) : (
-                                            <>
-                                                <Printer className="w-4 h-4" />
-                                                Print & Complete
-                                            </>
-                                        )}
-                                    </button>
-                                )}
+                    <div className="sticky bottom-0 bg-[var(--card)] border-t border-[var(--border)] p-4 sm:p-6">
+                        <div className="space-y-3">
+                            {selectedOrder.status === 'pending' && selectedOrder.order_type === 'dine-in' && !selectedOrder.payment_method ? (
+                                <>
+                                    <p className="text-xs text-center text-[var(--muted)] mb-2">Select payment method:</p>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            onClick={() => handlePrintAndComplete(selectedOrder, 'cash')}
+                                            disabled={actionLoading}
+                                            className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
+                                            {actionLoading ? (
+                                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            ) : (
+                                                <>
+                                                    <Banknote className="w-5 h-5" />
+                                                    <span className="text-sm">Cash</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        <button
+                                            onClick={() => handlePrintAndComplete(selectedOrder, 'online')}
+                                            disabled={actionLoading}
+                                            className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex flex-col items-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
+                                            {actionLoading ? (
+                                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            ) : (
+                                                <>
+                                                    <CreditCard className="w-5 h-5" />
+                                                    <span className="text-sm">Online</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </>
+                            ) : selectedOrder.status === 'pending' ? (
+                                <button
+                                    onClick={() => handlePrintAndComplete(selectedOrder, selectedOrder.payment_method || 'cash')}
+                                    disabled={actionLoading}
+                                    className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
+                                    {actionLoading ? (
+                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <>
+                                            <Printer className="w-4 h-4" />
+                                            Print & Complete
+                                        </>
+                                    )}
+                                </button>
+                            ) : null}
 
+                            {selectedOrder.status !== 'pending' && (
+                                <button
+                                    onClick={() => handleReprint(selectedOrder)}
+                                    disabled={actionLoading}
+                                    className="w-full px-4 py-3 bg-[var(--bg)] border border-[var(--border)] text-[var(--fg)] rounded-lg hover:border-blue-600 flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 active:scale-95">
+                                    {actionLoading ? (
+                                        <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <>
+                                            <Printer className="w-4 h-4 text-blue-600" />
+                                            Re-print Receipt
+                                        </>
+                                    )}
+                                </button>
+                            )}
+
+                            {(selectedOrder.status === 'pending' ||
+                                (selectedOrder.status === 'completed' &&
+                                    (selectedOrder.order_type === 'delivery' || selectedOrder.order_type === 'takeaway'))
+                            ) && (
                                 <button
                                     onClick={() => handleCancel(selectedOrder)}
                                     disabled={actionLoading}
                                     className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors disabled:opacity-50 active:scale-95">
                                     Cancel Order
                                 </button>
-                            </div>
+                            )}
                         </div>
-                    )}
+                    </div>
                 </div>
             </div>
         )
@@ -743,7 +857,7 @@ export default function OrdersPage() {
         <ErrorBoundary>
             <div className="min-h-screen bg-[var(--bg)]">
                 <AutoSidebar items={sidebarItems} title="Filters"/>
-                <div className="lg:ml-64">
+                <div className="lg:ml-80">
                     <PageHeader
                         title="Orders"
                         subtitle={`${stats[0].value} active${pendingCount > 0 ? ` • ${pendingCount} pending sync` : ''}`}

@@ -11,6 +11,9 @@ import {
     DollarSign, Clock, AlertCircle, ArrowRight,
     Calendar, Target, Award, Activity, BarChart3, PieChart
 } from 'lucide-react'
+import {
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar
+} from 'recharts'
 
 // ✅ ADD TYPE DEFINITIONS
 type OrderData = {
@@ -76,15 +79,15 @@ export default function AdminDashboard() {
         try {
             const { start, end } = getTodayRange()
 
-            const [inv, wait, tab, ord, todayOrd, invItems] = await Promise.all([
-                supabase.from('inventory_items').select('id', { count: 'exact', head: true }),
-                supabase.from('waiters').select('id, is_on_duty', { count: 'exact' }),
+            const [menuItemCount, wait, tab, ord, todayOrd, invItems] = await Promise.all([
+                supabase.from('menu_items').select('id', { count: 'exact', head: true }).eq('is_available', true),
+                supabase.from('waiters').select('id, is_on_duty', { count: 'exact' }).eq('is_active', true),
                 supabase.from('restaurant_tables').select('id', { count: 'exact', head: true }),
                 supabase.from('orders').select('total_amount, status'),
                 supabase.from('orders').select('id, total_amount, status, created_at')
                     .gte('created_at', start)
                     .lt('created_at', end),
-                supabase.from('inventory_items').select('quantity, reorder_level')
+                supabase.from('inventory_items').select('quantity, reorder_level').eq('is_active', true)
             ])
 
             const ordersData = (Array.isArray(ord.data) ? ord.data : []) as OrderData[]
@@ -118,7 +121,7 @@ export default function AdminDashboard() {
             setHourlyData(hourly.filter(h => h.orders > 0 || h.revenue > 0))
 
             setData({
-                inventory: inv.count || 0,
+                inventory: menuItemCount.count || 0,
                 waiters: wait.count || 0,
                 tables: tab.count || 0,
                 orders: ordersData.length,
@@ -139,12 +142,12 @@ export default function AdminDashboard() {
     const quickActions = [
         {
             id: 'inventory',
-            label: 'Inventory',
+            label: 'Menu Items',
             icon: Package,
             href: '/admin/inventory',
             color: '#3b82f6',
             badge: data.lowStock > 0 ? data.lowStock : null,
-            description: `${data.inventory} items`
+            description: `${data.inventory} active`
         },
         {
             id: 'staff',
@@ -152,8 +155,8 @@ export default function AdminDashboard() {
             icon: Users,
             href: '/admin/waiters',
             color: '#8b5cf6',
-            badge: data.activeWaiters,
-            description: `${data.waiters} total`
+            badge: data.activeWaiters > 0 ? data.activeWaiters : null,
+            description: `${data.waiters} active • ${data.activeWaiters} on duty`
         },
         {
             id: 'tables',
@@ -288,21 +291,16 @@ export default function AdminDashboard() {
                         </div>
 
                         {hourlyData.length > 0 ? (
-                            <div className="space-y-3">
-                                {hourlyData.map((item, idx) => (
-                                    <div key={idx}>
-                                        <div className="flex justify-between text-xs sm:text-sm mb-1">
-                                            <span className="text-[var(--muted)]">{item.hour}:00</span>
-                                            <span className="font-bold text-[var(--fg)]">{item.orders} orders</span>
-                                        </div>
-                                        <div className="h-2 bg-[var(--bg)] rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-blue-600 rounded-full transition-all duration-500"
-                                                style={{ width: `${(item.orders / Math.max(...hourlyData.map((h: HourlyData) => h.orders), 1)) * 100}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                ))}
+                            <div className="h-64 mt-4 w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={hourlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                                        <XAxis dataKey="hour" tickFormatter={(h) => `${h}:00`} stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false} />
+                                        <YAxis stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false} />
+                                        <RechartsTooltip cursor={{fill: 'var(--bg)'}} contentStyle={{backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '8px'}} formatter={(val) => [`${val} orders`, 'Orders']} labelFormatter={(l) => `${l}:00`} />
+                                        <Bar dataKey="orders" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
                             </div>
                         ) : (
                             <div className="text-center py-8 text-[var(--muted)] text-sm">No orders yet today</div>
@@ -316,21 +314,22 @@ export default function AdminDashboard() {
                         </div>
 
                         {hourlyData.length > 0 ? (
-                            <div className="space-y-3">
-                                {hourlyData.map((item, idx) => (
-                                    <div key={idx}>
-                                        <div className="flex justify-between text-xs sm:text-sm mb-1">
-                                            <span className="text-[var(--muted)]">{item.hour}:00</span>
-                                            <span className="font-bold text-green-600">PKR {item.revenue.toLocaleString()}</span>
-                                        </div>
-                                        <div className="h-2 bg-[var(--bg)] rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-green-600 rounded-full transition-all duration-500"
-                                                style={{ width: `${(item.revenue / maxRevenue) * 100}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                ))}
+                            <div className="h-64 mt-4 w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={hourlyData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                                                <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                                        <XAxis dataKey="hour" tickFormatter={(h) => `${h}:00`} stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false} />
+                                        <YAxis stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `PKR ${(v/1000)}k`} />
+                                        <RechartsTooltip contentStyle={{backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '8px'}} formatter={(val) => [`PKR ${val}`, 'Revenue']} labelFormatter={(l) => `${l}:00`} />
+                                        <Area type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+                                    </AreaChart>
+                                </ResponsiveContainer>
                             </div>
                         ) : (
                             <div className="text-center py-8 text-[var(--muted)] text-sm">No revenue yet today</div>

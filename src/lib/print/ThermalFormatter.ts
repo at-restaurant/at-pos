@@ -62,8 +62,17 @@ export class ThermalFormatter {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private formatHeader(data: ReceiptData): string {
         let text = '\n'
-        text += this.centerText('Quality Food & Service', this.width)
-        text += '\n\n'
+        text += this.centerText(data.tagline || 'Quality Food & Service', this.width)
+        text += '\n'
+        if (data.address) {
+            text += this.centerText(data.address, this.width)
+            text += '\n'
+        }
+        if (data.phone) {
+            text += this.centerText(`Tel: ${data.phone}`, this.width)
+            text += '\n'
+        }
+        text += '\n'
         return text
     }
 

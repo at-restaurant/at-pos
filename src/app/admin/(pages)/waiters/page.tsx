@@ -251,7 +251,7 @@ export default function WaitersPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
+            <div className="min-h-screen bg-[var(--bg)] lg:ml-80">
                 <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
                         {[1,2,3,4].map(i => <div key={i} className="h-24 bg-[var(--card)] rounded-xl animate-pulse" />)}
@@ -300,7 +300,7 @@ export default function WaitersPage() {
                     </>
                 )}
 
-                <div className="min-h-screen bg-[var(--bg)] lg:ml-64">
+                <div className="min-h-screen bg-[var(--bg)] lg:ml-80">
                     {/* Header */}
                     <header className="sticky top-0 z-40 bg-[var(--card)]/95 border-b border-[var(--border)] backdrop-blur-lg shadow-sm">
                         <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3.5">

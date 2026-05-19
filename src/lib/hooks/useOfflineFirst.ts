@@ -117,7 +117,9 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
 
             setIsOffline(false)
         } catch (error) {
-            console.error('Sync failed:', error)
+            if (navigator.onLine) {
+                console.error('Sync failed:', error instanceof Error ? error.message : String(error))
+            }
             setIsOffline(true)
         } finally {
             setSyncing(false)

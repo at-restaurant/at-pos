@@ -84,30 +84,30 @@ export class ProductionPrinter {
 
         console.log('🖨️ Print request:', receipt.orderNumber)
 
-        // Check if we're online
-        if (!navigator.onLine) {
-            console.log('📴 Offline - adding to queue')
-            await this.addToQueue(printId, receipt)
-
-            return {
-                success: true, // Queued successfully
-                message: '📴 Print queued - will print when online',
-                orderNumber: receipt.orderNumber
-            }
-        }
-
-        // Try immediate print
+        // ✅ ALWAYS try immediate print first — browser print dialog works offline
+        // (It only renders local HTML/CSS, no network needed)
         try {
             const result = await thermalPrinter.print(receipt)
 
             if (result.success) {
-                console.log('✅ Print successful immediately')
+                console.log('✅ Print successful')
+                // If online, no need to queue. If offline, receipt printed directly.
                 return result
             } else {
-                // Failed but we're online - queue for retry
+                // Browser print was cancelled or failed
+                if (!navigator.onLine) {
+                    // Offline + cancelled: queue for when online
+                    console.log('📴 Print cancelled offline - queuing')
+                    await this.addToQueue(printId, receipt)
+                    return {
+                        success: true,
+                        message: '📴 Print queued - will print when online',
+                        orderNumber: receipt.orderNumber
+                    }
+                }
+                // Online + cancelled/failed: queue for retry
                 console.log('⚠️ Print failed - adding to retry queue')
                 await this.addToQueue(printId, receipt)
-
                 return {
                     success: true,
                     message: '⚠️ Print queued for retry',
@@ -117,12 +117,12 @@ export class ProductionPrinter {
         } catch (error: any) {
             console.error('❌ Print error:', error)
 
-            // Queue for retry
+            // Queue for retry / when online
             await this.addToQueue(printId, receipt)
 
             return {
                 success: true,
-                message: '⚠️ Print queued for retry',
+                message: navigator.onLine ? '⚠️ Print queued for retry' : '📴 Print queued for when online',
                 orderNumber: receipt.orderNumber
             }
         }
