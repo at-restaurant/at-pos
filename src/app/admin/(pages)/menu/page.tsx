@@ -22,7 +22,11 @@ const STOCK_UNITS = [
     { value: 'plate', label: '🍽️ Plate' },
 ]
 
-type IngredientLink = { ingredient_id: string; quantity_needed: number }
+type IngredientLink = { 
+    ingredient_id: string; 
+    quantity_needed: number; 
+    variant_quantities?: Record<string, number>; 
+}
 
 export default function MenuPage() {
     const [items, setItems] = useState<any[]>([])
@@ -141,15 +145,44 @@ export default function MenuPage() {
         setModal(item || {})
     }
 
-    const updateIngredient = (id: string, qty: number | null) => {
-        setForm(prev => ({
-            ...prev,
-            linked_ingredients: qty === null || qty <= 0
-                ? prev.linked_ingredients.filter(l => l.ingredient_id !== id)
-                : prev.linked_ingredients.find(l => l.ingredient_id === id)
-                    ? prev.linked_ingredients.map(l => l.ingredient_id === id ? { ...l, quantity_needed: qty } : l)
-                    : [...prev.linked_ingredients, { ingredient_id: id, quantity_needed: qty }]
-        }))
+    const updateIngredient = (id: string, qty: number | null, variantName?: string) => {
+        setForm(prev => {
+            const existing = prev.linked_ingredients.find(l => l.ingredient_id === id);
+            
+            // If completely removing the ingredient
+            if (!variantName && (qty === null || qty <= 0)) {
+                // Only remove if there are no variant quantities
+                if (!existing?.variant_quantities || Object.keys(existing.variant_quantities).length === 0) {
+                    return { ...prev, linked_ingredients: prev.linked_ingredients.filter(l => l.ingredient_id !== id) };
+                }
+            }
+
+            let newLink = existing ? { ...existing } : { ingredient_id: id, quantity_needed: 0, variant_quantities: {} };
+
+            if (variantName) {
+                if (!newLink.variant_quantities) newLink.variant_quantities = {};
+                if (qty === null || qty <= 0) {
+                    delete newLink.variant_quantities[variantName];
+                } else {
+                    newLink.variant_quantities[variantName] = qty;
+                }
+            } else {
+                newLink.quantity_needed = qty || 0;
+            }
+
+            // Cleanup if both base and variants are 0/empty
+            const hasVariants = newLink.variant_quantities && Object.keys(newLink.variant_quantities).length > 0;
+            if (newLink.quantity_needed <= 0 && !hasVariants) {
+                return { ...prev, linked_ingredients: prev.linked_ingredients.filter(l => l.ingredient_id !== id) };
+            }
+
+            return {
+                ...prev,
+                linked_ingredients: existing
+                    ? prev.linked_ingredients.map(l => l.ingredient_id === id ? newLink : l)
+                    : [...prev.linked_ingredients, newLink]
+            };
+        });
     }
 
     const canMakeQuantity = (item: any) => {
@@ -480,23 +513,56 @@ export default function MenuPage() {
                                             const canMake = link ? Math.floor(ing.quantity / link.quantity_needed) : 0
 
                                             return (
-                                                <div key={ing.id} className="flex items-center gap-3 p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-sm font-semibold text-[var(--fg)] truncate">{ing.name}</p>
-                                                        <p className="text-xs text-[var(--muted)]">Stock: {ing.quantity} {ing.unit}</p>
+                                                <div key={ing.id} className="flex flex-col gap-2 p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-semibold text-[var(--fg)] truncate">{ing.name}</p>
+                                                            <p className="text-xs text-[var(--muted)]">Stock: {ing.quantity} {ing.unit}</p>
+                                                        </div>
+                                                        {form.variants.length === 0 && (
+                                                            <div className="flex items-center gap-2">
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    value={link?.quantity_needed || ''}
+                                                                    onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null)}
+                                                                    placeholder="0"
+                                                                    className="w-20 px-2 py-1 bg-[var(--card)] border border-[var(--border)] rounded text-[var(--fg)] text-sm text-center focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                                                                />
+                                                                {link && <div className="text-xs font-semibold text-purple-600 w-12 text-right">={canMake}</div>}
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="0.01"
-                                                        value={link?.quantity_needed || ''}
-                                                        onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null)}
-                                                        placeholder="0"
-                                                        className="w-20 px-2 py-1 bg-[var(--card)] border border-[var(--border)] rounded text-[var(--fg)] text-sm text-center focus:ring-2 focus:ring-purple-600 focus:outline-none"
-                                                    />
-                                                    {link && (
-                                                        <div className="text-xs font-semibold text-purple-600 w-12 text-right">
-                                                            ={canMake}
+
+                                                    {form.variants.length > 0 && (
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 pt-2 border-t border-[var(--border)]">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <span className="text-xs font-medium text-[var(--fg)] truncate">Base Price</span>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    value={link?.quantity_needed || ''}
+                                                                    onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null)}
+                                                                    placeholder="0"
+                                                                    className="w-20 px-2 py-1 bg-[var(--card)] border border-[var(--border)] rounded text-[var(--fg)] text-xs text-center focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                                                                />
+                                                            </div>
+                                                            {form.variants.map((v, i) => (
+                                                                <div key={i} className="flex items-center justify-between gap-2">
+                                                                    <span className="text-xs font-medium text-blue-600 truncate">{v.name}</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        step="0.01"
+                                                                        value={link?.variant_quantities?.[v.name] || ''}
+                                                                        onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null, v.name)}
+                                                                        placeholder="0"
+                                                                        className="w-20 px-2 py-1 bg-blue-600/5 border border-blue-600/30 rounded text-[var(--fg)] text-xs text-center focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                                                    />
+                                                                </div>
+                                                            ))}
                                                         </div>
                                                     )}
                                                 </div>

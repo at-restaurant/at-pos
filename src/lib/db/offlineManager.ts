@@ -2,6 +2,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { db } from './indexedDB'
 import { STORES } from './schema'
+import { reduceMenuStock, reduceLinkedIngredients } from '../hooks/useOrderManagement'
 
 const dispatchSyncEvent = (type: string, detail: any) => {
     if (typeof window === 'undefined') return
@@ -326,6 +327,12 @@ class OfflineManager {
 
                         const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert)
                         if (itemsError) throw itemsError
+                        
+                        // ✅ DEDUCT INVENTORY FOR OFFLINE ORDERS
+                        for (const item of orderItems) {
+                            await reduceMenuStock(supabase, item.menu_item_id, item.quantity)
+                            await reduceLinkedIngredients(supabase, item.menu_item_id, item.quantity, item.variant_name || null)
+                        }
                     }
 
                     if (order.order_type === 'dine-in' && cleanTableId) {

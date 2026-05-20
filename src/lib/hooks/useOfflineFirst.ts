@@ -157,18 +157,22 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                         value: freshData
                     })
                 } else if (options.store === STORES.ORDERS) {
-                    // Preserve unsynced offline orders
+                    // SAFELY preserve unsynced offline orders without using db.clear()
+                    // which could wipe out a new offline order created exactly during this sync window.
                     const allLocalOrders = await db.getAll(STORES.ORDERS) as any[]
-                    const unsyncedOfflineOrders = allLocalOrders.filter(
-                        o => o.id && o.id.startsWith('offline_') && !o.synced
+                    const unsyncedOfflineOrderIds = new Set(
+                        allLocalOrders.filter(o => o.id && o.id.startsWith('offline_') && !o.synced).map(o => o.id)
                     )
 
-                    await db.clear(options.store)
-                    if (freshData.length > 0) {
-                        await db.bulkPut(options.store, freshData)
+                    // Safely delete old cached orders one by one, ignoring new ones not in our original list
+                    for (const o of allLocalOrders) {
+                        if (!unsyncedOfflineOrderIds.has(o.id)) {
+                            await db.delete(STORES.ORDERS, o.id)
+                        }
                     }
-                    if (unsyncedOfflineOrders.length > 0) {
-                        await db.bulkPut(options.store, unsyncedOfflineOrders)
+
+                    if (freshData.length > 0) {
+                        await db.bulkPut(options.store, freshData.map((o: any) => ({ ...o, synced: true, cached: true })))
                     }
                 } else {
                     await db.clear(options.store)

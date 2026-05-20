@@ -27,7 +27,7 @@ function generateUUID(): string {
 const inFlightRequests = new Map<string, Promise<any>>()
 
 // ✅ SIMPLIFIED: Only reduce menu item stock
-async function reduceMenuStock(
+export async function reduceMenuStock(
     supabase: any,
     menuItemId: string,
     quantitySold: number
@@ -78,10 +78,11 @@ async function reduceMenuStock(
 }
 
 // ✅ NEW: Reduce linked ingredients
-async function reduceLinkedIngredients(
+export async function reduceLinkedIngredients(
     supabase: any,
     menuItemId: string,
-    quantitySold: number
+    quantitySold: number,
+    variantName?: string | null
 ) {
     try {
         // Get menu item with linked ingredients
@@ -99,6 +100,7 @@ async function reduceLinkedIngredients(
         const linkedIngredients = menuItem.linked_ingredients as Array<{
             ingredient_id: string
             quantity_needed: number
+            variant_quantities?: Record<string, number>
         }> | null
 
         if (!linkedIngredients || linkedIngredients.length === 0) {
@@ -108,7 +110,13 @@ async function reduceLinkedIngredients(
 
         // Reduce each linked ingredient
         for (const link of linkedIngredients) {
-            const totalNeeded = link.quantity_needed * quantitySold
+            const qtyNeededPerItem = (variantName && link.variant_quantities?.[variantName] !== undefined)
+                ? link.variant_quantities[variantName]
+                : link.quantity_needed;
+            
+            if (qtyNeededPerItem <= 0) continue;
+
+            const totalNeeded = qtyNeededPerItem * quantitySold
 
             const { data: ingredient, error: fetchError } = await supabase
                 .from('inventory_items')
@@ -500,8 +508,9 @@ export function useOrderManagement() {
                         for (const item of items) {
                             const isVariant = String(item.id).includes('__')
                             const menuItemId = isVariant ? String(item.id).split('__')[0] : item.id
+                            const variantName = isVariant ? String(item.id).split('__')[1] : null
                             await reduceMenuStock(supabase, menuItemId, item.quantity)
-                            await reduceLinkedIngredients(supabase, menuItemId, item.quantity) // 🆕 NEW
+                            await reduceLinkedIngredients(supabase, menuItemId, item.quantity, variantName) // 🆕 NEW
                         }
 
                         if (orderData.order_type === 'dine-in' && orderData.table_id) {

@@ -301,7 +301,7 @@ export default function MenuPage() {
       setPortionModal({
         show: true,
         item,
-        selectedVariant: item.variants[0],
+        selectedVariant: { name: 'Full Portion / Standard', price: item.price },
         quantity: 1
       });
       return;
@@ -547,7 +547,7 @@ export default function MenuPage() {
                         setPortionModal({
                           show: true,
                           item: i,
-                          selectedVariant: i.variants[0],
+                          selectedVariant: { name: 'Full Portion / Standard', price: i.price },
                           quantity: 1
                         });
                       } else {
@@ -680,7 +680,7 @@ export default function MenuPage() {
 
               {/* Radio buttons for variants */}
               <div className="space-y-2">
-                {portionModal.item.variants.map((v: any, idx: number) => (
+                {[{ name: 'Full Portion / Standard', price: portionModal.item.price }, ...portionModal.item.variants].map((v: any, idx: number) => (
                   <label
                     key={idx}
                     className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
