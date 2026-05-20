@@ -427,15 +427,21 @@ export default function CartDrawer({
         const existingOrderId = tableWarning.existingOrderId;
         const isOnline = navigator.onLine;
 
-        const newOrderItems = cart.items.map((item) => ({
-          id: `offline_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-          order_id: existingOrderId,
-          menu_item_id: item.id,
-          quantity: item.quantity,
-          unit_price: item.price,
-          total_price: item.price * item.quantity,
-          created_at: new Date().toISOString(),
-        }));
+        const newOrderItems = cart.items.map((item) => {
+          const isVariant = String(item.id).includes("__");
+          const menuItemId = isVariant ? String(item.id).split("__")[0] : item.id;
+          const variantName = isVariant ? String(item.id).split("__")[1] : null;
+          return {
+            id: `offline_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            order_id: existingOrderId,
+            menu_item_id: menuItemId,
+            quantity: item.quantity,
+            unit_price: item.price,
+            total_price: item.price * item.quantity,
+            variant_name: variantName,
+            created_at: new Date().toISOString(),
+          };
+        });
 
         // Optimistically try online if navigator says we are online
         let onlineSuccess = false;
@@ -731,7 +737,9 @@ export default function CartDrawer({
   // ✅ ADD THIS RIGHT AFTER placeOrder function (BEFORE "if (!isOpen)"):
   const groupedItems = cart.items.reduce(
     (acc: { [key: string]: typeof cart.items }, item) => {
-      const category = menuCategories[item.id];
+      const isVariant = String(item.id).includes("__");
+      const baseId = isVariant ? String(item.id).split("__")[0] : item.id;
+      const category = menuCategories[baseId];
       const categoryKey = category
         ? `${category.icon} ${category.name}`
         : "📋 Uncategorized";
@@ -743,6 +751,13 @@ export default function CartDrawer({
     },
     {},
   );
+
+  const invalidItems = cart.items.filter((item) => {
+    const isVariant = String(item.id).includes("__");
+    const baseId = isVariant ? String(item.id).split("__")[0] : item.id;
+    const hasLoadedCategories = Object.keys(menuCategories).length > 0;
+    return hasLoadedCategories && !menuCategories[baseId];
+  });
 
   if (!isOpen) return null;
 
@@ -934,8 +949,8 @@ export default function CartDrawer({
                   💡 <strong>Smart Detection:</strong>
                   <br />
                   {details.customer_name ||
-                  details.customer_phone ||
-                  details.delivery_address
+                    details.customer_phone ||
+                    details.delivery_address
                     ? "✅ Will be marked as DELIVERY (customer details provided)"
                     : "📦 Will be marked as TAKEAWAY (no customer details)"}
                 </p>
@@ -988,6 +1003,33 @@ export default function CartDrawer({
                 </div>
               )}
             </>
+          )}
+
+          {invalidItems.length > 0 && (
+            <div className="p-3 mx-2 my-2 bg-red-600/10 border-2 border-red-600 rounded-lg text-sm text-[var(--fg)]">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h4 className="font-bold text-red-600 mb-1">Stale / Invalid Items Detected!</h4>
+                  <p className="text-xs text-[var(--muted)] mb-2">
+                    The following items are not available in the database (they may be from an older session or database reset). Please remove them to proceed:
+                  </p>
+                  <ul className="list-disc list-inside text-xs text-[var(--muted)] space-y-1 mb-3">
+                    {invalidItems.map((item) => (
+                      <li key={item.id}>{item.name}</li>
+                    ))}
+                  </ul>
+                  <button
+                    onClick={() => {
+                      invalidItems.forEach((item) => cart.removeItem(item.id));
+                    }}
+                    className="px-3 py-1 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded transition-all active:scale-95"
+                  >
+                    Clear All Stale Items
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           {cart.items.length > 0 && (
@@ -1192,6 +1234,7 @@ export default function CartDrawer({
               onClick={placeOrder}
               disabled={
                 loading ||
+                invalidItems.length > 0 ||
                 (orderType === "dine-in" && (!cart.tableId || !cart.waiterId))
               }
               className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"

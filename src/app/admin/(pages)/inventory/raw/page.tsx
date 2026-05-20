@@ -42,7 +42,7 @@ export default function RawMaterialsPage() {
         reorder_level: '10',
         supplier_name: '',
         image_url: '',
-        notes: ''
+        description: ''
     })
     const [refreshKey, setRefreshKey] = useState(0)
     const supabase = createClient()
@@ -81,7 +81,7 @@ export default function RawMaterialsPage() {
             reorder_level: reorder,
             supplier_name: form.supplier_name || null,
             image_url: form.image_url || null,
-            notes: form.notes || null,
+            description: form.description || null,
             is_active: true
         }
 
@@ -108,7 +108,7 @@ export default function RawMaterialsPage() {
         setForm({
             name: '', category_id: '', quantity: '', unit: 'kg',
             purchase_price: '', reorder_level: '10', supplier_name: '',
-            image_url: '', notes: ''
+            image_url: '', description: ''
         })
     }
 
@@ -146,7 +146,7 @@ export default function RawMaterialsPage() {
                 reorder_level: (item.reorder_level || 10).toString(),
                 supplier_name: item.supplier_name || '',
                 image_url: item.image_url || '',
-                notes: item.notes || ''
+                description: item.description || ''
             })
         } else {
             resetForm()
@@ -411,8 +411,8 @@ export default function RawMaterialsPage() {
                         <ResponsiveInput
                             label="Notes"
                             type="textarea"
-                            value={form.notes}
-                            onChange={e => setForm({ ...form, notes: e.target.value })}
+                            value={form.description}
+                            onChange={e => setForm({ ...form, description: e.target.value })}
                             rows={2}
                             placeholder="Optional notes..."
                         />
