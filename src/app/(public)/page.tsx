@@ -1,7 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { Menu, Minus, Plus, ShoppingCart, WifiOff, X } from "lucide-react";
+import { Menu, Minus, Plus, ShoppingCart, WifiOff, X, Search } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import CartDrawer from "@/components/cart/CartDrawer";
 import AutoSidebar, { useSidebarItems } from "@/components/layout/AutoSidebar";
@@ -166,6 +166,7 @@ export default function MenuPage() {
   const [cartOpen, setCartOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // ✅ Quantity modal state
   const [quantityModal, setQuantityModal] = useState<{
@@ -239,13 +240,16 @@ export default function MenuPage() {
     }
   }, [items, loading, isOffline]);
 
-  const filtered = useMemo(
-    () =>
-      items.filter(
-        (i) => selectedCat === "all" || i.category_id === selectedCat,
-      ),
-    [items, selectedCat],
-  );
+  const filtered = useMemo(() => {
+    let result = items.filter(
+      (i) => selectedCat === "all" || i.category_id === selectedCat,
+    );
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(i => i.name.toLowerCase().includes(q));
+    }
+    return result;
+  }, [items, selectedCat, searchQuery]);
 
   const sidebarItems = useSidebarItems(
     [
@@ -473,6 +477,30 @@ export default function MenuPage() {
             </div>
           </div>
 
+          {/* Search Bar */}
+          <div className="border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-lg">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-[var(--muted)]" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search menu items..."
+                  className="w-full pl-10 sm:pl-12 pr-10 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm sm:text-base text-[var(--fg)] placeholder:text-[var(--muted)] focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-[var(--border)] rounded transition-colors"
+                  >
+                    <X className="w-4 h-4 text-[var(--muted)]" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Horizontal Categories - Mobile */}
           <div className="lg:hidden border-t border-[var(--border)] bg-[var(--card)]/95 backdrop-blur-lg">
             <div className="max-w-7xl mx-auto overflow-x-auto scrollbar-hide">
@@ -506,7 +534,7 @@ export default function MenuPage() {
         </header>
 
         {/* Content */}
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 pt-32 sm:pt-36">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 pt-44 sm:pt-48">
           {loading ? (
             <div className="flex justify-center py-16 sm:py-20">
               <div className="w-10 h-10 sm:w-12 sm:h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />

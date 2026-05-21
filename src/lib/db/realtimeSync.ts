@@ -4,6 +4,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { db } from './indexedDB'
 import { STORES } from './schema'
+import { reduceMenuStock, reduceLinkedIngredients } from '../hooks/useOrderManagement'
 
 export class RealtimeSync {
     private syncQueue: Promise<any> | null = null
@@ -173,6 +174,12 @@ export class RealtimeSync {
 
                         const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert)
                         if (itemsError) throw itemsError
+
+                        // ✅ DEDUCT INVENTORY FOR OFFLINE ORDERS
+                        for (const item of items) {
+                            await reduceMenuStock(supabase, item.menu_item_id, item.quantity)
+                            await reduceLinkedIngredients(supabase, item.menu_item_id, item.quantity, item.variant_name || null)
+                        }
                     }
 
                     if (order.order_type === 'dine-in' && cleanTableId) {
@@ -205,9 +212,17 @@ export class RealtimeSync {
                     console.log(`✅ Synced order ${order.id}`)
                 } catch (error: any) {
                     const errMsg = error?.message || error?.details || JSON.stringify(error) || String(error)
-                    console.error(`❌ Failed to sync order ${order.id}:`, errMsg, error)
-                    this.pendingOperations.set(order.id, 'failed')
-                    setTimeout(() => this.pendingOperations.delete(order.id), 300000)
+                    const isNetworkError = errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || !navigator.onLine
+                    if (isNetworkError) {
+                        console.warn(`⏳ Network offline, will retry syncing order ${order.id} later.`)
+                        // Retry sooner on network error
+                        this.pendingOperations.set(order.id, 'failed')
+                        setTimeout(() => this.pendingOperations.delete(order.id), 60000) // 1 minute
+                    } else {
+                        console.error(`❌ Failed to sync order ${order.id}:`, errMsg, error)
+                        this.pendingOperations.set(order.id, 'failed')
+                        setTimeout(() => this.pendingOperations.delete(order.id), 300000) // 5 minutes
+                    }
                 }
             }
 

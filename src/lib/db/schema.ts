@@ -1,5 +1,5 @@
 export const DB_NAME = 'rt_restaurant_db'
-export const DB_VERSION = 2
+export const DB_VERSION = 3
 
 export const STORES = {
     MENU_ITEMS: 'menu_items',
@@ -9,7 +9,8 @@ export const STORES = {
     WAITER_SHIFTS: 'waiter_shifts',
     SYNC_QUEUE: 'sync_queue',
     CART: 'cart',
-    SETTINGS: 'settings'
+    SETTINGS: 'settings',
+    INVENTORY_ITEMS: 'inventory_items'
 }
 
 export type SyncQueueItem = {

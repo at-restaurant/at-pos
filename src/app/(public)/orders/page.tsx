@@ -20,11 +20,13 @@ import { createClient } from '@/lib/supabase/client'
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { addToQueue } from '@/lib/db/syncQueue'
+import { InventoryModal } from '@/components/inventory/InventoryModal'
 
 export default function OrdersPage() {
     const [filter, setFilter] = useState<'active' | 'today-dinein' | 'today-delivery' | 'today-takeaway'>('active')
     const [selectedOrder, setSelectedOrder] = useState<any>(null)
     const [showDailySummary, setShowDailySummary] = useState(false)
+    const [showInventory, setShowInventory] = useState(false)
     const [actionLoading, setActionLoading] = useState(false)
     const [menuCategories, setMenuCategories] = useState<{ [key: string]: { name: string; icon: string } }>({})
     const [categoriesLoaded, setCategoriesLoaded] = useState(false)
@@ -917,10 +919,17 @@ export default function OrdersPage() {
                         title="Orders"
                         subtitle={`${stats[0].value} active${pendingCount > 0 ? ` • ${pendingCount} pending sync` : ''}`}
                         action={
-                            <button onClick={refresh}
-                                    className="p-2 hover:bg-[var(--bg)] rounded-lg active:scale-95 transition-transform">
-                                <RefreshCw className="w-5 h-5 text-[var(--muted)]"/>
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setShowInventory(true)}
+                                        className="hidden sm:flex items-center gap-2 px-3 py-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--fg)] rounded-lg hover:border-blue-600 active:scale-95 transition-all text-sm font-medium">
+                                    <Package className="w-4 h-4 text-blue-600" />
+                                    Inventory
+                                </button>
+                                <button onClick={refresh}
+                                        className="p-2 hover:bg-[var(--bg)] rounded-lg active:scale-95 transition-transform">
+                                    <RefreshCw className="w-5 h-5 text-[var(--muted)]"/>
+                                </button>
+                            </div>
                         }
                     />
 
@@ -952,9 +961,18 @@ export default function OrdersPage() {
                 >
                     <DollarSign className="w-6 h-6"/>
                 </button>
+                
+                <button
+                    onClick={() => setShowInventory(true)}
+                    className="sm:hidden fixed bottom-36 sm:bottom-24 right-4 sm:right-6 w-14 h-14 bg-[var(--card)] border border-[var(--border)] text-[var(--fg)] rounded-full shadow-xl hover:scale-110 active:scale-95 transition-transform flex items-center justify-center z-40"
+                    title="View Inventory"
+                >
+                    <Package className="w-6 h-6 text-blue-600"/>
+                </button>
 
                 {showDailySummary && <DailySummaryModal/>}
                 {selectedOrder && <OrderDetailsModal/>}
+                <InventoryModal isOpen={showInventory} onClose={() => setShowInventory(false)} />
             </div>
         </ErrorBoundary>
     )

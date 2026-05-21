@@ -89,6 +89,11 @@ class IndexedDBManager {
                 if (!db.objectStoreNames.contains(STORES.SETTINGS)) {
                     db.createObjectStore(STORES.SETTINGS, { keyPath: 'key' })
                 }
+
+                // Inventory Items
+                if (!db.objectStoreNames.contains(STORES.INVENTORY_ITEMS)) {
+                    db.createObjectStore(STORES.INVENTORY_ITEMS, { keyPath: 'id' })
+                }
             }
         })
 

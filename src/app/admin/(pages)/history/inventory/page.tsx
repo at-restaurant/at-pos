@@ -37,9 +37,10 @@ export default function InventoryHistoryPage() {
     const supabase = createClient()
 
     const [history, setHistory] = useState<MonthlyHistory[]>([])
+    const [transactions, setTransactions] = useState<any[]>([])
     const [selectedMonth, setSelectedMonth] = useState('')
     const [loading, setLoading] = useState(true)
-    const [view, setView] = useState<'menu' | 'raw'>('menu')
+    const [view, setView] = useState<'menu' | 'raw' | 'transactions'>('menu')
     const [autoSaving, setAutoSaving] = useState(false)
 
     useEffect(() => {
@@ -143,6 +144,34 @@ export default function InventoryHistoryPage() {
     const selectedHistory = useMemo(() => {
         return history.find(h => h.month === selectedMonth)
     }, [history, selectedMonth])
+
+    useEffect(() => {
+        if (view === 'transactions' && transactions.length === 0) {
+            loadTransactions()
+        }
+    }, [view])
+
+    const loadTransactions = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('inventory_history')
+                .select(`
+                    *,
+                    inventory_items(name, unit)
+                `)
+                .order('created_at', { ascending: false })
+                .limit(100)
+            
+            if (error) {
+                // If table doesn't exist yet, just ignore quietly
+                if (error.code !== 'PGRST205') throw error;
+            } else {
+                setTransactions(data || [])
+            }
+        } catch (err) {
+            console.error('Failed to load transactions:', err)
+        }
+    }
 
     const currentItems = useMemo(() => {
         if (!selectedHistory) return []
@@ -340,18 +369,18 @@ ${item.quantity <= 10 ? '⚠️ LOW STOCK' : ''}
                         <>
                             {/* View Tabs */}
                             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 sm:p-4">
-                                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                                <div className="grid grid-cols-3 gap-2 sm:gap-3">
                                     <button
                                         onClick={() => setView('menu')}
-                                        className={`flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-4 rounded-lg font-semibold transition-all text-sm sm:text-base ${
+                                        className={`flex items-center justify-center gap-2 px-2 sm:px-4 py-3 sm:py-4 rounded-lg font-semibold transition-all text-xs sm:text-sm ${
                                             view === 'menu'
                                                 ? 'bg-blue-600 text-white shadow-lg'
                                                 : 'bg-[var(--bg)] text-[var(--fg)] border border-[var(--border)]'
                                         }`}
                                     >
-                                        <Package className="w-4 h-4 sm:w-5 sm:h-5" />
+                                        <Package className="w-4 h-4 sm:w-5 sm:h-5 hidden sm:block" />
                                         <span>Menu Items</span>
-                                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                        <span className={`text-[10px] sm:text-xs px-2 py-0.5 rounded-full ${
                                             view === 'menu' ? 'bg-white/20' : 'bg-[var(--card)]'
                                         }`}>
                                             {selectedHistory.menu_items.length}
@@ -359,25 +388,38 @@ ${item.quantity <= 10 ? '⚠️ LOW STOCK' : ''}
                                     </button>
                                     <button
                                         onClick={() => setView('raw')}
-                                        className={`flex items-center justify-center gap-2 px-4 sm:px-6 py-3 sm:py-4 rounded-lg font-semibold transition-all text-sm sm:text-base ${
+                                        className={`flex items-center justify-center gap-2 px-2 sm:px-4 py-3 sm:py-4 rounded-lg font-semibold transition-all text-xs sm:text-sm ${
                                             view === 'raw'
                                                 ? 'bg-purple-600 text-white shadow-lg'
                                                 : 'bg-[var(--bg)] text-[var(--fg)] border border-[var(--border)]'
                                         }`}
                                     >
-                                        <Boxes className="w-4 h-4 sm:w-5 sm:h-5" />
+                                        <Boxes className="w-4 h-4 sm:w-5 sm:h-5 hidden sm:block" />
                                         <span>Raw Materials</span>
-                                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                        <span className={`text-[10px] sm:text-xs px-2 py-0.5 rounded-full ${
                                             view === 'raw' ? 'bg-white/20' : 'bg-[var(--card)]'
                                         }`}>
                                             {selectedHistory.raw_items.length}
                                         </span>
                                     </button>
+                                    <button
+                                        onClick={() => setView('transactions')}
+                                        className={`flex items-center justify-center gap-2 px-2 sm:px-4 py-3 sm:py-4 rounded-lg font-semibold transition-all text-xs sm:text-sm ${
+                                            view === 'transactions'
+                                                ? 'bg-green-600 text-white shadow-lg'
+                                                : 'bg-[var(--bg)] text-[var(--fg)] border border-[var(--border)]'
+                                        }`}
+                                    >
+                                        <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 hidden sm:block" />
+                                        <span>Transactions</span>
+                                    </button>
                                 </div>
                             </div>
 
-                            {/* Stats Cards */}
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                            {view !== 'transactions' && (
+                                <>
+                                    {/* Stats Cards */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                                 <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-3 sm:p-4 text-white shadow-lg">
                                     <Package className="w-6 h-6 sm:w-8 sm:h-8 opacity-80 mb-2" />
                                     <p className="text-xs opacity-90">Total Items</p>
@@ -498,6 +540,56 @@ ${item.quantity <= 10 ? '⚠️ LOW STOCK' : ''}
                                     </div>
                                 )}
                             </div>
+                            </>
+                        )}
+
+                        {view === 'transactions' && (
+                            <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl overflow-hidden">
+                                <div className="p-3 sm:p-6 border-b border-[var(--border)]">
+                                    <h3 className="font-bold text-[var(--fg)] text-sm sm:text-base flex items-center gap-2">
+                                        <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
+                                        Recent Adjustments
+                                    </h3>
+                                </div>
+                                
+                                <div className="divide-y divide-[var(--border)] max-h-[60vh] overflow-y-auto">
+                                    {transactions.length === 0 ? (
+                                        <div className="p-8 sm:p-12 text-center">
+                                            <TrendingUp className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 opacity-20 text-[var(--fg)]" />
+                                            <p className="text-[var(--fg)] font-medium text-sm sm:text-base">No recent transactions</p>
+                                        </div>
+                                    ) : (
+                                        transactions.map((tx: any) => (
+                                            <div key={tx.id} className="p-3 sm:p-4 hover:bg-[var(--bg)] transition-colors">
+                                                <div className="flex items-start justify-between gap-4">
+                                                    <div>
+                                                        <h4 className="font-semibold text-[var(--fg)] text-sm sm:text-base mb-1">
+                                                            {tx.inventory_items?.name || 'Unknown Item'}
+                                                        </h4>
+                                                        <p className="text-xs text-[var(--muted)] flex items-center gap-2">
+                                                            <span>{new Date(tx.created_at).toLocaleString()}</span>
+                                                            <span className="px-1.5 py-0.5 rounded-full bg-[var(--bg)] border border-[var(--border)] capitalize">
+                                                                {tx.change_type}
+                                                            </span>
+                                                        </p>
+                                                        {tx.notes && (
+                                                            <p className="text-xs text-[var(--muted)] mt-1.5 italic">
+                                                                Note: {tx.notes}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-right shrink-0">
+                                                        <p className={`text-base sm:text-lg font-bold ${tx.quantity > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                            {tx.quantity > 0 ? '+' : ''}{tx.quantity} {tx.inventory_items?.unit || ''}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        )}
                         </>
                     )}
                 </div>

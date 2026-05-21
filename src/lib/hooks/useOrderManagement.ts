@@ -1,3 +1,4 @@
+"use client"
 // src/lib/hooks/useOrderManagement.ts
 // ✅ SIMPLIFIED: Only reduce menu stock
 
@@ -113,7 +114,7 @@ export async function reduceLinkedIngredients(
             const qtyNeededPerItem = (variantName && link.variant_quantities?.[variantName] !== undefined)
                 ? link.variant_quantities[variantName]
                 : link.quantity_needed;
-            
+
             if (qtyNeededPerItem <= 0) continue;
 
             const totalNeeded = qtyNeededPerItem * quantitySold

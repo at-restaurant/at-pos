@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, Edit2, Trash2, Menu, Package, AlertTriangle, Link2, ChevronDown, X } from 'lucide-react'
 import AutoSidebar, { useSidebarItems } from '@/components/layout/AutoSidebar'
-import { FormModal } from '@/components/ui/UniversalModal'
+import UniversalModal, { FormModal } from '@/components/ui/UniversalModal'
 import ResponsiveInput from '@/components/ui/ResponsiveInput'
 import CloudinaryUpload from '@/components/ui/CloudinaryUpload'
 import CategoryManager from '@/components/ui/CategoryManager'
@@ -36,6 +36,7 @@ export default function MenuPage() {
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const [modal, setModal] = useState<any>(null)
     const [showIngredients, setShowIngredients] = useState(false)
+    const [showIngredientModal, setShowIngredientModal] = useState(false)
         const [form, setForm] = useState({
         name: '', category_id: '', price: '', description: '', image_url: '',
         stock_quantity: '1', stock_unit: 'piece', linked_ingredients: [] as IngredientLink[],
@@ -491,7 +492,7 @@ export default function MenuPage() {
 
                         {/* ✅ SMART INGREDIENT LINKING */}
                         <div className="border border-[var(--border)] rounded-lg overflow-hidden">
-                            <button type="button" onClick={() => setShowIngredients(!showIngredients)}
+                            <button type="button" onClick={() => setShowIngredientModal(true)}
                                     className="w-full flex items-center justify-between p-4 bg-purple-500/5 hover:bg-purple-500/10 transition-colors">
                                 <div className="flex items-center gap-2">
                                     <Link2 className="w-4 h-4 text-purple-600" />
@@ -500,90 +501,104 @@ export default function MenuPage() {
                                         <span className="px-2 py-0.5 bg-purple-600 text-white text-xs font-bold rounded-full">{form.linked_ingredients.length}</span>
                                     )}
                                 </div>
-                                <ChevronDown className={`w-4 h-4 text-[var(--muted)] transition-transform ${showIngredients ? 'rotate-180' : ''}`} />
+                                <span className="text-sm font-medium text-purple-600 bg-purple-600/10 px-2 py-1 rounded-md">Edit Links</span>
                             </button>
-
-                            {showIngredients && (
-                                <div className="p-4 space-y-3">
-                                    <p className="text-xs text-[var(--muted)]">💡 Enter quantity needed per item. Set to 0 to remove. Auto-calculates available stock.</p>
-
-                                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                                        {rawMaterials.map(ing => {
-                                            const link = form.linked_ingredients.find(l => l.ingredient_id === ing.id)
-                                            const canMake = link ? Math.floor(ing.quantity / link.quantity_needed) : 0
-
-                                            return (
-                                                <div key={ing.id} className="flex flex-col gap-2 p-3 bg-[var(--bg)] rounded-lg border border-[var(--border)]">
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="text-sm font-semibold text-[var(--fg)] truncate">{ing.name}</p>
-                                                            <p className="text-xs text-[var(--muted)]">Stock: {ing.quantity} {ing.unit}</p>
-                                                        </div>
-                                                        {form.variants.length === 0 && (
-                                                            <div className="flex items-center gap-2">
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    step="0.01"
-                                                                    value={link?.quantity_needed || ''}
-                                                                    onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null)}
-                                                                    placeholder="0"
-                                                                    className="w-20 px-2 py-1 bg-[var(--card)] border border-[var(--border)] rounded text-[var(--fg)] text-sm text-center focus:ring-2 focus:ring-purple-600 focus:outline-none"
-                                                                />
-                                                                {link && <div className="text-xs font-semibold text-purple-600 w-12 text-right">={canMake}</div>}
-                                                            </div>
-                                                        )}
-                                                    </div>
-
-                                                    {form.variants.length > 0 && (
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 pt-2 border-t border-[var(--border)]">
-                                                            <div className="flex items-center justify-between gap-2">
-                                                                <span className="text-xs font-medium text-[var(--fg)] truncate">Base Price</span>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    step="0.01"
-                                                                    value={link?.quantity_needed || ''}
-                                                                    onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null)}
-                                                                    placeholder="0"
-                                                                    className="w-20 px-2 py-1 bg-[var(--card)] border border-[var(--border)] rounded text-[var(--fg)] text-xs text-center focus:ring-2 focus:ring-purple-600 focus:outline-none"
-                                                                />
-                                                            </div>
-                                                            {form.variants.map((v, i) => (
-                                                                <div key={i} className="flex items-center justify-between gap-2">
-                                                                    <span className="text-xs font-medium text-blue-600 truncate">{v.name}</span>
-                                                                    <input
-                                                                        type="number"
-                                                                        min="0"
-                                                                        step="0.01"
-                                                                        value={link?.variant_quantities?.[v.name] || ''}
-                                                                        onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null, v.name)}
-                                                                        placeholder="0"
-                                                                        className="w-20 px-2 py-1 bg-blue-600/5 border border-blue-600/30 rounded text-[var(--fg)] text-xs text-center focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                                                                    />
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-
-                                    {form.linked_ingredients.length > 0 && (
-                                        <div className="p-2 bg-purple-600/10 border border-purple-600/30 rounded">
-                                            <p className="text-xs text-purple-600 font-semibold">
-                                                ✨ {form.linked_ingredients.length} linked • Auto-deduct on sale
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
                         </div>
-
+                        {/* Image Upload */}
                         <CloudinaryUpload value={form.image_url} onChange={url => setForm({ ...form, image_url: url })} folder="menu-items" />
                     </div>
                 </FormModal>
+
+                {/* ✅ SEPARATE INGREDIENTS MODAL */}
+                <UniversalModal 
+                    open={showIngredientModal} 
+                    onClose={() => setShowIngredientModal(false)}
+                    title="Link Raw Materials"
+                    size="xl"
+                    footer={
+                        <button onClick={() => setShowIngredientModal(false)} className="w-full px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors">
+                            Done
+                        </button>
+                    }
+                >
+                    <div className="space-y-4">
+                        <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg flex items-start gap-3">
+                            <div className="mt-0.5 text-purple-600">💡</div>
+                            <p className="text-sm text-[var(--fg)]">Enter quantity needed per item. Set to 0 to remove. Auto-calculates available stock.</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-2">
+                            {rawMaterials.map(ing => {
+                                const link = form.linked_ingredients.find(l => l.ingredient_id === ing.id)
+                                const canMake = link && link.quantity_needed > 0 ? Math.floor(ing.quantity / link.quantity_needed) : 0
+
+                                return (
+                                    <div key={ing.id} className={`flex flex-col gap-3 p-4 rounded-xl border transition-colors ${link ? 'bg-purple-500/5 border-purple-500/30 shadow-sm' : 'bg-[var(--bg)] border-[var(--border)]'}`}>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex-1 min-w-0 pr-4">
+                                                <p className="text-base font-bold text-[var(--fg)] truncate">{ing.name}</p>
+                                                <p className="text-xs font-medium text-[var(--muted)] mt-0.5">Stock: {ing.quantity} {ing.unit}</p>
+                                            </div>
+                                            {form.variants.length === 0 && (
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={link?.quantity_needed || ''}
+                                                        onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null)}
+                                                        placeholder="0"
+                                                        className="w-24 px-3 py-1.5 bg-[var(--card)] border border-[var(--border)] rounded-lg text-[var(--fg)] text-sm text-center focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                                                    />
+                                                    {link && link.quantity_needed > 0 && <div className="text-sm font-bold text-purple-600 w-16 text-right">={canMake}</div>}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {form.variants.length > 0 && (
+                                            <div className="grid grid-cols-1 gap-2 mt-1 pt-3 border-t border-[var(--border)]">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-sm font-semibold text-[var(--fg)] truncate">Base Amount</span>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={link?.quantity_needed || ''}
+                                                        onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null)}
+                                                        placeholder="0"
+                                                        className="w-24 px-3 py-1.5 bg-[var(--card)] border border-[var(--border)] rounded-lg text-[var(--fg)] text-sm text-center focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                                                    />
+                                                </div>
+                                                {form.variants.map((v, i) => (
+                                                    <div key={i} className="flex items-center justify-between gap-3">
+                                                        <span className="text-sm font-bold text-blue-600 truncate">[{v.name}] Amount</span>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={link?.variant_quantities?.[v.name] || ''}
+                                                            onChange={(e) => updateIngredient(ing.id, e.target.value ? parseFloat(e.target.value) : null, v.name)}
+                                                            placeholder="0"
+                                                            className="w-24 px-3 py-1.5 bg-blue-600/10 border border-blue-600/30 rounded-lg text-blue-700 text-sm font-semibold text-center focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        {form.linked_ingredients.length > 0 && (
+                            <div className="p-3 bg-purple-600/10 border border-purple-600/30 rounded-lg flex justify-between items-center mt-2">
+                                <p className="text-sm text-purple-700 font-bold">
+                                    ✨ {form.linked_ingredients.length} items linked
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </UniversalModal>
             </>
         </ErrorBoundary>
     )

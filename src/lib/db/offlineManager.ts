@@ -122,19 +122,20 @@ class OfflineManager {
 
             dispatchSyncEvent('sync-start', { message: 'Downloading all data...' })
 
-            const [categories, items, tables, waiters, orders, orderItems, settings] = await Promise.allSettled([
+            const [categories, items, tables, waiters, orders, orderItems, settings, inventory] = await Promise.allSettled([
                 supabase.from('menu_categories').select('*').eq('is_active', true),
                 supabase.from('menu_items').select('*').eq('is_available', true),
                 supabase.from('restaurant_tables').select('*'),
                 supabase.from('waiters').select('*').eq('is_active', true),
                 supabase.from('orders').select('*, order_items(*, menu_items(name, price))').order('created_at', { ascending: false }).limit(100),
                 supabase.from('order_items').select('*').limit(500),
-                supabase.from('restaurant_settings').select('*').eq('id', 1).single()
+                supabase.from('restaurant_settings').select('*').eq('id', 1).single(),
+                supabase.from('inventory_items').select('*, inventory_categories(name, icon)').eq('is_active', true)
             ])
 
             let progress = 0
             const updateProgress = (current: number, message: string) => {
-                progress = Math.round((current / 7) * 100)
+                progress = Math.round((current / 8) * 100)
                 dispatchSyncEvent('sync-progress', { progress, message })
             }
 
@@ -224,6 +225,13 @@ class OfflineManager {
                 updateProgress(7, 'Settings downloaded')
             }
 
+            // 7. Inventory
+            if (inventory.status === 'fulfilled' && inventory.value.data) {
+                await db.clear(STORES.INVENTORY_ITEMS)
+                await db.bulkPut(STORES.INVENTORY_ITEMS, inventory.value.data)
+                updateProgress(8, 'Inventory downloaded')
+            }
+
             localStorage.setItem('full_sync_timestamp', Date.now().toString())
             localStorage.setItem('offline_ready', 'true')
 
@@ -232,7 +240,8 @@ class OfflineManager {
                 items: items.status === 'fulfilled' ? items.value.data?.length || 0 : 0,
                 tables: tables.status === 'fulfilled' ? tables.value.data?.length || 0 : 0,
                 waiters: waiters.status === 'fulfilled' ? waiters.value.data?.length || 0 : 0,
-                orders: orders.status === 'fulfilled' ? orders.value.data?.filter((o: any) => o.status === 'pending').length || 0 : 0
+                orders: orders.status === 'fulfilled' ? orders.value.data?.filter((o: any) => o.status === 'pending').length || 0 : 0,
+                inventory: inventory.status === 'fulfilled' ? inventory.value.data?.length || 0 : 0
             }
 
             dispatchSyncEvent('sync-complete', counts)
@@ -357,7 +366,12 @@ class OfflineManager {
 
                 } catch (error: any) {
                     const errMsg = error?.message || error?.details || JSON.stringify(error) || String(error)
-                    console.error(`❌ Failed to sync order ${order.id}:`, errMsg, error)
+                    const isNetworkError = errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || !navigator.onLine
+                    if (isNetworkError) {
+                        console.warn(`⏳ Network offline, will retry syncing order ${order.id} later.`)
+                    } else {
+                        console.error(`❌ Failed to sync order ${order.id}:`, errMsg, error)
+                    }
                 }
             }
 
