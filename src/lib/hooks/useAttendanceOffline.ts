@@ -5,6 +5,7 @@ import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { createClient } from '@/lib/supabase/client'
 import { addToQueue } from '@/lib/db/syncQueue'
+import { getAttendanceResetKey, getBusinessDate, getEndOfDayTime } from '@/lib/utils/businessDay'
 
 interface Waiter {
     id: string
@@ -22,13 +23,13 @@ export function useAttendanceOffline() {
     const [lastResetDate, setLastResetDate] = useState<string | null>(null)
     const supabase = createClient()
 
-    // ✅ Check and auto-reset at midnight
+    // ✅ Check and auto-reset at configured end-of-day time (not just midnight)
     const checkDailyReset = useCallback(async () => {
-        const today = new Date().toISOString().split('T')[0]
-        const storedDate = localStorage.getItem('last_attendance_reset')
+        const resetKey = getAttendanceResetKey()
+        const storedKey = localStorage.getItem('last_attendance_reset')
 
-        if (storedDate !== today) {
-            console.log('📅 New day detected, resetting attendance...')
+        if (storedKey !== resetKey) {
+            console.log('📅 New business day detected, resetting attendance...')
 
             // Reset locally FIRST
             const allWaiters = await db.get(STORES.SETTINGS, 'waiters')
@@ -49,9 +50,11 @@ export function useAttendanceOffline() {
             // Try server reset if online
             if (navigator.onLine) {
                 try {
+                    const endOfDayTime = getEndOfDayTime()
                     await fetch('/api/attendance/daily-reset', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ end_of_day_time: endOfDayTime })
                     })
                     console.log('✅ Server reset completed')
                 } catch (error) {
@@ -59,10 +62,11 @@ export function useAttendanceOffline() {
                 }
             }
 
-            localStorage.setItem('last_attendance_reset', today)
-            setLastResetDate(today)
+            localStorage.setItem('last_attendance_reset', resetKey)
+            setLastResetDate(getBusinessDate())
         }
     }, [])
+
 
     // ✅ Load from cache FIRST
     const loadFromCache = useCallback(async () => {

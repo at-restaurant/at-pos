@@ -33,6 +33,12 @@ type InventoryData = {
     reorder_level?: number
 }
 
+type MenuItemData = {
+    id?: string
+    stock_quantity?: number | null
+    track_stock?: boolean
+}
+
 type WaiterData = {
     id?: string
     is_on_duty?: boolean
@@ -79,7 +85,7 @@ export default function AdminDashboard() {
         try {
             const { start, end } = getTodayRange()
 
-            const [menuItemCount, wait, tab, ord, todayOrd, invItems] = await Promise.all([
+            const [menuItemCount, wait, tab, ord, todayOrd, invItems, menuItemsData] = await Promise.all([
                 supabase.from('menu_items').select('id', { count: 'exact', head: true }).eq('is_available', true),
                 supabase.from('waiters').select('id, is_on_duty', { count: 'exact' }).eq('is_active', true),
                 supabase.from('restaurant_tables').select('id', { count: 'exact', head: true }),
@@ -87,7 +93,8 @@ export default function AdminDashboard() {
                 supabase.from('orders').select('id, total_amount, status, created_at')
                     .gte('created_at', start)
                     .lt('created_at', end),
-                supabase.from('inventory_items').select('quantity, reorder_level').eq('is_active', true)
+                supabase.from('inventory_items').select('quantity, reorder_level').eq('is_active', true),
+                supabase.from('menu_items').select('id, stock_quantity, track_stock').eq('is_available', true)
             ])
 
             const ordersData = (Array.isArray(ord.data) ? ord.data : []) as OrderData[]
@@ -102,7 +109,15 @@ export default function AdminDashboard() {
             const todayRevenue = todayOrdersData
                 .filter((o: TodayOrderData) => o?.status === 'completed')
                 .reduce((s: number, o: TodayOrderData) => s + (o?.total_amount || 0), 0)
-            const lowStock = inventoryData.filter((i: InventoryData) => (i?.quantity || 0) <= (i?.reorder_level || 0)).length
+            
+            const rawItemsData = (Array.isArray(menuItemsData.data) ? menuItemsData.data : []) as MenuItemData[]
+            const menuLowStock = rawItemsData.filter((i: MenuItemData) => 
+                i?.track_stock && i?.stock_quantity !== null && i?.stock_quantity !== 999 && i.stock_quantity! <= 10
+            ).length
+            
+            const inventoryLowStock = inventoryData.filter((i: InventoryData) => (i?.quantity || 0) <= (i?.reorder_level || 0)).length
+            const lowStock = menuLowStock + inventoryLowStock
+            
             const pendingOrders = ordersData.filter((o: OrderData) => o?.status === 'pending').length
             const activeWaiters = waitersData.filter((w: WaiterData) => w?.is_on_duty).length
             const completedToday = todayOrdersData.filter((o: TodayOrderData) => o?.status === 'completed').length

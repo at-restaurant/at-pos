@@ -1,22 +1,13 @@
 // src/lib/utils/historyHelpers.ts - FIXED ALL TYPESCRIPT ERRORS
 import { createClient } from '@/lib/supabase/client'
+import { getBusinessDateRange, getBusinessDate, getEndOfDayTime } from './businessDay'
 
 type DateRange = 'today' | 'week' | 'month' | 'year'
 type TrendType = 'up' | 'down' | 'neutral'
 
 export const getDateRange = (range: DateRange) => {
-    const now = new Date()
-    const start = new Date()
-
-    const ranges = {
-        today: () => start.setHours(0, 0, 0, 0),
-        week: () => start.setDate(now.getDate() - 7),
-        month: () => start.setMonth(now.getMonth() - 1),
-        year: () => start.setFullYear(now.getFullYear() - 1)
-    }
-
-    ranges[range]()
-    return { startDate: start.toISOString(), endDate: now.toISOString() }
+    // ✅ Uses business-day aware logic (respects custom End-of-Day time)
+    return getBusinessDateRange(range)
 }
 
 export const getPreviousDateRange = (range: DateRange) => {

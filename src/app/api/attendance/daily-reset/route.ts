@@ -1,11 +1,41 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
+/** Compute the business date given the end_of_day_time setting. */
+function getBusinessDate(endOfDayTime: string = '00:00'): string {
+    const [endHour, endMin] = endOfDayTime.split(':').map(Number)
+    const now = new Date()
+
+    if (endHour === 0 && endMin === 0) {
+        return now.toISOString().split('T')[0]
+    }
+
+    const currentTotalMin = now.getHours() * 60 + now.getMinutes()
+    const endTotalMin = endHour * 60 + endMin
+
+    if (currentTotalMin < endTotalMin) {
+        // Still in previous business day
+        const prev = new Date(now)
+        prev.setDate(prev.getDate() - 1)
+        return prev.toISOString().split('T')[0]
+    }
+
+    return now.toISOString().split('T')[0]
+}
+
 export async function POST(request: Request) {
     try {
         const supabase = await createClient()
 
-        const today = new Date().toISOString().split('T')[0]
+        // Accept optional end_of_day_time from client
+        let end_of_day_time = '00:00'
+        try {
+            const body = await request.json()
+            if (body?.end_of_day_time) end_of_day_time = body.end_of_day_time
+        } catch { /* ignore if no body */ }
+
+        // Use business date (not necessarily today's calendar date)
+        const businessDate = getBusinessDate(end_of_day_time)
         const currentTime = new Date().toTimeString().split(' ')[0].slice(0, 5)
 
         const { data: onDutyWaiters, error: fetchError } = await supabase
@@ -22,7 +52,7 @@ export async function POST(request: Request) {
                     .from('attendance')
                     .select('*')
                     .eq('waiter_id', waiter.id)
-                    .eq('date', today)
+                    .eq('date', businessDate)
                     .single()
 
                 if (existing) {
@@ -45,7 +75,7 @@ export async function POST(request: Request) {
                         .from('attendance')
                         .insert({
                             waiter_id: waiter.id,
-                            date: today,
+                            date: businessDate,
                             check_in: '00:00',
                             check_out: currentTime,
                             status: 'present',
@@ -65,7 +95,8 @@ export async function POST(request: Request) {
         return NextResponse.json({
             success: true,
             message: `Daily reset completed. Processed ${onDutyWaiters?.length || 0} waiters.`,
-            date: today
+            business_date: businessDate,
+            end_of_day_time
         })
 
     } catch (error: any) {

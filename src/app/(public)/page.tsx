@@ -156,6 +156,11 @@ export default function MenuPage() {
     filter: { is_active: true },
   });
 
+  // ✅ Only show actual waiters in cart dropdown (not chefs, managers, etc.)
+  const waiterStaffOnly = (waiters || []).filter(
+    (w: any) => !w.employee_type || w.employee_type === "waiter"
+  );
+
   const loading = catLoading || itemsLoading;
 
   const cartItems = useCart((state) => state.items);
@@ -802,7 +807,7 @@ export default function MenuPage() {
         isOpen={cartOpen}
         onClose={() => setCartOpen(false)}
         tables={tables}
-        waiters={waiters}
+        waiters={waiterStaffOnly}
         categoryMap={categoryMap}
       />
     </>

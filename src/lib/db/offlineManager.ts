@@ -345,12 +345,13 @@ class OfflineManager {
                     }
 
                     if (order.order_type === 'dine-in' && cleanTableId) {
+                        const isOrderActive = order.status === 'pending' || order.status === 'preparing'
                         const { error: tableError } = await supabase
                             .from('restaurant_tables')
                             .update({
-                                status: 'occupied',
-                                waiter_id: cleanWaiterId,
-                                current_order_id: newOrder.id
+                                status: isOrderActive ? 'occupied' : 'available',
+                                waiter_id: isOrderActive ? cleanWaiterId : null,
+                                current_order_id: isOrderActive ? newOrder.id : null
                             })
                             .eq('id', cleanTableId)
                         if (tableError) throw tableError

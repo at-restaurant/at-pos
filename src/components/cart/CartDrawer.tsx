@@ -145,6 +145,11 @@ export default function CartDrawer({
     existingOrderId?: string;
     currentTotal?: number;
   } | null>(null);
+  
+  // ✅ NEW: Dynamically computed tables based on active orders
+  const [computedTables, setComputedTables] = useState(tables);
+  const [activeOrderIdsByTable, setActiveOrderIdsByTable] = useState<{ [key: string]: string }>({});
+
   const [editingQuantity, setEditingQuantity] = useState<{
     [key: string]: string;
   }>({});
@@ -176,6 +181,57 @@ export default function CartDrawer({
     };
     loadReceiptSettings();
   }, [categoryMap]);
+
+  // ✅ NEW: Re-verify table status when drawer opens
+  useEffect(() => {
+    if (isOpen) {
+      verifyTableOccupancy();
+    }
+  }, [isOpen, tables]);
+
+  const verifyTableOccupancy = async () => {
+    try {
+      const activeOrders = new Map<string, string>(); // tableId -> orderId
+      
+      // Check local pending orders
+      const localOrders = (await db.getAll(STORES.ORDERS)) as any[];
+      localOrders.forEach(o => {
+        if ((o.status === "pending" || o.status === "preparing") && o.table_id) {
+          activeOrders.set(o.table_id, o.id);
+        }
+      });
+      
+      // Also check online if available
+      if (typeof window !== "undefined" && navigator.onLine) {
+        const { data } = await supabase
+          .from("orders")
+          .select("id, table_id")
+          .in("status", ["pending", "preparing"])
+          .not("table_id", "is", null);
+          
+        if (data) {
+          data.forEach((o: any) => activeOrders.set(o.table_id, o.id));
+        }
+      }
+
+      // Compute actual table status
+      const updatedTables = tables.map(t => {
+        const hasActiveOrder = activeOrders.has(t.id);
+        return {
+          ...t,
+          // Force available if occupied but no active order found (Ghost Table fix)
+          status: (t.status === "occupied" && !hasActiveOrder) ? "available" : t.status
+        };
+      });
+
+      setComputedTables(updatedTables);
+      setActiveOrderIdsByTable(Object.fromEntries(activeOrders));
+      
+    } catch (err) {
+      console.error("Failed to verify table occupancy:", err);
+      setComputedTables(tables); // fallback
+    }
+  };
 
   const loadMenuCategories = async () => {
     try {
@@ -277,7 +333,7 @@ export default function CartDrawer({
   }, [cart.tableId, orderType]);
 
   const checkTableOccupancy = async (tableId: string) => {
-    const selectedTable = tables.find((t) => t.id === tableId);
+    const selectedTable = computedTables.find((t) => t.id === tableId);
     if (!selectedTable) return;
 
     if (selectedTable.status === "occupied") {
@@ -866,11 +922,12 @@ export default function CartDrawer({
                   style={{ colorScheme: "dark" }}
                 >
                   <option value="">Select table</option>
-                  {tables
+                  {computedTables
                     .filter(
                       (t) =>
                         t.status === "available" || t.status === "occupied",
                     )
+                    .sort((a, b) => a.table_number - b.table_number)
                     .map((t) => (
                       <option key={t.id} value={t.id}>
                         Table {t.table_number} - {t.section}{" "}

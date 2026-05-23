@@ -91,9 +91,14 @@ export default function TablesPage() {
             // Find waiter
             const waiter = waitersData.find(w => w.id === table.waiter_id)
 
+            let dynamicStatus = table.status
+
             // Find active order for this table
-            if (table.status === 'occupied' && table.current_order_id) {
-                const order = ordersData.find(o => o.id === table.current_order_id)
+            if (dynamicStatus === 'occupied') {
+                const order = ordersData.find(o => 
+                    o.id === table.current_order_id || 
+                    (o.table_id === table.id && (o.status === 'pending' || o.status === 'preparing'))
+                )
 
                 if (order) {
                     const items = (order.order_items && order.order_items.length > 0)
@@ -115,12 +120,16 @@ export default function TablesPage() {
                         (sum: number, item: any) => sum + item.quantity,
                         0
                     )
+                } else {
+                    // Auto-heal ghost table
+                    dynamicStatus = 'available'
                 }
             }
 
             return {
                 ...table,
-                waiter: table.status !== 'available' ? waiter : null,
+                status: dynamicStatus,
+                waiter: dynamicStatus !== 'available' ? waiter : null,
                 cumulativeTotal,
                 itemCount,
                 orderItems

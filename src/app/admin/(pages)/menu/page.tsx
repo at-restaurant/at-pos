@@ -111,18 +111,33 @@ export default function MenuPage() {
     }
 
     const deleteItem = async (id: string, imageUrl?: string) => {
-        if (!confirm('⚠️ Delete permanently?')) return
+        if (!confirm('⚠️ Delete this menu item permanently?')) return
         try {
-            await supabase.from('menu_items').delete().eq('id', id)
-            if (imageUrl?.includes('cloudinary')) {
-                const publicId = imageUrl.split('/').slice(-2).join('/').split('.')[0]
-                await fetch('/api/upload/cloudinary', {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ public_id: publicId })
-                })
+            // First attempt: hard delete
+            const { error: hardDeleteError } = await supabase.from('menu_items').delete().eq('id', id)
+
+            if (hardDeleteError) {
+                // Fallback: soft delete — hide from all menus without breaking order history
+                const { error: softDeleteError } = await supabase
+                    .from('menu_items')
+                    .update({ is_available: false })
+                    .eq('id', id)
+
+                if (softDeleteError) throw softDeleteError
+
+                toast.add('success', '✅ Item hidden from all menus! (Has order history, so kept in DB)')
+            } else {
+                // Hard delete succeeded — also remove Cloudinary image
+                if (imageUrl?.includes('cloudinary')) {
+                    const publicId = imageUrl.split('/').slice(-2).join('/').split('.')[0]
+                    await fetch('/api/upload/cloudinary', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ public_id: publicId })
+                    })
+                }
+                toast.add('success', '✅ Deleted permanently!')
             }
-            toast.add('success', '✅ Deleted!')
             await load()
         } catch (error: any) {
             toast.add('error', `❌ ${error.message}`)

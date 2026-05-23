@@ -4,7 +4,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Key, Save, Eye, EyeOff, User, Camera, ChevronDown, ChevronUp, Shield, Bell, Printer } from 'lucide-react'
+import { Key, Save, Eye, EyeOff, User, Camera, ChevronDown, ChevronUp, Shield, Bell, Printer, Clock } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { useAdminAuth } from '@/lib/hooks/useAdminAuth'
@@ -28,10 +28,12 @@ export default function SettingsPage() {
         profile: true,
         password: false,
         security: false,
-        receipt: false
+        receipt: false,
+        business: false
     })
 
     const [receiptForm, setReceiptForm] = useState({ phone: '', tax_percent: '0' })
+    const [businessForm, setBusinessForm] = useState({ start_of_day_time: '16:00', end_of_day_time: '04:00' })
 
     const [loading, setLoading] = useState(false)
     const [uploadingImage, setUploadingImage] = useState(false)
@@ -49,6 +51,7 @@ export default function SettingsPage() {
 
     useEffect(() => {
         const loadSettings = async () => {
+            // Load receipt settings
             const cached = await db.get(STORES.SETTINGS, 'receipt_settings')
             if (cached && (cached as any).value) {
                 setReceiptForm((cached as any).value)
@@ -58,12 +61,52 @@ export default function SettingsPage() {
                     setReceiptForm(JSON.parse(savedReceipt))
                 }
             }
+            // Load business settings
+            const cachedBusiness = await db.get(STORES.SETTINGS, 'business_settings')
+            if (cachedBusiness && (cachedBusiness as any).value) {
+                setBusinessForm((cachedBusiness as any).value)
+            } else {
+                const savedBusiness = localStorage.getItem('business_settings')
+                if (savedBusiness) {
+                    setBusinessForm(JSON.parse(savedBusiness))
+                }
+            }
         }
         loadSettings()
     }, [])
 
-    const toggleSection = (section: 'profile' | 'password' | 'security' | 'receipt') => {
+    const toggleSection = (section: 'profile' | 'password' | 'security' | 'receipt' | 'business') => {
         setOpenSections(prev => ({ ...prev, [section]: !prev[section] }))
+    }
+
+    const handleBusinessUpdate = async () => {
+        // Validate time format HH:MM
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/
+        if (!timeRegex.test(businessForm.start_of_day_time) || !timeRegex.test(businessForm.end_of_day_time)) {
+            return toast.add('error', '❌ Invalid time format. Use HH:MM (e.g. 04:00)')
+        }
+
+        localStorage.setItem('business_settings', JSON.stringify(businessForm))
+        await db.put(STORES.SETTINGS, { key: 'business_settings', value: businessForm })
+
+        let cloudSynced = false
+        if (navigator.onLine) {
+            try {
+                const supabase = createClient()
+                const { error } = await supabase
+                    .from('restaurant_settings')
+                    .upsert({ id: 1, start_of_day_time: businessForm.start_of_day_time, end_of_day_time: businessForm.end_of_day_time })
+
+                if (!error) cloudSynced = true
+            } catch (err) {
+                console.error('Cloud sync failed:', err)
+            }
+        }
+
+        toast.add('success', cloudSynced
+            ? '✅ Business hours saved & synced!'
+            : '✅ Business hours saved locally!'
+        )
     }
 
     const handleReceiptUpdate = async () => {
@@ -530,6 +573,89 @@ export default function SettingsPage() {
                                         💡 <strong>Tip:</strong> Use a strong password with at least 8 characters including letters, numbers, and symbols.
                                     </p>
                                 </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* BUSINESS HOURS SECTION */}
+                    <div className="bg-[var(--card)] border-2 border-[var(--border)] rounded-xl overflow-hidden transition-all hover:border-blue-600/30">
+                        <button
+                            onClick={() => toggleSection('business')}
+                            className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-[var(--bg)] transition-colors"
+                        >
+                            <div className="flex items-center gap-3 sm:gap-4">
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-600/10 rounded-lg flex items-center justify-center shrink-0">
+                                    <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+                                </div>
+                                <div className="text-left">
+                                    <h2 className="text-base sm:text-xl font-bold text-[var(--fg)]">Business Hours</h2>
+                                    <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">Set your custom End-of-Day reset time</p>
+                                </div>
+                            </div>
+                            {openSections.business ? (
+                                <ChevronUp className="w-5 h-5 text-[var(--muted)] shrink-0" />
+                            ) : (
+                                <ChevronDown className="w-5 h-5 text-[var(--muted)] shrink-0" />
+                            )}
+                        </button>
+
+                        {openSections.business && (
+                            <div className="p-4 sm:p-6 pt-0 border-t border-[var(--border)] space-y-4 animate-in slide-in-from-top-2">
+                                <div className="p-3 sm:p-4 bg-blue-600/10 border border-blue-600/30 rounded-lg">
+                                    <div className="flex items-start gap-3">
+                                        <Clock className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                                        <div>
+                                            <p className="font-semibold text-[var(--fg)] text-sm">📅 How this works</p>
+                                            <p className="text-xs text-[var(--muted)] mt-1">
+                                                Set the opening and closing times for your business "day". For example, if you open at <strong>16:00 (4 PM)</strong> and close at <strong>04:00 (4 AM)</strong>, the system considers everything between those hours as a single business day. All dashboard stats ("Today", etc.) and attendance resets will use this specific shift.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-[var(--fg)] mb-2">
+                                            Opening Time <span className="text-red-600">*</span>
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={businessForm.start_of_day_time}
+                                            onChange={e => setBusinessForm({ ...businessForm, start_of_day_time: e.target.value })}
+                                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm sm:text-base"
+                                            style={{ colorScheme: 'dark' }}
+                                        />
+                                        <p className="text-xs text-[var(--muted)] mt-1">Default: 16:00 (4 PM)</p>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-[var(--fg)] mb-2">
+                                            Closing Time <span className="text-red-600">*</span>
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={businessForm.end_of_day_time}
+                                            onChange={e => setBusinessForm({ ...businessForm, end_of_day_time: e.target.value })}
+                                            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm sm:text-base"
+                                            style={{ colorScheme: 'dark' }}
+                                        />
+                                        <p className="text-xs text-[var(--muted)] mt-1">Default: 04:00 (4 AM)</p>
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-xs text-[var(--muted)]">
+                                    <p className="font-semibold text-[var(--fg)] mb-1">⚠️ Current Setting</p>
+                                    <p>Business day shift: <strong className="text-blue-600">{businessForm.start_of_day_time}</strong> to <strong className="text-blue-600">{businessForm.end_of_day_time}</strong></p>
+                                    <p className="mt-1 text-yellow-600">✨ Attendance & stats will reset automatically when crossing the closing time.</p>
+                                </div>
+
+                                <button
+                                    onClick={handleBusinessUpdate}
+                                    className="w-full px-4 py-2.5 sm:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center justify-center gap-2 transition-all active:scale-95 text-sm sm:text-base"
+                                >
+                                    <Save className="w-4 h-4 sm:w-5 sm:h-5" />
+                                    Save Business Hours
+                                </button>
                             </div>
                         )}
                     </div>
