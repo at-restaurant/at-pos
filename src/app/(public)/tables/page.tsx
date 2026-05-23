@@ -137,7 +137,7 @@ export default function TablesPage() {
         })
     }
 
-    // ✅ Background sync from Supabase
+    // ✅ Background sync from Supabase (SAFE: preserves unsynced offline orders)
     const syncTablesInBackground = async () => {
         try {
             // Fetch tables with waiters
@@ -148,10 +148,31 @@ export default function TablesPage() {
 
             if (!tablesData) return
 
+            // ✅ QUEUE OVERLAY ENGINE: Apply pending table updates before caching
+            let safeTables = [...tablesData]
+            try {
+                const allQueueItems = await db.getAll(STORES.SYNC_QUEUE) as any[]
+                const pendingTableUpdates = allQueueItems.filter(item => item.table === 'restaurant_tables' && item.status === 'pending')
+                
+                if (pendingTableUpdates.length > 0) {
+                    for (const update of pendingTableUpdates) {
+                        const dataId = update.data.id
+                        if (!dataId) continue
+                        const index = safeTables.findIndex(item => item.id === dataId)
+                        if (index !== -1) {
+                            safeTables[index] = { ...safeTables[index], ...update.data }
+                        }
+                    }
+                    console.log(`🔄 Applied ${pendingTableUpdates.length} pending table updates onto fresh data`)
+                }
+            } catch (err) {
+                console.error('Queue overlay error:', err)
+            }
+
             // Cache tables
             await db.put(STORES.SETTINGS, {
                 key: 'restaurant_tables',
-                value: tablesData
+                value: safeTables
             })
 
             // Fetch all active orders
@@ -163,17 +184,29 @@ export default function TablesPage() {
                 `)
                 .eq('status', 'pending')
 
-            // Cache orders
+            // ✅ SAFE Cache orders: Preserve unsynced offline orders!
             if (ordersData) {
-                await db.clear(STORES.ORDERS)
-                await db.bulkPut(STORES.ORDERS, ordersData)
+                const allLocalOrders = await db.getAll(STORES.ORDERS) as any[]
+                const unsyncedOfflineOrders = allLocalOrders.filter(o => o.id && o.id.startsWith('offline_') && !o.synced)
+                const unsyncedIds = new Set(unsyncedOfflineOrders.map(o => o.id))
+
+                // Delete only synced/cached orders (NOT unsynced offline ones)
+                for (const o of allLocalOrders) {
+                    if (!unsyncedIds.has(o.id)) {
+                        await db.delete(STORES.ORDERS, o.id)
+                    }
+                }
+                if (ordersData.length > 0) {
+                    await db.bulkPut(STORES.ORDERS, ordersData.map((o: any) => ({ ...o, synced: true, cached: true })))
+                }
             }
 
-            // Enrich and update state
+            // Enrich and update state (include offline orders too)
+            const allOrdersNow = await db.getAll(STORES.ORDERS) as any[]
             const enrichedTables = await enrichTablesWithOrders(
-                tablesData,
-                tablesData.map((t: any) => t.waiters).filter(Boolean),
-                ordersData || []
+                safeTables,
+                safeTables.map((t: any) => t.waiters).filter(Boolean),
+                allOrdersNow
             )
 
             setTables(enrichedTables)

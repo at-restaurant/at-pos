@@ -25,7 +25,7 @@ function generateUUID(): string {
     })
 }
 
-const inFlightRequests = new Map<string, Promise<any>>()
+const inFlightRequests = new Map<string, Promise<any> | { timestamp: number; order: any }>()
 
 // ✅ SIMPLIFIED: Only reduce menu item stock
 export async function reduceMenuStock(
@@ -443,12 +443,21 @@ export function useOrderManagement() {
     }, [markPrinted, completeOrder, toast, supabase])
 
     const createOrder = useCallback(async (orderData: any, items: any[]) => {
+        // Robust idempotency key based on contents to prevent double-clicks
+        const itemsHash = items.map(i => `${i.id}x${i.quantity}`).join('_')
         const idempotencyKey = orderData.idempotencyKey ||
-            `order_${orderData.table_id || 'delivery'}_${Date.now()}`
+            `order_${orderData.table_id || 'no_table'}_${itemsHash}`
 
+        // Check if request is in-flight OR recently completed (within 3 seconds)
         if (inFlightRequests.has(idempotencyKey)) {
-            console.log('🔄 Order creation already in progress')
-            return inFlightRequests.get(idempotencyKey)!
+            const entry = inFlightRequests.get(idempotencyKey)!
+            if (entry instanceof Promise) {
+                console.log('🔄 Order creation already in progress')
+                return entry
+            } else if (Date.now() - entry.timestamp < 3000) {
+                console.log('⚠️ Rapid duplicate order blocked')
+                return { success: true, order: entry.order, isDuplicate: true }
+            }
         }
 
         setLoading(true)
@@ -499,11 +508,20 @@ export function useOrderManagement() {
                             }
                         })
 
-                        const { error: itemsError } = await supabase
+                        const { data: insertedItems, error: itemsError } = await supabase
                             .from('order_items')
                             .insert(orderItems)
+                            .select()
 
                         if (itemsError) throw itemsError
+
+                        // ✅ NEW: Store locally immediately for offline consistency
+                        await db.put(STORES.ORDERS, { ...order, synced: true })
+                        if (insertedItems) {
+                            for (const item of insertedItems) {
+                                await db.put(STORES.ORDER_ITEMS, item)
+                            }
+                        }
 
                         // ✅ UPDATED: Reduce both menu stock AND linked ingredients
                         for (const item of items) {
@@ -607,11 +625,19 @@ export function useOrderManagement() {
                 return { success: false, error: error.message }
             } finally {
                 setLoading(false)
-                inFlightRequests.delete(idempotencyKey)
             }
         })()
 
         inFlightRequests.set(idempotencyKey, createPromise)
+
+        // Retain the idempotency key for 3 seconds to prevent rapid double-clicks
+        createPromise.then((res: any) => {
+            inFlightRequests.set(idempotencyKey, { timestamp: Date.now(), order: res?.order })
+            setTimeout(() => inFlightRequests.delete(idempotencyKey), 3000)
+        }).catch(() => {
+            inFlightRequests.delete(idempotencyKey)
+        })
+
         return createPromise
     }, [supabase, toast])
 

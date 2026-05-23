@@ -4,7 +4,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Key, Save, Eye, EyeOff, User, Camera, ChevronDown, ChevronUp, Shield, Bell, Printer, Clock } from 'lucide-react'
+import { Key, Save, Eye, EyeOff, User, Camera, ChevronDown, ChevronUp, Shield, Bell, Printer, Clock, Trash2, AlertTriangle } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { useAdminAuth } from '@/lib/hooks/useAdminAuth'
@@ -29,8 +29,19 @@ export default function SettingsPage() {
         password: false,
         security: false,
         receipt: false,
-        business: false
+        business: false,
+        cleanup: false
     })
+
+    // Data cleanup state
+    const [cleanupForm, setCleanupForm] = useState({
+        dataType: 'orders',
+        olderThan: '30', // days
+        confirmPin: ''
+    })
+    const [cleanupPreview, setCleanupPreview] = useState<number | null>(null)
+    const [cleanupLoading, setCleanupLoading] = useState(false)
+    const [cleanupStep, setCleanupStep] = useState<'config' | 'confirm' | 'done'>('config')
 
     const [receiptForm, setReceiptForm] = useState({ phone: '', tax_percent: '0' })
     const [businessForm, setBusinessForm] = useState({ start_of_day_time: '16:00', end_of_day_time: '04:00' })
@@ -75,8 +86,98 @@ export default function SettingsPage() {
         loadSettings()
     }, [])
 
-    const toggleSection = (section: 'profile' | 'password' | 'security' | 'receipt' | 'business') => {
+    const toggleSection = (section: 'profile' | 'password' | 'security' | 'receipt' | 'business' | 'cleanup') => {
         setOpenSections(prev => ({ ...prev, [section]: !prev[section] }))
+    }
+
+    const handleCleanupPreview = async () => {
+        if (!cleanupForm.olderThan || isNaN(Number(cleanupForm.olderThan)) || Number(cleanupForm.olderThan) < 1) {
+            return toast.add('error', '❌ Enter a valid number of days (min 1)')
+        }
+        setCleanupLoading(true)
+        try {
+            const supabase = createClient()
+            const cutoffDate = new Date()
+            cutoffDate.setDate(cutoffDate.getDate() - Number(cleanupForm.olderThan))
+            const cutoff = cutoffDate.toISOString()
+
+            let count = 0
+            if (cleanupForm.dataType === 'orders') {
+                const { count: c } = await supabase
+                    .from('orders')
+                    .select('id', { count: 'exact', head: true })
+                    .lt('created_at', cutoff)
+                    .in('status', ['completed', 'cancelled'])
+                count = c || 0
+            } else if (cleanupForm.dataType === 'inventory_history') {
+                const { count: c } = await supabase
+                    .from('inventory_history')
+                    .select('id', { count: 'exact', head: true })
+                    .lt('created_at', cutoff)
+                count = c || 0
+            } else if (cleanupForm.dataType === 'attendance') {
+                const { count: c } = await supabase
+                    .from('attendance')
+                    .select('id', { count: 'exact', head: true })
+                    .lt('date', cutoffDate.toISOString().split('T')[0])
+                count = c || 0
+            }
+
+            setCleanupPreview(count)
+            setCleanupStep('confirm')
+        } catch (err) {
+            toast.add('error', '❌ Preview failed. Check connection.')
+        } finally {
+            setCleanupLoading(false)
+        }
+    }
+
+    const handleCleanupExecute = async () => {
+        if (cleanupForm.confirmPin !== 'DELETE') {
+            return toast.add('error', '❌ Type DELETE exactly to confirm')
+        }
+        setCleanupLoading(true)
+        try {
+            const supabase = createClient()
+            const cutoffDate = new Date()
+            cutoffDate.setDate(cutoffDate.getDate() - Number(cleanupForm.olderThan))
+            const cutoff = cutoffDate.toISOString()
+
+            if (cleanupForm.dataType === 'orders') {
+                // First get order IDs to delete their items
+                const { data: ordersToDelete } = await supabase
+                    .from('orders')
+                    .select('id')
+                    .lt('created_at', cutoff)
+                    .in('status', ['completed', 'cancelled'])
+
+                if (ordersToDelete && ordersToDelete.length > 0) {
+                    const ids = ordersToDelete.map((o: any) => o.id)
+                    // Delete order items first (FK constraint)
+                    await supabase.from('order_items').delete().in('order_id', ids)
+                    // Then delete orders
+                    await supabase.from('orders').delete().in('id', ids)
+                    // Also clean local IndexedDB cache
+                    const localOrders = await db.getAll(STORES.ORDERS) as any[]
+                    for (const o of localOrders) {
+                        if (ids.includes(o.id)) await db.delete(STORES.ORDERS, o.id)
+                    }
+                }
+            } else if (cleanupForm.dataType === 'inventory_history') {
+                await supabase.from('inventory_history').delete().lt('created_at', cutoff)
+            } else if (cleanupForm.dataType === 'attendance') {
+                await supabase.from('attendance').delete().lt('date', cutoffDate.toISOString().split('T')[0])
+            }
+
+            toast.add('success', `✅ Cleaned up ${cleanupPreview} records from Supabase!`)
+            setCleanupStep('done')
+            setCleanupForm(prev => ({ ...prev, confirmPin: '' }))
+            setCleanupPreview(null)
+        } catch (err: any) {
+            toast.add('error', `❌ Cleanup failed: ${err.message}`)
+        } finally {
+            setCleanupLoading(false)
+        }
     }
 
     const handleBusinessUpdate = async () => {
@@ -722,6 +823,157 @@ export default function SettingsPage() {
                                     <Save className="w-4 h-4 sm:w-5 sm:h-5" />
                                     Save Receipt Settings
                                 </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* DATA CLEANUP SECTION */}
+                    <div className="bg-[var(--card)] border-2 border-[var(--border)] rounded-xl overflow-hidden transition-all hover:border-red-600/20">
+                        <button
+                            onClick={() => toggleSection('cleanup')}
+                            className="w-full flex items-center justify-between p-4 sm:p-5 hover:bg-[var(--bg)] transition-colors"
+                        >
+                            <div className="flex items-center gap-3 sm:gap-4">
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-red-600/10 rounded-lg flex items-center justify-center shrink-0">
+                                    <Trash2 className="w-5 h-5 sm:w-6 sm:h-6 text-red-600/70" />
+                                </div>
+                                <div className="text-left">
+                                    <h2 className="text-base sm:text-xl font-bold text-[var(--fg)]">Data Maintenance</h2>
+                                    <p className="text-xs sm:text-sm text-[var(--muted)] mt-0.5">Clear old historical records to free up database space</p>
+                                </div>
+                            </div>
+                            {openSections.cleanup ? (
+                                <ChevronUp className="w-5 h-5 text-[var(--muted)] shrink-0" />
+                            ) : (
+                                <ChevronDown className="w-5 h-5 text-[var(--muted)] shrink-0" />
+                            )}
+                        </button>
+
+                        {openSections.cleanup && (
+                            <div className="p-4 sm:p-6 pt-0 border-t border-red-600/20 space-y-4 animate-in slide-in-from-top-2">
+                                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
+                                    <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="text-sm font-semibold text-red-600">Permanent Deletion</p>
+                                        <p className="text-xs text-[var(--muted)] mt-1">
+                                            Records deleted from Supabase <strong>cannot be recovered</strong>. Use this only to free up database space. Only <em>completed/cancelled</em> orders are eligible.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {cleanupStep === 'done' ? (
+                                    <div className="text-center py-8">
+                                        <div className="text-5xl mb-3">✅</div>
+                                        <p className="font-bold text-[var(--fg)]">Cleanup Complete!</p>
+                                        <p className="text-sm text-[var(--muted)] mt-1">Old records have been permanently deleted.</p>
+                                        <button onClick={() => setCleanupStep('config')} className="mt-4 px-4 py-2 border border-[var(--border)] rounded-lg text-sm text-[var(--fg)] hover:bg-[var(--bg)] transition-colors">
+                                            ← Run Another Cleanup
+                                        </button>
+                                    </div>
+                                ) : cleanupStep === 'confirm' ? (
+                                    <div className="space-y-4">
+                                        <div className="p-4 bg-orange-500/10 border-2 border-orange-500/40 rounded-lg text-center">
+                                            <p className="text-3xl font-bold text-orange-600">{cleanupPreview}</p>
+                                            <p className="text-sm text-[var(--muted)] mt-1">
+                                                records older than <strong>{cleanupForm.olderThan} days</strong> in <strong>{cleanupForm.dataType.replace('_', ' ')}</strong>
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-[var(--fg)] mb-2">
+                                                Type <strong className="text-red-600">DELETE</strong> to permanently remove these {cleanupPreview} records
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={cleanupForm.confirmPin}
+                                                onChange={e => setCleanupForm({ ...cleanupForm, confirmPin: e.target.value })}
+                                                placeholder="Type DELETE here..."
+                                                className="w-full px-3 py-2.5 bg-[var(--bg)] border-2 border-red-500/40 rounded-lg text-[var(--fg)] placeholder:text-[var(--muted)] focus:outline-none focus:border-red-600 text-sm font-mono tracking-wider"
+                                            />
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <button
+                                                onClick={() => { setCleanupStep('config'); setCleanupForm(p => ({ ...p, confirmPin: '' })); setCleanupPreview(null) }}
+                                                className="flex-1 px-4 py-2.5 border border-[var(--border)] rounded-lg text-sm text-[var(--fg)] hover:bg-[var(--bg)] transition-colors"
+                                            >
+                                                ← Cancel
+                                            </button>
+                                            <button
+                                                onClick={handleCleanupExecute}
+                                                disabled={cleanupLoading || cleanupForm.confirmPin !== 'DELETE'}
+                                                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                            >
+                                                {cleanupLoading
+                                                    ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                    : <Trash2 className="w-4 h-4" />
+                                                }
+                                                Delete {cleanupPreview} Records
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-[var(--fg)] mb-2">What to clean up</label>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                {[
+                                                    { value: 'orders', label: '🛒 Orders', desc: 'Completed & cancelled orders with their items' },
+                                                    { value: 'inventory_history', label: '📦 Inventory Log', desc: 'Purchase & usage history records' },
+                                                    { value: 'attendance', label: '🕐 Attendance', desc: 'Staff check-in/out records' }
+                                                ].map(opt => (
+                                                    <button
+                                                        key={opt.value}
+                                                        type="button"
+                                                        onClick={() => setCleanupForm(p => ({ ...p, dataType: opt.value }))}
+                                                        className={`p-3 rounded-lg border-2 text-left transition-all ${cleanupForm.dataType === opt.value ? 'border-red-600 bg-red-600/10' : 'border-[var(--border)] hover:border-red-600/40'}`}
+                                                    >
+                                                        <p className="text-sm font-semibold text-[var(--fg)]">{opt.label}</p>
+                                                        <p className="text-[10px] text-[var(--muted)] mt-1 leading-tight">{opt.desc}</p>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-[var(--fg)] mb-2">Delete records older than</label>
+                                            <div className="flex items-center gap-3 flex-wrap">
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max="3650"
+                                                    value={cleanupForm.olderThan}
+                                                    onChange={e => setCleanupForm(p => ({ ...p, olderThan: e.target.value }))}
+                                                    className="w-28 px-3 py-2.5 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-[var(--fg)] focus:outline-none focus:ring-2 focus:ring-red-600 text-sm text-center font-bold"
+                                                />
+                                                <span className="text-sm text-[var(--muted)]">days</span>
+                                                <span className="text-xs text-[var(--muted)]">
+                                                    (before: {(() => { const d = new Date(); d.setDate(d.getDate() - Number(cleanupForm.olderThan || 30)); return d.toLocaleDateString('en-PK') })()})
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2 mt-2">
+                                                {[30, 60, 90, 180, 365].map(d => (
+                                                    <button
+                                                        key={d}
+                                                        type="button"
+                                                        onClick={() => setCleanupForm(p => ({ ...p, olderThan: d.toString() }))}
+                                                        className={`px-2.5 py-1 text-xs rounded-full border transition-all ${cleanupForm.olderThan === d.toString() ? 'bg-red-600 text-white border-red-600' : 'border-[var(--border)] text-[var(--muted)] hover:border-red-600/50'}`}
+                                                    >
+                                                        {d}d
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={handleCleanupPreview}
+                                            disabled={cleanupLoading}
+                                            className="w-full px-4 py-2.5 bg-[var(--bg)] border-2 border-red-600/40 text-red-600 rounded-lg hover:bg-red-600/10 font-medium text-sm transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                                        >
+                                            {cleanupLoading
+                                                ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                                                : <AlertTriangle className="w-4 h-4" />
+                                            }
+                                            Preview Records to Delete
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

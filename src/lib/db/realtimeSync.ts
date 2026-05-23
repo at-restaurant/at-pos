@@ -35,7 +35,8 @@ export class RealtimeSync {
     private setupOnlineListener() {
         const handleOnline = () => {
             if (!this.isDestroyed) {
-                setTimeout(() => this.syncAll(), 1000)
+                // Wait a bit longer (3s) to ensure connection is actually stable before firing sync
+                setTimeout(() => this.syncAll(), 3000)
             }
         }
 
@@ -113,17 +114,32 @@ export class RealtimeSync {
         try {
             const allOrders = (await db.getAll(STORES.ORDERS)) as any[]
 
-            // ✅ KEY FIX: Filter out already synced orders (cancelled orders are now synced!)
+            // ✅ KEY FIX: Filter out already synced orders AND cancelled offline orders
             const pendingOrders = allOrders.filter(
                 o => !o.synced &&
-                    o.id.startsWith('offline_')
+                    o.id.startsWith('offline_') &&
+                    o.status !== 'cancelled'  // Never upload cancelled offline orders
             )
+
+            // ✅ Clean up cancelled offline orders locally (they were never on the server)
+            const cancelledOfflineOrders = allOrders.filter(
+                o => o.id.startsWith('offline_') && o.status === 'cancelled' && !o.synced
+            )
+            for (const cancelled of cancelledOfflineOrders) {
+                await db.delete(STORES.ORDERS, cancelled.id)
+                // Also clean up their order_items
+                const allItems = await db.getAll(STORES.ORDER_ITEMS) as any[]
+                for (const item of allItems.filter(i => i.order_id === cancelled.id)) {
+                    await db.delete(STORES.ORDER_ITEMS, item.id)
+                }
+                console.log(`🗑️ Cleaned up cancelled offline order: ${cancelled.id}`)
+            }
 
             if (pendingOrders.length === 0) {
                 return { success: true, synced: 0 }
             }
 
-            console.log(`🔄 Syncing ${pendingOrders.length} orders (excluding cancelled)`)
+            console.log(`🔄 Syncing ${pendingOrders.length} orders`)
 
             for (const order of pendingOrders) {
                 if (this.isDestroyed) break
@@ -278,9 +294,27 @@ export class RealtimeSync {
                         }
                         await db.delete(STORES.SYNC_QUEUE, update.id)
                         synced++
+                    } else if (update.table === 'inventory_items') {
+                        const { id, ...fieldsToUpdate } = update.data
+                        if (id) {
+                            const { error } = await supabase
+                                .from('inventory_items')
+                                .update(fieldsToUpdate)
+                                .eq('id', id)
+                            if (error) throw error
+                        }
+                        await db.delete(STORES.SYNC_QUEUE, update.id)
+                        synced++
                     }
                 } catch (error: any) {
-                    console.error(`Queue item sync error for table ${update.table}:`, error?.message || error)
+                    const errMsg = error?.message || error
+                    console.error(`Queue item sync error for table ${update.table}:`, errMsg)
+                    
+                    const isNetworkError = String(errMsg).includes('Failed to fetch') || String(errMsg).includes('NetworkError') || !navigator.onLine
+                    if (isNetworkError) {
+                        console.warn('Network seems offline or unstable. Stopping queue sync for now.')
+                        break // Abort loop if network drops
+                    }
                 }
             }
 

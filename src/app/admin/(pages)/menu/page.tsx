@@ -146,12 +146,17 @@ export default function MenuPage() {
 
     const openModal = (item?: any) => {
         if (item) {
+            const tracksStock = item.track_stock ?? false
+            // If track_stock is false (unlimited), don't show 999 in the field
+            const displayQty = tracksStock
+                ? (item.stock_quantity === 999 ? '1' : (item.stock_quantity ?? 1).toString())
+                : '1'
             setForm({
                 name: item.name, category_id: item.category_id, price: item.price.toString(),
                 description: item.description || '', image_url: item.image_url || '',
-                stock_quantity: (item.stock_quantity ?? 1).toString(), stock_unit: item.stock_unit || 'piece',
+                stock_quantity: displayQty, stock_unit: item.stock_unit || 'piece',
                 linked_ingredients: item.linked_ingredients || [],
-                track_stock: item.track_stock ?? false,
+                track_stock: tracksStock,
                 variants: item.variants || []
             })
             setShowIngredients(item.linked_ingredients?.length > 0)
@@ -405,17 +410,33 @@ export default function MenuPage() {
                         <ResponsiveInput label="Category" type="select" value={form.category_id} onChange={e => setForm({ ...form, category_id: e.target.value })}
                                          options={categories.map(c => ({ label: `${c.icon || '📋'} ${c.name}`, value: c.id }))} required key={refreshKey} />
 
-                        <div className="flex items-center gap-2 p-2.5 bg-[var(--bg)] border border-[var(--border)] rounded-lg">
+                        <div
+                            className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition-all ${
+                                form.track_stock
+                                    ? 'border-blue-600 bg-blue-600/10'
+                                    : 'border-[var(--border)] bg-green-500/5'
+                            }`}
+                            onClick={() => setForm({ ...form, track_stock: !form.track_stock })}
+                        >
                             <input
                                 type="checkbox"
                                 id="track_stock"
                                 checked={form.track_stock}
                                 onChange={e => setForm({ ...form, track_stock: e.target.checked })}
+                                onClick={e => e.stopPropagation()}
                                 className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 bg-[var(--card)] border-[var(--border)]"
                             />
-                            <label htmlFor="track_stock" className="text-xs font-semibold text-[var(--fg)] cursor-pointer select-none">
-                                Track Inventory/Stock Quantity
-                            </label>
+                            <div className="flex-1">
+                                <label htmlFor="track_stock" className="text-xs font-semibold text-[var(--fg)] cursor-pointer select-none block">
+                                    Track Inventory / Stock Quantity
+                                </label>
+                                <p className="text-[10px] mt-0.5">
+                                    {form.track_stock
+                                        ? <span className="text-blue-600">📦 Tracking: system will count down stock as orders are placed</span>
+                                        : <span className="text-green-600">✨ Unlimited: no stock limit, never runs out</span>
+                                    }
+                                </p>
+                            </div>
                         </div>
 
                         {form.track_stock && (

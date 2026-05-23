@@ -59,7 +59,10 @@ export function useAttendanceOffline() {
                     console.log('✅ Server reset completed')
                 } catch (error) {
                     console.error('Server reset failed, offline mode active:', error)
+                    await addToQueue('update', 'system_reset', { id: resetKey, type: 'attendance_daily_reset', endOfDayTime: getEndOfDayTime() })
                 }
+            } else {
+                await addToQueue('update', 'system_reset', { id: resetKey, type: 'attendance_daily_reset', endOfDayTime: getEndOfDayTime() })
             }
 
             localStorage.setItem('last_attendance_reset', resetKey)
@@ -102,7 +105,29 @@ export function useAttendanceOffline() {
                 .order('name')
 
             if (data && Array.isArray(data)) {
-                const sorted = data.sort((a: any, b: any) => {
+                let safeFreshData = [...data]
+
+                // ✅ QUEUE OVERLAY ENGINE for Waiters
+                try {
+                    const allQueueItems = await db.getAll(STORES.SYNC_QUEUE) as any[]
+                    const pendingUpdates = allQueueItems.filter(item => item.table === 'waiters' && item.status === 'pending')
+                    
+                    if (pendingUpdates.length > 0) {
+                        for (const update of pendingUpdates) {
+                            const dataId = update.data.id
+                            if (!dataId) continue
+                            
+                            const index = safeFreshData.findIndex(item => item.id === dataId)
+                            if (index !== -1) {
+                                safeFreshData[index] = { ...safeFreshData[index], ...update.data }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Queue overlay error:', err)
+                }
+
+                const sorted = safeFreshData.sort((a: any, b: any) => {
                     if (a.is_on_duty && !b.is_on_duty) return -1
                     if (!a.is_on_duty && b.is_on_duty) return 1
                     return a.name.localeCompare(b.name)

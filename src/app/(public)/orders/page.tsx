@@ -118,7 +118,7 @@ export default function OrdersPage() {
                 .from('menu_items')
                 .select('id, category_id, menu_categories(name, icon)')
 
-            if (data) {
+            if (Array.isArray(data)) {
                 const categoryMap: { [key: string]: { name: string; icon: string } } = {}
                 data.forEach((item: any) => {
                     if (item.menu_categories) {
@@ -479,50 +479,60 @@ export default function OrdersPage() {
                 updated_at: new Date().toISOString()
             }
 
+            let updatedOnline = false
             if (isOnline && !isOfflineOrder) {
-                // ✅ ONLINE: Direct Supabase update
-                const { error } = await supabase
-                    .from('orders')
-                    .update({
-                        status: 'cancelled',
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', order.id)
-
-                if (error) throw error
-
-                // Update order locally
-                await db.put(STORES.ORDERS, updatedOrder)
-
-                // Free up table
-                if (order.order_type === 'dine-in' && order.table_id) {
-                    await supabase
-                        .from('restaurant_tables')
+                try {
+                    // ✅ ONLINE: Direct Supabase update
+                    const { error } = await supabase
+                        .from('orders')
                         .update({
-                            status: 'available',
-                            current_order_id: null,
-                            waiter_id: null
+                            status: 'cancelled',
+                            updated_at: new Date().toISOString()
                         })
-                        .eq('id', order.table_id)
+                        .eq('id', order.id)
 
-                    // Update table status locally
-                    const tablesCache = await db.get(STORES.SETTINGS, 'restaurant_tables') as any
-                    if (tablesCache && tablesCache.value) {
-                        const updatedTables = tablesCache.value.map((t: any) => {
-                            if (t.id === order.table_id) {
-                                return {
-                                    ...t,
-                                    status: 'available',
-                                    current_order_id: null,
-                                    waiter_id: null
+                    if (error) throw error
+
+                    // Update order locally
+                    await db.put(STORES.ORDERS, updatedOrder)
+
+                    // Free up table
+                    if (order.order_type === 'dine-in' && order.table_id) {
+                        await supabase
+                            .from('restaurant_tables')
+                            .update({
+                                status: 'available',
+                                current_order_id: null,
+                                waiter_id: null
+                            })
+                            .eq('id', order.table_id)
+
+                        // Update table status locally
+                        const tablesCache = await db.get(STORES.SETTINGS, 'restaurant_tables') as any
+                        if (tablesCache && tablesCache.value) {
+                            const updatedTables = tablesCache.value.map((t: any) => {
+                                if (t.id === order.table_id) {
+                                    return {
+                                        ...t,
+                                        status: 'available',
+                                        current_order_id: null,
+                                        waiter_id: null
+                                    }
                                 }
-                            }
-                            return t
-                        })
-                        await db.put(STORES.SETTINGS, { key: 'restaurant_tables', value: updatedTables })
+                                return t
+                            })
+                            await db.put(STORES.SETTINGS, { key: 'restaurant_tables', value: updatedTables })
+                        }
                     }
+                    updatedOnline = true
+                } catch (netErr: any) {
+                    const isNetErr = netErr?.message?.includes('Failed to fetch') || netErr?.message?.includes('NetworkError') || !navigator.onLine
+                    if (!isNetErr) throw netErr
+                    console.warn('Failed to cancel online due to network, falling back to offline sync queue')
                 }
-            } else {
+            }
+            
+            if (!updatedOnline) {
                 // ✅ OFFLINE: Store in IndexedDB + Queue for sync
 
                 // For offline orders, mark as synced (won't upload)

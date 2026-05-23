@@ -47,33 +47,51 @@ export function InventoryModal({ isOpen, onClose }: { isOpen: boolean, onClose: 
 
         setUpdatingId(id)
         try {
-            if (!navigator.onLine) {
-                toast.add('error', 'Cannot update stock while offline')
-                setUpdatingId(null)
-                return
+            const newQty = currentQty + addAmount
+
+            if (navigator.onLine) {
+                const { error } = await supabase
+                    .from('inventory_items')
+                    .update({ quantity: newQty, updated_at: new Date().toISOString() })
+                    .eq('id', id)
+
+                if (error) throw error
+                
+                // Log the purchase history
+                await supabase.from('inventory_history').insert({
+                    item_id: id,
+                    change_type: 'restock',
+                    quantity: addAmount,
+                    notes: `Purchased at price: ${price}`
+                })
+            } else {
+                // ✅ OFFLINE: Queue the update for later sync
+                const { addToQueue } = await import('@/lib/db/syncQueue')
+                await addToQueue('update', 'inventory_items', {
+                    id,
+                    quantity: newQty,
+                    updated_at: new Date().toISOString()
+                })
             }
 
-            const newQty = currentQty + addAmount
-            const { error } = await supabase
-                .from('inventory_items')
-                .update({ quantity: newQty, updated_at: new Date().toISOString() })
-                .eq('id', id)
+            // ✅ Update local cache immediately for instant feedback (both online and offline)
+            const { db: localDb } = await import('@/lib/db/indexedDB')
+            const { STORES: localStores } = await import('@/lib/db/schema')
+            const allItems = await localDb.getAll(localStores.INVENTORY_ITEMS) as any[]
+            const itemToUpdate = allItems.find(i => i.id === id)
+            if (itemToUpdate) {
+                await localDb.put(localStores.INVENTORY_ITEMS, {
+                    ...itemToUpdate,
+                    quantity: newQty,
+                    updated_at: new Date().toISOString()
+                })
+            }
 
-            if (error) throw error
-            
-            // Log the purchase history (optional but good practice)
-            await supabase.from('inventory_history').insert({
-                item_id: id,
-                change_type: 'restock',
-                quantity: addAmount,
-                notes: `Purchased at price: ${price}`
-            })
-
-            refresh() // Refresh from Supabase
+            refresh()
             
             setAddQuantity(prev => ({ ...prev, [id]: '' }))
             setAddPrice(prev => ({ ...prev, [id]: '' }))
-            toast.add('success', 'Stock updated successfully')
+            toast.add('success', `Stock updated${!navigator.onLine ? ' (offline - will sync)' : ''}`)
         } catch (error: any) {
             toast.add('error', `Update failed: ${error.message}`)
         } finally {

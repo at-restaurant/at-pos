@@ -151,10 +151,34 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
             if (error) throw error
 
             if (freshData) {
+                const safeFreshData: any[] = Array.isArray(freshData) ? [...freshData] : []
+
+                // ✅ QUEUE OVERLAY ENGINE: Apply pending local updates to fresh data before caching
+                try {
+                    const allQueueItems = await db.getAll(STORES.SYNC_QUEUE) as any[]
+                    const pendingUpdates = allQueueItems.filter(item => item.table === options.table && item.status === 'pending')
+                    
+                    if (pendingUpdates.length > 0) {
+                        for (const update of pendingUpdates) {
+                            const dataId = update.data.id
+                            if (!dataId) continue
+                            
+                            const index = safeFreshData.findIndex(item => item.id === dataId)
+                            if (index !== -1) {
+                                // Overlay the local fields on top of the server fields
+                                safeFreshData[index] = { ...safeFreshData[index], ...update.data }
+                            }
+                        }
+                        console.log(`🔄 Applied ${pendingUpdates.length} pending local updates onto fresh ${options.table} data`)
+                    }
+                } catch (err) {
+                    console.error('Queue overlay error:', err)
+                }
+
                 if (options.store === 'restaurant_tables' || options.store === 'waiters') {
                     await db.put(STORES.SETTINGS, {
                         key: options.store,
-                        value: freshData
+                        value: safeFreshData
                     })
                 } else if (options.store === STORES.ORDERS) {
                     // SAFELY preserve unsynced offline orders without using db.clear()
@@ -170,16 +194,16 @@ export function useOfflineFirst<T = any>(options: UseOfflineFirstOptions) {
                         }
                     }
 
-                    if (freshData.length > 0) {
-                        await db.bulkPut(options.store, freshData.map((o: any) => ({ ...o, synced: true, cached: true })))
+                    if (safeFreshData.length > 0) {
+                        await db.bulkPut(options.store, safeFreshData.map((o: any) => ({ ...o, synced: true, cached: true })))
                     }
                     
-                    // ✅ KEY FIX: Add unsynced offline orders to freshData so they don't vanish from the UI
-                    freshData.push(...unsyncedOfflineOrders)
+                    // ✅ KEY FIX: Add unsynced offline orders to safeFreshData so they don't vanish from the UI
+                    safeFreshData.push(...unsyncedOfflineOrders)
                 } else {
                     await db.clear(options.store)
-                    if (freshData.length > 0) {
-                        await db.bulkPut(options.store, freshData)
+                    if (safeFreshData.length > 0) {
+                        await db.bulkPut(options.store, safeFreshData)
                     }
                 }
 
