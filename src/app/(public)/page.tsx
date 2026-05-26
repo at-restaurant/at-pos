@@ -148,12 +148,14 @@ export default function MenuPage() {
   const { data: tables } = useOfflineFirst({
     store: "restaurant_tables",
     table: "restaurant_tables",
+    order: { column: "table_number", ascending: true },
   });
 
   const { data: waiters } = useOfflineFirst({
     store: "waiters",
     table: "waiters",
     filter: { is_active: true },
+    order: { column: "name", ascending: true },
   });
 
   // ✅ Only show actual waiters in cart dropdown (not chefs, managers, etc.)

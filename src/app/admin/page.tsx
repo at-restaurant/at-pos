@@ -1,6 +1,7 @@
 // src/app/admin/page.tsx - FIXED: TypeScript errors
 'use client'
 
+import { getBusinessDateRange } from '@/lib/utils/businessDay'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import AdminProfileBadge from '@/components/ui/AdminProfileBadge'
@@ -11,6 +12,7 @@ import {
     DollarSign, Clock, AlertCircle, ArrowRight,
     Calendar, Target, Award, Activity, BarChart3, PieChart
 } from 'lucide-react'
+import UniversalModal from '@/components/ui/UniversalModal'
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar
 } from 'recharts'
@@ -26,22 +28,40 @@ type TodayOrderData = {
     total_amount?: number
     status?: string
     created_at?: string
+    order_type?: string
+}
+
+type ActiveOrder = {
+    id: string
+    total_amount: number
+    status: string
+    order_type: string
+    created_at: string
+    table_id?: string | null
 }
 
 type InventoryData = {
+    id?: string
+    name?: string
     quantity?: number
     reorder_level?: number
+    unit?: string
+    type?: string
 }
 
 type MenuItemData = {
     id?: string
+    name?: string
     stock_quantity?: number | null
     track_stock?: boolean
+    type?: string
 }
 
 type WaiterData = {
     id?: string
+    name?: string
     is_on_duty?: boolean
+    phone?: string
 }
 
 type HourlyData = {
@@ -55,12 +75,78 @@ export default function AdminDashboard() {
         inventory: 0, waiters: 0, tables: 0, orders: 0,
         revenue: 0, todayOrders: 0, activeWaiters: 0,
         lowStock: 0, pendingOrders: 0, todayRevenue: 0,
-        completedToday: 0
+        completedToday: 0,
+        todayOrdersList: [] as TodayOrderData[],
+        staffList: [] as WaiterData[],
+        lowStockList: [] as (MenuItemData | InventoryData)[]
     })
     const [loading, setLoading] = useState(true)
     const [hourlyData, setHourlyData] = useState<HourlyData[]>([])
     const [showProfileModal, setShowProfileModal] = useState(false)
+    const [activeModal, setActiveModal] = useState<'orders' | 'revenue' | 'staff' | 'inventory' | 'end_day' | null>(null)
+    const [closingShift, setClosingShift] = useState(false)
+    const [activeOrdersList, setActiveOrdersList] = useState<ActiveOrder[]>([])
+    const [processingOrderId, setProcessingOrderId] = useState<string | null>(null)
+    const [shiftStep, setShiftStep] = useState<'confirm' | 'resolve' | 'done'>('confirm')
     const supabase = createClient()
+
+    // Step 1: Check for active orders before closing shift
+    const handleInitiateCloseShift = async () => {
+        setClosingShift(true)
+        try {
+            const { data: activeOrders } = await supabase
+                .from('orders')
+                .select('id, total_amount, status, order_type, created_at, table_id')
+                .in('status', ['pending', 'preparing'])
+            
+            if (activeOrders && activeOrders.length > 0) {
+                setActiveOrdersList(activeOrders as ActiveOrder[])
+                setShiftStep('resolve')
+            } else {
+                // No active orders — free tables directly
+                await supabase.from('restaurant_tables').update({ status: 'available' }).neq('status', 'available')
+                setShiftStep('done')
+                load()
+            }
+        } catch (err) {
+            console.error(err)
+        }
+        setClosingShift(false)
+    }
+
+    // Step 2: Resolve a single active order (done → completed, or cancel → cancelled)
+    const resolveOrder = async (orderId: string, resolution: 'completed' | 'cancelled') => {
+        setProcessingOrderId(orderId)
+        try {
+            await supabase
+                .from('orders')
+                .update({ status: resolution, updated_at: new Date().toISOString() })
+                .eq('id', orderId)
+            
+            // Remove from local list
+            setActiveOrdersList(prev => {
+                const remaining = prev.filter(o => o.id !== orderId)
+                // If all resolved, free tables and finish
+                if (remaining.length === 0) {
+                    supabase.from('restaurant_tables').update({ status: 'available' }).neq('status', 'available').then(() => {
+                        setShiftStep('done')
+                        load()
+                    })
+                }
+                return remaining
+            })
+        } catch (err) {
+            console.error(err)
+        }
+        setProcessingOrderId(null)
+    }
+
+    // Reset shift modal state on close
+    const handleCloseShiftModal = () => {
+        setActiveModal(null)
+        setShiftStep('confirm')
+        setActiveOrdersList([])
+    }
 
     useEffect(() => {
         load()
@@ -68,41 +154,30 @@ export default function AdminDashboard() {
         return () => clearInterval(interval)
     }, [])
 
-    const getTodayRange = () => {
-        const now = new Date()
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-        const tomorrow = new Date(today)
-        tomorrow.setDate(tomorrow.getDate() + 1)
-
-        return {
-            start: today.toISOString(),
-            end: tomorrow.toISOString()
-        }
-    }
-
     const load = async () => {
         setLoading(true)
         try {
-            const { start, end } = getTodayRange()
+            const { startDate: start, endDate: end } = getBusinessDateRange('today')
 
-            const [menuItemCount, wait, tab, ord, todayOrd, invItems, menuItemsData] = await Promise.all([
+            const [menuItemCount, wait, tab, ord, todayOrd, invItems, menuItemsData, waitersFull] = await Promise.all([
                 supabase.from('menu_items').select('id', { count: 'exact', head: true }).eq('is_available', true),
                 supabase.from('waiters').select('id, is_on_duty', { count: 'exact' }).eq('is_active', true),
                 supabase.from('restaurant_tables').select('id', { count: 'exact', head: true }),
                 supabase.from('orders').select('total_amount, status'),
-                supabase.from('orders').select('id, total_amount, status, created_at')
+                supabase.from('orders').select('id, total_amount, status, created_at, order_type')
                     .gte('created_at', start)
                     .lt('created_at', end),
-                supabase.from('inventory_items').select('quantity, reorder_level').eq('is_active', true),
-                supabase.from('menu_items').select('id, stock_quantity, track_stock').eq('is_available', true)
+                supabase.from('inventory_items').select('id, name, quantity, reorder_level, unit').eq('is_active', true),
+                supabase.from('menu_items').select('id, name, stock_quantity, track_stock').eq('is_available', true),
+                supabase.from('waiters').select('id, name, is_on_duty, phone').eq('is_active', true)
             ])
 
             const ordersData = (Array.isArray(ord.data) ? ord.data : []) as OrderData[]
             const todayOrdersData = (Array.isArray(todayOrd.data) ? todayOrd.data : []) as TodayOrderData[]
             const inventoryData = (Array.isArray(invItems.data) ? invItems.data : []) as InventoryData[]
-            const waitersData = (Array.isArray(wait.data) ? wait.data : []) as WaiterData[]
+            // Use the full waiters fetch instead of the count-only one for drill down
+            const waitersData = (Array.isArray(waitersFull.data) ? waitersFull.data : []) as any[]
 
-            // ✅ FIX: Add explicit types for callback parameters
             const revenue = ordersData
                 .filter((o: OrderData) => o?.status === 'completed')
                 .reduce((s: number, o: OrderData) => s + (o?.total_amount || 0), 0)
@@ -111,15 +186,15 @@ export default function AdminDashboard() {
                 .reduce((s: number, o: TodayOrderData) => s + (o?.total_amount || 0), 0)
             
             const rawItemsData = (Array.isArray(menuItemsData.data) ? menuItemsData.data : []) as MenuItemData[]
-            const menuLowStock = rawItemsData.filter((i: MenuItemData) => 
-                i?.track_stock && i?.stock_quantity !== null && i?.stock_quantity !== 999 && i.stock_quantity! <= 10
-            ).length
             
-            const inventoryLowStock = inventoryData.filter((i: InventoryData) => (i?.quantity || 0) <= (i?.reorder_level || 0)).length
-            const lowStock = menuLowStock + inventoryLowStock
+            const menuLowStockList = rawItemsData.filter((i: MenuItemData) => 
+                i?.track_stock && i?.stock_quantity !== null && i?.stock_quantity !== 999 && i.stock_quantity! <= 10
+            )
+            const inventoryLowStockList = inventoryData.filter((i: InventoryData) => (i?.quantity || 0) <= (i?.reorder_level || 0))
+            const lowStock = menuLowStockList.length + inventoryLowStockList.length
             
             const pendingOrders = ordersData.filter((o: OrderData) => o?.status === 'pending').length
-            const activeWaiters = waitersData.filter((w: WaiterData) => w?.is_on_duty).length
+            const activeWaiters = waitersData.filter((w: any) => w?.is_on_duty).length
             const completedToday = todayOrdersData.filter((o: TodayOrderData) => o?.status === 'completed').length
 
             // Hourly breakdown
@@ -150,8 +225,12 @@ export default function AdminDashboard() {
                 lowStock,
                 pendingOrders,
                 todayRevenue,
-                completedToday
-            })
+                completedToday,
+                // Add drill-down lists
+                todayOrdersList: todayOrdersData,
+                staffList: waitersData,
+                lowStockList: [...menuLowStockList.map(i => ({...i, type: 'menu'})), ...inventoryLowStockList.map(i => ({...i, type: 'raw'}))]
+            } as any)
         } catch (error) {
             console.error('Failed to load dashboard:', error)
         }
@@ -237,12 +316,21 @@ export default function AdminDashboard() {
                             </div>
                         </div>
 
-                        <button
-                            onClick={load}
-                            className="px-3 py-2 sm:px-4 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95 transition-all shadow-lg text-sm sm:text-base font-medium"
-                        >
-                            <Activity className="w-4 h-4 sm:w-5 sm:h-5" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setActiveModal('end_day')}
+                                className="px-3 py-2 sm:px-4 sm:py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 active:scale-95 transition-all shadow-lg text-sm sm:text-base font-medium flex items-center gap-2"
+                            >
+                                <Award className="w-4 h-4 sm:w-5 sm:h-5" />
+                                <span className="hidden sm:inline">Close Shift</span>
+                            </button>
+                            <button
+                                onClick={load}
+                                className="px-3 py-2 sm:px-4 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:scale-95 transition-all shadow-lg text-sm sm:text-base font-medium"
+                            >
+                                <Activity className="w-4 h-4 sm:w-5 sm:h-5" />
+                            </button>
+                        </div>
                     </div>
                 </div>
             </header>
@@ -257,6 +345,7 @@ export default function AdminDashboard() {
                     <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
                         {[
                             {
+                                id: 'orders',
                                 label: "Orders",
                                 value: data.todayOrders,
                                 icon: ShoppingBag,
@@ -264,6 +353,7 @@ export default function AdminDashboard() {
                                 subtext: `${data.completedToday} completed`
                             },
                             {
+                                id: 'revenue',
                                 label: "Revenue",
                                 value: `PKR ${data.todayRevenue.toLocaleString()}`,
                                 icon: DollarSign,
@@ -271,6 +361,7 @@ export default function AdminDashboard() {
                                 subtext: 'Today'
                             },
                             {
+                                id: 'staff',
                                 label: 'Staff',
                                 value: `${data.activeWaiters}/${data.waiters}`,
                                 icon: Users,
@@ -278,6 +369,7 @@ export default function AdminDashboard() {
                                 subtext: 'On duty'
                             },
                             {
+                                id: 'inventory',
                                 label: 'Low Stock',
                                 value: data.lowStock,
                                 icon: AlertCircle,
@@ -287,7 +379,9 @@ export default function AdminDashboard() {
                         ].map((stat, idx) => {
                             const Icon = stat.icon
                             return (
-                                <div key={idx} className="p-4 sm:p-5 bg-[var(--card)] border border-[var(--border)] rounded-xl hover:border-blue-600 transition-all">
+                                <div key={idx} 
+                                     onClick={() => stat.id && setActiveModal(stat.id as any)}
+                                     className="p-4 sm:p-5 bg-[var(--card)] border border-[var(--border)] rounded-xl hover:border-blue-600 transition-all cursor-pointer hover:shadow-md">
                                     <div className="flex items-center justify-between mb-3">
                                         <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${stat.color}20` }}>
                                             <Icon className="w-5 h-5 sm:w-6 sm:h-6" style={{ color: stat.color }} />
@@ -417,8 +511,217 @@ export default function AdminDashboard() {
                     </div>
                 </section>
             </div>
-
             <AdminProfileModal open={showProfileModal} onClose={() => setShowProfileModal(false)} />
+
+            {/* Drill Down Modals */}
+            {activeModal === 'orders' && (
+                <UniversalModal open={true} onClose={() => setActiveModal(null)} title="Today's Orders" size="xl">
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                        {data.todayOrdersList.length === 0 ? (
+                            <div className="text-center py-8 text-[var(--muted)]">No orders today</div>
+                        ) : (
+                            data.todayOrdersList.map(order => (
+                                <div key={order.id} className="flex justify-between items-center p-3 bg-[var(--card)] border border-[var(--border)] rounded-lg">
+                                    <div>
+                                        <p className="font-semibold text-[var(--fg)]">Order #{order.id?.split('-')[0]}</p>
+                                        <p className="text-xs text-[var(--muted)]">{new Date(order.created_at || '').toLocaleTimeString()} • <span className="capitalize">{order.order_type || 'Unknown'}</span></p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="font-bold text-blue-600">PKR {order.total_amount?.toLocaleString()}</p>
+                                        <p className={`text-xs font-semibold capitalize ${order.status === 'completed' ? 'text-green-600' : 'text-orange-600'}`}>
+                                            {order.status}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </UniversalModal>
+            )}
+
+            {activeModal === 'revenue' && (
+                <UniversalModal open={true} onClose={() => setActiveModal(null)} title="Revenue Breakdown" size="md">
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                            {['dine-in', 'takeaway', 'delivery'].map(type => {
+                                const total = data.todayOrdersList.filter(o => o.order_type === type && o.status === 'completed').reduce((s, o) => s + (o.total_amount || 0), 0);
+                                return (
+                                    <div key={type} className="p-4 bg-[var(--card)] border border-[var(--border)] rounded-xl text-center">
+                                        <p className="text-xs text-[var(--muted)] capitalize">{type}</p>
+                                        <p className="font-bold text-[var(--fg)] mt-1">PKR {total.toLocaleString()}</p>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                </UniversalModal>
+            )}
+
+            {activeModal === 'staff' && (
+                <UniversalModal open={true} onClose={() => setActiveModal(null)} title="Active Staff" size="md">
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                        {data.staffList.filter(s => s.is_on_duty).length === 0 ? (
+                            <div className="text-center py-8 text-[var(--muted)]">No staff on duty</div>
+                        ) : (
+                            data.staffList.filter(s => s.is_on_duty).map(staff => (
+                                <div key={staff.id} className="flex justify-between items-center p-3 bg-[var(--card)] border border-[var(--border)] rounded-lg">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-blue-600/10 flex items-center justify-center">
+                                            <Users className="w-4 h-4 text-blue-600" />
+                                        </div>
+                                        <div>
+                                            <p className="font-semibold text-sm text-[var(--fg)]">{staff.name}</p>
+                                            <p className="text-xs text-green-600 font-medium">On Duty</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </UniversalModal>
+            )}
+
+            {activeModal === 'inventory' && (
+                <UniversalModal open={true} onClose={() => setActiveModal(null)} title="Low Stock Alerts" size="xl">
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                        {data.lowStockList.length === 0 ? (
+                            <div className="text-center py-8 text-[var(--muted)]">Inventory looks good!</div>
+                        ) : (
+                            data.lowStockList.map((item, idx) => (
+                                <div key={item.id || idx} className="flex justify-between items-center p-3 bg-[var(--card)] border border-red-500/30 rounded-lg">
+                                    <div>
+                                        <p className="font-semibold text-[var(--fg)] flex items-center gap-2">
+                                            <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                                            {item.name}
+                                            <span className="text-[10px] px-1.5 py-0.5 bg-[var(--bg)] border border-[var(--border)] rounded-sm capitalize text-[var(--muted)]">{item.type}</span>
+                                        </p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xs text-[var(--muted)]">Remaining:</p>
+                                        <p className="font-bold text-red-600 text-sm">
+                                            {'stock_quantity' in item ? item.stock_quantity : (item as any).quantity} {'unit' in item && (item as any).unit ? (item as any).unit : ''}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </UniversalModal>
+            )}
+
+            {activeModal === 'end_day' && (
+                <UniversalModal
+                    open={true}
+                    onClose={handleCloseShiftModal}
+                    title={
+                        shiftStep === 'confirm' ? 'Close Shift & End Day' :
+                        shiftStep === 'resolve' ? `Resolve Active Orders (${activeOrdersList.length} remaining)` :
+                        'Shift Closed'
+                    }
+                    size={shiftStep === 'resolve' ? 'xl' : 'sm'}
+                >
+                    {/* ── Step 1: Confirmation ── */}
+                    {shiftStep === 'confirm' && (
+                        <div className="space-y-4">
+                            <div className="p-4 bg-orange-500/10 border border-orange-500/30 rounded-xl text-center">
+                                <AlertCircle className="w-8 h-8 text-orange-500 mx-auto mb-2" />
+                                <p className="text-sm text-[var(--fg)] font-medium mb-1">Are you sure you want to end the shift?</p>
+                                <p className="text-xs text-[var(--muted)]">If there are active orders, you will be asked to resolve each one before tables are freed.</p>
+                            </div>
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    onClick={handleCloseShiftModal}
+                                    disabled={closingShift}
+                                    className="flex-1 px-4 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm font-semibold hover:bg-[var(--border)] transition-colors"
+                                >
+                                    Go Back
+                                </button>
+                                <button
+                                    onClick={handleInitiateCloseShift}
+                                    disabled={closingShift}
+                                    className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors flex justify-center items-center gap-2 disabled:opacity-50"
+                                >
+                                    {closingShift
+                                        ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        : 'Continue'
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── Step 2: Resolve each active order ── */}
+                    {shiftStep === 'resolve' && (
+                        <div className="space-y-3">
+                            <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                                <p className="text-xs text-blue-600 font-medium text-center">
+                                    Mark each active order as <span className="font-bold">Done</span> (saved to sales history) or <span className="font-bold">Cancel</span> it. Tables will be freed automatically when all are resolved.
+                                </p>
+                            </div>
+                            <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                                {activeOrdersList.map(order => {
+                                    const isProcessing = processingOrderId === order.id
+                                    return (
+                                        <div key={order.id} className="flex items-center justify-between gap-3 p-3 bg-[var(--card)] border border-[var(--border)] rounded-lg">
+                                            <div className="min-w-0">
+                                                <p className="font-semibold text-sm text-[var(--fg)] truncate">Order #{order.id.split('-')[0].toUpperCase()}</p>
+                                                <p className="text-xs text-[var(--muted)]">
+                                                    <span className="capitalize">{order.order_type}</span>
+                                                    {' • '}
+                                                    {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    {' • '}
+                                                    <span className={order.status === 'preparing' ? 'text-orange-500 font-medium' : 'text-yellow-600 font-medium'}>
+                                                        {order.status}
+                                                    </span>
+                                                </p>
+                                                <p className="text-sm font-bold text-blue-600 mt-0.5">PKR {order.total_amount?.toLocaleString()}</p>
+                                            </div>
+                                            <div className="flex gap-2 shrink-0">
+                                                <button
+                                                    onClick={() => resolveOrder(order.id, 'completed')}
+                                                    disabled={isProcessing}
+                                                    className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-1"
+                                                >
+                                                    {isProcessing
+                                                        ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                        : '✓ Done'
+                                                    }
+                                                </button>
+                                                <button
+                                                    onClick={() => resolveOrder(order.id, 'cancelled')}
+                                                    disabled={isProcessing}
+                                                    className="px-3 py-1.5 bg-[var(--bg)] border border-red-500/50 text-red-500 rounded-lg text-xs font-semibold hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                                                >
+                                                    ✕ Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── Step 3: Done ── */}
+                    {shiftStep === 'done' && (
+                        <div className="space-y-4">
+                            <div className="p-5 bg-green-500/10 border border-green-500/30 rounded-xl text-center">
+                                <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <span className="text-2xl">✓</span>
+                                </div>
+                                <p className="text-sm font-semibold text-green-600 mb-1">Shift Closed Successfully</p>
+                                <p className="text-xs text-[var(--muted)]">All tables are now available. Sales history has been preserved.</p>
+                            </div>
+                            <button
+                                onClick={handleCloseShiftModal}
+                                className="w-full px-4 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-lg text-sm font-semibold hover:bg-[var(--border)] transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    )}
+                </UniversalModal>
+            )}
         </div>
     )
 }
