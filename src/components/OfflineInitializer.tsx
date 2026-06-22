@@ -3,10 +3,29 @@
 
 import { useEffect } from 'react'
 import { offlineManager } from '@/lib/db/offlineManager'
+import { scheduleAutoClose } from '@/lib/utils/autoClose'
+import { db } from '@/lib/db/indexedDB'
+import { STORES } from '@/lib/db/schema'
+import { generateOrderUUID } from '@/lib/utils/deviceId'
 
 export default function OfflineInitializer() {
     useEffect(() => {
         const initializeOfflineData = async () => {
+            try {
+                scheduleAutoClose()
+
+                // Background migration: Add order_uuid to legacy offline orders
+                const allOrders = await db.getAll(STORES.ORDERS) as any[]
+                for (const order of allOrders) {
+                    if (!order.order_uuid) {
+                        const newUuid = await generateOrderUUID()
+                        await db.put(STORES.ORDERS, { ...order, order_uuid: newUuid })
+                    }
+                }
+            } catch (migErr) {
+                console.error("Failed to run startup migration", migErr)
+            }
+
             if (typeof navigator === 'undefined' || !navigator.onLine) {
                 return
             }

@@ -10,6 +10,7 @@ import { STORES } from '@/lib/db/schema'
 import { addToQueue } from '@/lib/db/syncQueue'
 import { productionPrinter } from '@/lib/print/ProductionPrinter'
 import { ReceiptData } from '@/types'
+import { generateOrderUUID } from '@/lib/utils/deviceId'
 
 type Category = {
     id: string
@@ -466,6 +467,10 @@ export function useOrderManagement() {
             try {
                 let isOnline = navigator.onLine
                 let onlineSuccess = false
+                
+                // ✅ Generate order_uuid ONCE before branching so it stays consistent
+                // if we fall back to offline after a network timeout.
+                const order_uuid = await generateOrderUUID()
 
                 if (isOnline) {
                     try {
@@ -488,7 +493,7 @@ export function useOrderManagement() {
 
                         const { data: order, error: orderError } = await supabase
                             .from('orders')
-                            .insert(orderData)
+                            .insert({ ...orderData, order_uuid })
                             .select()
                             .single()
 
@@ -582,6 +587,7 @@ export function useOrderManagement() {
                     const offlineOrder = {
                         ...orderData,
                         id: orderId,
+                        order_uuid,
                         idempotencyKey,
                         created_at: new Date().toISOString(),
                         synced: false

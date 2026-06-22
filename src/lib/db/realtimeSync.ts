@@ -151,6 +151,25 @@ export class RealtimeSync {
                     const cleanWaiterId = (order.waiter_id && String(order.waiter_id).trim() !== '') ? order.waiter_id : null
                     const cleanTableId = (order.table_id && String(order.table_id).trim() !== '') ? order.table_id : null
 
+                    // STEP 1: Check UUID to prevent duplication
+                    if (order.order_uuid) {
+                        const { data: existing } = await supabase
+                            .from('orders')
+                            .select('id')
+                            .eq('order_uuid', order.order_uuid)
+                            .maybeSingle()
+                        
+                        if (existing) {
+                            // Already in Supabase — just mark as synced in IndexedDB
+                            await db.put(STORES.ORDERS, { ...order, synced: true });
+                            // Keep order items as well so the local cache has them
+                            synced++
+                            this.pendingOperations.delete(order.id)
+                            console.log(`✅ Order already existed in DB, marked synced: ${order.id}`)
+                            continue
+                        }
+                    }
+
                     const { data: newOrder, error: orderError } = await supabase
                         .from('orders')
                         .insert({
@@ -168,12 +187,23 @@ export class RealtimeSync {
                             delivery_address: order.delivery_address,
                             delivery_charges: order.delivery_charges,
                             receipt_printed: order.receipt_printed || false,
+                            order_uuid: order.order_uuid,
+                            synced_at: new Date().toISOString(),
                             created_at: order.created_at
-                        })
+                        }, { onConflict: 'order_uuid', ignoreDuplicates: true })
                         .select()
-                        .single()
+                        .maybeSingle()
 
                     if (orderError) throw orderError
+                    
+                    // If upsert ignored it due to race condition, it might return null
+                    if (!newOrder) {
+                        console.warn(`⚠️ Upsert ignored duplicate for ${order.id}`)
+                        await db.put(STORES.ORDERS, { ...order, synced: true });
+                        synced++
+                        this.pendingOperations.delete(order.id)
+                        continue
+                    }
 
                     const orderItems = (await db.getAll(STORES.ORDER_ITEMS)) as any[]
                     const items = orderItems.filter(i => i.order_id === order.id)
@@ -218,10 +248,8 @@ export class RealtimeSync {
                         })
                     }
 
-                    await db.delete(STORES.ORDERS, order.id)
-                    for (const item of items) {
-                        await db.delete(STORES.ORDER_ITEMS, item.id)
-                    }
+                    // Mark as synced locally
+                    await db.put(STORES.ORDERS, { ...order, synced: true });
 
                     synced++
                     this.pendingOperations.delete(order.id)

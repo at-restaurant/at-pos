@@ -1,15 +1,17 @@
-// src/lib/utils/offlineOrders.ts
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
 import { addToQueue } from '@/lib/db/syncQueue'
 import { createClient } from '@/lib/supabase/client'
+import { generateOrderUUID } from '@/lib/utils/deviceId'
 
 export async function createOfflineOrder(orderData: any, items: any[]) {
     const offlineOrderId = `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const order_uuid = await generateOrderUUID();
 
     const offlineOrder = {
         ...orderData,
         id: offlineOrderId,
+        order_uuid,
         synced: false,
         created_at: new Date().toISOString()
     }
@@ -112,39 +114,59 @@ export async function syncOfflineOrders() {
 
     for (const order of pendingOrders) {
         try {
-            // Create order in Supabase
-            const { data: newOrder, error: orderError } = await supabase
-                .from('orders')
-                .insert({
-                    waiter_id: order.waiter_id,
-                    table_id: order.table_id,
-                    status: order.status,
-                    subtotal: order.subtotal,
-                    tax: order.tax,
-                    total_amount: order.total_amount,
-                    order_type: order.order_type,
-                    payment_method: order.payment_method,
-                    created_at: order.created_at
-                })
-                .select()
-                .single()
+            // Check if it already exists by UUID
+            let isDuplicate = false;
+            if (order.order_uuid) {
+                const { data: existing } = await supabase
+                    .from('orders')
+                    .select('id')
+                    .eq('order_uuid', order.order_uuid)
+                    .maybeSingle();
+                if (existing) isDuplicate = true;
+            }
 
-            if (orderError) throw orderError
+            let newOrderId = order.id;
+            
+            if (!isDuplicate) {
+                // Create order in Supabase
+                const { data: newOrder, error: orderError } = await supabase
+                    .from('orders')
+                    .insert({
+                        waiter_id: order.waiter_id,
+                        table_id: order.table_id,
+                        status: order.status,
+                        subtotal: order.subtotal,
+                        tax: order.tax,
+                        total_amount: order.total_amount,
+                        order_type: order.order_type,
+                        payment_method: order.payment_method,
+                        created_at: order.created_at,
+                        order_uuid: order.order_uuid,
+                        synced_at: new Date().toISOString()
+                    }, { onConflict: 'order_uuid', ignoreDuplicates: true })
+                    .select()
+                    .single()
+
+                if (orderError) throw orderError
+                newOrderId = newOrder.id;
+            }
 
             // Get order items
             const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
             const orderItems = items.filter(i => i.order_id === order.id)
 
-            // Insert order items
-            const itemsToInsert = orderItems.map(item => ({
-                order_id: newOrder.id,
-                menu_item_id: item.menu_item_id,
-                quantity: item.quantity,
-                unit_price: item.unit_price,
-                total_price: item.total_price
-            }))
+            if (!isDuplicate) {
+                // Insert order items
+                const itemsToInsert = orderItems.map(item => ({
+                    order_id: newOrderId,
+                    menu_item_id: item.menu_item_id,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    total_price: item.total_price
+                }))
 
-            await supabase.from('order_items').insert(itemsToInsert)
+                await supabase.from('order_items').insert(itemsToInsert)
+            }
 
             // Mark as synced
             await db.put(STORES.ORDERS, { ...order, synced: true })

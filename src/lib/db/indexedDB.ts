@@ -42,6 +42,8 @@ class IndexedDBManager {
             request.onupgradeneeded = (event) => {
                 const db = (event.target as IDBOpenDBRequest).result
 
+                const transaction = (event.target as IDBOpenDBRequest).transaction!
+
                 // Menu Items
                 if (!db.objectStoreNames.contains(STORES.MENU_ITEMS)) {
                     const store = db.createObjectStore(STORES.MENU_ITEMS, { keyPath: 'id' })
@@ -54,10 +56,19 @@ class IndexedDBManager {
                 }
 
                 // Orders
+                let ordersStore: IDBObjectStore;
                 if (!db.objectStoreNames.contains(STORES.ORDERS)) {
-                    const store = db.createObjectStore(STORES.ORDERS, { keyPath: 'id' })
-                    store.createIndex('synced', 'synced')
-                    store.createIndex('created_at', 'created_at')
+                    ordersStore = db.createObjectStore(STORES.ORDERS, { keyPath: 'id' })
+                    ordersStore.createIndex('synced', 'synced')
+                    ordersStore.createIndex('created_at', 'created_at')
+                } else {
+                    ordersStore = transaction.objectStore(STORES.ORDERS)
+                }
+                if (!ordersStore.indexNames.contains('order_uuid')) {
+                    ordersStore.createIndex('order_uuid', 'order_uuid', { unique: true })
+                }
+                if (!ordersStore.indexNames.contains('synced')) {
+                    ordersStore.createIndex('synced', 'synced', { unique: false })
                 }
 
                 // Order Items
@@ -93,6 +104,12 @@ class IndexedDBManager {
                 // Inventory Items
                 if (!db.objectStoreNames.contains(STORES.INVENTORY_ITEMS)) {
                     db.createObjectStore(STORES.INVENTORY_ITEMS, { keyPath: 'id' })
+                }
+
+                // History
+                if (!db.objectStoreNames.contains(STORES.HISTORY)) {
+                    const store = db.createObjectStore(STORES.HISTORY, { keyPath: 'id' })
+                    store.createIndex('order_uuid', 'order_uuid', { unique: true })
                 }
             }
         })

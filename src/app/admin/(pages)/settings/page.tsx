@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/client'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { db } from '@/lib/db/indexedDB'
 import { STORES } from '@/lib/db/schema'
+import { scheduleAutoClose } from '@/lib/utils/autoClose'
 
 export default function SettingsPage() {
     const { profile, updateProfile } = useAdminAuth()
@@ -208,6 +209,9 @@ export default function SettingsPage() {
             ? '✅ Business hours saved & synced!'
             : '✅ Business hours saved locally!'
         )
+
+        // Reschedule auto-close based on new time
+        await scheduleAutoClose()
     }
 
     const handleReceiptUpdate = async () => {

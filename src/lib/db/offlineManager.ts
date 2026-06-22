@@ -2,7 +2,6 @@
 import { createClient } from '@/lib/supabase/client'
 import { db } from './indexedDB'
 import { STORES } from './schema'
-import { reduceMenuStock, reduceLinkedIngredients } from '../hooks/useOrderManagement'
 
 const dispatchSyncEvent = (type: string, detail: any) => {
     if (typeof window === 'undefined') return
@@ -286,97 +285,10 @@ class OfflineManager {
                 return { success: false, synced: 0 }
             }
 
-            // 1. Sync orders
-            const allOrders = await db.getAll(STORES.ORDERS) as any[]
-            const pendingOrders = allOrders.filter(o =>
-                !o.synced &&
-                o.id.startsWith('offline_')
-            )
+            // ✅ Orders are synced EXCLUSIVELY by realtimeSync.syncOrders()
+            // Do NOT sync orders here — it causes duplicates (no UUID dedup in this path)
 
-            for (const order of pendingOrders) {
-                try {
-                    const cleanWaiterId = (order.waiter_id && String(order.waiter_id).trim() !== '') ? order.waiter_id : null
-                    const cleanTableId = (order.table_id && String(order.table_id).trim() !== '') ? order.table_id : null
-
-                    const { data: newOrder, error: orderError } = await supabase
-                        .from('orders')
-                        .insert({
-                            waiter_id: cleanWaiterId,
-                            table_id: cleanTableId,
-                            status: order.status,
-                            subtotal: order.subtotal,
-                            tax: order.tax,
-                            total_amount: order.total_amount,
-                            order_type: order.order_type,
-                            payment_method: order.payment_method,
-                            notes: order.notes,
-                            customer_name: order.customer_name,
-                            customer_phone: order.customer_phone,
-                            delivery_address: order.delivery_address,
-                            delivery_charges: order.delivery_charges,
-                            created_at: order.created_at
-                        })
-                        .select()
-                        .single()
-
-                    if (orderError) throw orderError
-
-                    const items = await db.getAll(STORES.ORDER_ITEMS) as any[]
-                    const orderItems = items.filter(i => i.order_id === order.id)
-
-                    if (orderItems.length > 0) {
-                        const itemsToInsert = orderItems.map(item => ({
-                            order_id: newOrder.id,
-                            menu_item_id: item.menu_item_id,
-                            quantity: item.quantity,
-                            unit_price: item.unit_price,
-                            total_price: item.total_price,
-                            variant_name: item.variant_name || null
-                        }))
-
-                        const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert)
-                        if (itemsError) throw itemsError
-                        
-                        // ✅ DEDUCT INVENTORY FOR OFFLINE ORDERS
-                        for (const item of orderItems) {
-                            await reduceMenuStock(supabase, item.menu_item_id, item.quantity)
-                            await reduceLinkedIngredients(supabase, item.menu_item_id, item.quantity, item.variant_name || null)
-                        }
-                    }
-
-                    if (order.order_type === 'dine-in' && cleanTableId) {
-                        const isOrderActive = order.status === 'pending' || order.status === 'preparing'
-                        const { error: tableError } = await supabase
-                            .from('restaurant_tables')
-                            .update({
-                                status: isOrderActive ? 'occupied' : 'available',
-                                waiter_id: isOrderActive ? cleanWaiterId : null,
-                                current_order_id: isOrderActive ? newOrder.id : null
-                            })
-                            .eq('id', cleanTableId)
-                        if (tableError) throw tableError
-                    }
-
-                    await db.delete(STORES.ORDERS, order.id)
-                    for (const item of orderItems) {
-                        await db.delete(STORES.ORDER_ITEMS, item.id)
-                    }
-
-                    syncedCount++
-                    console.log(`✅ Synced order ${order.id}`)
-
-                } catch (error: any) {
-                    const errMsg = error?.message || error?.details || JSON.stringify(error) || String(error)
-                    const isNetworkError = errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || !navigator.onLine
-                    if (isNetworkError) {
-                        console.warn(`⏳ Network offline, will retry syncing order ${order.id} later.`)
-                    } else {
-                        console.error(`❌ Failed to sync order ${order.id}:`, errMsg, error)
-                    }
-                }
-            }
-
-            // 2. Sync general queue items (waiters, orders, restaurant_tables)
+            // 1. Sync general queue items (waiters, orders, restaurant_tables)
             const queueItems = await db.getAll(STORES.SYNC_QUEUE) as any[]
             const pendingQueueItems = queueItems.filter(item => item.status === 'pending')
 

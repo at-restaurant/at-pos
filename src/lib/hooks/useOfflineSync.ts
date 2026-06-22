@@ -1,8 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useNetworkStatus } from './useNetworkStatus'
-import { syncOrders } from '@/lib/sync/orderSync'
-import { getPendingQueue } from '@/lib/db/syncQueue'
+import { realtimeSync } from '@/lib/db/realtimeSync'
 
 export function useOfflineSync() {
     const isOnline = useNetworkStatus()
@@ -22,14 +21,14 @@ export function useOfflineSync() {
     }, [isOnline, pendingCount])
 
     async function updatePendingCount() {
-        const queue = await getPendingQueue()
-        setPendingCount(queue.length)
+        const count = await realtimeSync.getPendingCount()
+        setPendingCount(count)
     }
 
     async function handleSync() {
         setSyncing(true)
         try {
-            await syncOrders()
+            await realtimeSync.syncAll()
             await updatePendingCount()
         } finally {
             setSyncing(false)
