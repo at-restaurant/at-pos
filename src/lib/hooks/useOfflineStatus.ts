@@ -20,7 +20,11 @@ export function useOfflineStatus() {
         // Listen to network events
         const handleOnline = () => {
             setIsOnline(true)
-            realtimeSync.syncAll()
+            // ⚠️ Must go through requestSync() (not syncAll() directly) so this
+            // page's sync attempt respects the cross-tab lock — otherwise a
+            // second tab/page (e.g. Orders open alongside Tables) can race to
+            // sync the same offline orders at the same time.
+            realtimeSync.requestSync()
         }
         const handleOffline = () => setIsOnline(false)
 
@@ -55,7 +59,7 @@ export function useOfflineStatus() {
 
     const manualSync = async () => {
         if (!isOnline || syncing) return
-        return await realtimeSync.syncAll()
+        return await realtimeSync.requestSync()
     }
 
     return { isOnline, syncing, pendingCount, manualSync }

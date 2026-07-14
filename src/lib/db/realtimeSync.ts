@@ -27,7 +27,7 @@ export class RealtimeSync {
 
         this.syncInterval = setInterval(() => {
             if (!this.isDestroyed && navigator.onLine && !this.syncQueue) {
-                this.syncAll()
+                this.requestSync()
             }
         }, 30000)
     }
@@ -36,7 +36,7 @@ export class RealtimeSync {
         const handleOnline = () => {
             if (!this.isDestroyed) {
                 // Wait a bit longer (3s) to ensure connection is actually stable before firing sync
-                setTimeout(() => this.syncAll(), 3000)
+                setTimeout(() => this.requestSync(), 3000)
             }
         }
 
@@ -46,6 +46,42 @@ export class RealtimeSync {
             window.__realtimeSyncListeners = []
         }
         window.__realtimeSyncListeners.push({ event: 'online', handler: handleOnline })
+    }
+
+    // ✅ NEW: Ensures only ONE tab/window (on this device) runs a sync at a time.
+    // If the PWA is opened in multiple tabs/windows, only the one holding the
+    // lock will actually sync — the rest skip immediately instead of racing
+    // to insert the same offline orders. This is on top of (not instead of)
+    // the order_uuid NOT NULL + UNIQUE constraint at the database level.
+    //
+    // ⚠️ PUBLIC on purpose: any hook/component that wants to trigger a sync
+    // (manual "sync now" buttons, other online-listeners, etc.) MUST call
+    // this instead of syncAll() directly — otherwise it bypasses the cross-tab
+    // lock and reintroduces the exact race this was built to prevent.
+    async requestSync() {
+        if (this.isDestroyed) return
+
+        if (typeof navigator !== 'undefined' && 'locks' in navigator) {
+            try {
+                await navigator.locks.request(
+                    'rt-pos-sync-lock',
+                    { ifAvailable: true },
+                    async (lock) => {
+                        if (!lock) {
+                            console.log('⏭️ Another tab/window is already syncing — skipping.')
+                            return
+                        }
+                        await this.syncAll()
+                    }
+                )
+                return
+            } catch (e) {
+                console.warn('Web Locks API failed, falling back to direct sync:', e)
+            }
+        }
+
+        // Fallback for browsers without Web Locks API support
+        await this.syncAll()
     }
 
     private setupUnloadListener() {
@@ -158,7 +194,7 @@ export class RealtimeSync {
                             .select('id')
                             .eq('order_uuid', order.order_uuid)
                             .maybeSingle()
-                        
+
                         if (existing) {
                             // Already in Supabase — just mark as synced in IndexedDB
                             await db.put(STORES.ORDERS, { ...order, synced: true });
@@ -195,7 +231,7 @@ export class RealtimeSync {
                         .maybeSingle()
 
                     if (orderError) throw orderError
-                    
+
                     // If upsert ignored it due to race condition, it might return null
                     if (!newOrder) {
                         console.warn(`⚠️ Upsert ignored duplicate for ${order.id}`)
@@ -337,7 +373,7 @@ export class RealtimeSync {
                 } catch (error: any) {
                     const errMsg = error?.message || error
                     console.error(`Queue item sync error for table ${update.table}:`, errMsg)
-                    
+
                     const isNetworkError = String(errMsg).includes('Failed to fetch') || String(errMsg).includes('NetworkError') || !navigator.onLine
                     if (isNetworkError) {
                         console.warn('Network seems offline or unstable. Stopping queue sync for now.')
@@ -362,10 +398,10 @@ export class RealtimeSync {
 
         try {
             const allSettings = await db.getAll(STORES.SETTINGS) as any[]
-            const unsyncedAttendance = allSettings.filter(item => 
-                item.key && 
-                item.key.startsWith('attendance_') && 
-                item.value && 
+            const unsyncedAttendance = allSettings.filter(item =>
+                item.key &&
+                item.key.startsWith('attendance_') &&
+                item.value &&
                 !item.value.synced
             )
 

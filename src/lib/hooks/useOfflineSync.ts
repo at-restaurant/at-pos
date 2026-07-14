@@ -28,7 +28,9 @@ export function useOfflineSync() {
     async function handleSync() {
         setSyncing(true)
         try {
-            await realtimeSync.syncAll()
+            // Use requestSync() (not syncAll() directly) so this respects the
+            // cross-tab lock if multiple tabs/pages are open at once.
+            await realtimeSync.requestSync()
             await updatePendingCount()
         } finally {
             setSyncing(false)
